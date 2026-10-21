@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browser storage</title>
+<style>
+  :root { color-scheme: light dark; --bg: light-dark(#fafafa, #15171a); --fg: light-dark(#1b1d20, #e6e6e6);
+    --line: light-dark(#d9d9d9, #33373d); --dim: light-dark(#666, #9aa0a6); --box: light-dark(#fff, #1d2024);
+    --red: #c0392b; --accent: light-dark(#1b6fd1, #6fb0ff); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px 16px 48px; font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 20px; margin: 4px 0 2px; }
+  h2 { font-size: 16px; margin: 22px 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  h2 select { font: inherit; font-size: 13px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--box); color: var(--fg); }
+  .sub { color: var(--dim); font-size: 13px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--box); color: var(--fg); cursor: pointer; }
+  button.danger { color: var(--red); border-color: var(--red); } button.arm { background: var(--red); color: #fff; }
+  table { width: 100%; border-collapse: collapse; background: var(--box); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; font-size: 14px; }
+  th { border-top: 0; color: var(--dim); font-weight: 600; } td.n { text-align: right; white-space: nowrap; }
+  td.k { word-break: break-all; } .owner { color: var(--accent); font-size: 12px; }
+  .pre { color: var(--dim); font-size: 12px; word-break: break-all; }
+  details { margin: 4px 0 0; } summary { cursor: pointer; color: var(--dim); font-size: 13px; }
+  .empty { color: var(--dim); padding: 8px; } #msg { min-height: 1.4em; color: var(--dim); }
+  .wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>Browser storage</h1>
+<div class="sub" id="origin"></div>
+<div class="bar">
+  <button id="refresh">Refresh</button>
+  <button id="copy">Copy report</button>
+  <button id="nuke" class="danger">Delete everything</button>
+</div>
+<div id="msg"></div>
+
+<h2>Summary</h2>
+<div class="wrap"><table id="summary"></table></div>
+
+<h2>Local storage <select data-sort="local"></select></h2>
+<div class="wrap"><table id="local"></table></div>
+
+<h2>Session storage <select data-sort="session"></select></h2>
+<div class="wrap"><table id="session"></table></div>
+
+<h2>IndexedDB databases <select data-sort="idb"></select></h2>
+<div class="wrap"><table id="idb"></table></div>
+
+<h2>Cache storage (downloaded files: models, libraries) <select data-sort="caches"></select></h2>
+<div class="wrap"><table id="caches"></table></div>
+
+<script>
+// Browser storage: see and delete what pages from THIS origin have stored (localStorage, sessionStorage,
+// IndexedDB, Cache Storage). Every file:// page in Chrome shares one origin, so it lists every local page's data.
+// Open it the same way as the page you are checking (file manager on the phone, double-click on the PC).
+// Deletes happen at once, no questions asked; "Delete everything" needs a second tap on the same button.
+// Browsers keep no "modified" time for stored keys or databases; cached downloads carry the server's date,
+// so caches can be sorted by when they were downloaded.
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const mb = (b) => b == null ? "?" : b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(1) + " KB" : (b / 1048576).toFixed(1) + " MB";
+const when = (d) => d ? d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "";
+
+// Whose data is it? A guess from the name, so the owner line reads "Book reader V1" and not "br1-book".
+const OWNERS = [
+  [/^br1[-_]/i, "Book reader V1"],
+  [/^wow|walker|^tts-|transformers-cache|kokoro-voices|tts-models|supertonic|piper|recorded|^dbg|^S\./i, "Walker of Worlds 2 (old reader)"],
+  [/deviceProbe|probe|bench/i, "Benchmark / device probe"],
+];
+const owner = (name) => (OWNERS.find(([re]) => re.test(name)) || [, "other"])[1];
+
+// Sort choices per section. The pick lives in a plain variable: the tool never writes to the storage it shows.
+const SORTS = {
+  local:   { name: "name A–Z", size: "size, biggest first", owner: "owner" },
+  session: { name: "name A–Z", size: "size, biggest first", owner: "owner" },
+  idb:     { name: "name A–Z", count: "records, most first", stores: "stores, most first", owner: "owner" },
+  caches:  { name: "name A–Z", size: "size, biggest first", count: "files, most first", date: "downloaded, newest first", owner: "owner" },
+};
+const sortBy = { local: "size", session: "size", idb: "count", caches: "size" };
+const data = { local: [], session: [], idb: [], caches: [] };   // rows: { name, owner, size, count, stores, date, html }
+const report = [];                                               // plain-text lines for "Copy report"
+const say = (t) => { $("msg").textContent = t; };
+
+for (const sel of document.querySelectorAll("select[data-sort]")) {
+  const kind = sel.dataset.sort;
+  sel.innerHTML = Object.entries(SORTS[kind]).map(([k, label]) => `<option value="${k}"${k === sortBy[kind] ? " selected" : ""}>${label}</option>`).join("");
+  sel.onchange = () => { sortBy[kind] = sel.value; draw(kind); };
+}
+
+function sorted(kind) {
+  const key = sortBy[kind], rows = data[kind].slice();
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  if (key === "name") return rows.sort(byName);
+  if (key === "owner") return rows.sort((a, b) => a.owner.localeCompare(b.owner) || byName(a, b));
+  if (key === "date") return rows.sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0) || byName(a, b));
+  return rows.sort((a, b) => ((b[key] || 0) - (a[key] || 0)) || byName(a, b));
+}
+
+const HEADS = { local: ["Key", "Size", ""], session: ["Key", "Size", ""], idb: ["Database", "Version", "Stores", ""], caches: ["Cache", "Size", ""] };
+const EMPTY = { local: "nothing stored", session: "nothing stored", idb: "no databases", caches: "no caches" };
+function draw(kind) {
+  const t = $(kind), rows = sorted(kind);
+  if (!rows.length) { t.innerHTML = `<tr><td class="empty">${esc(EMPTY[kind])}</td></tr>`; return; }
+  t.innerHTML = `<tr>${HEADS[kind].map((h) => `<th>${esc(h)}</th>`).join("")}</tr>` + rows.map((r) => r.html).join("");
+}
+const delButton = (kind, key) => `<button data-del="${kind}" data-key="${esc(key)}">Delete</button>`;
+
+async function summary() {
+  const rows = [];
+  const add = (k, v) => { rows.push(`<tr><td>${esc(k)}</td><td>${v}</td></tr>`); report.push(`${k}: ${String(v).replace(/<[^>]+>/g, "")}`); };
+  add("Page address", esc(location.href));
+  add("Origin", esc(location.origin === "null" ? "opaque (this page's storage is its own)" : location.origin));
+  try {
+    const e = await navigator.storage.estimate();
+    add("Storage used", `${mb(e.usage)} of ${mb(e.quota)} allowed`);
+    if (e.usageDetails) for (const [k, v] of Object.entries(e.usageDetails)) add("  " + k, mb(v));
+  } catch (err) { add("Storage used", "not available: " + esc(err.message)); }
+  try { add("Persisted (safe from automatic clearing)", await navigator.storage.persisted() ? "yes" : "no"); } catch {}
+  $("summary").innerHTML = rows.join("");
+}
+
+function storageRows(store, kind) {
+  data[kind] = [];
+  let total = 0;
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i), v = store.getItem(k) || "", size = v.length * 2;
+    total += size;
+    data[kind].push({ name: k, owner: owner(k), size, html:
+      `<tr><td class="k">${esc(k)}<div class="owner">${esc(owner(k))}</div><div class="pre">${esc(v.slice(0, 120))}${v.length > 120 ? "…" : ""}</div></td>
+      <td class="n">${mb(size)}</td><td>${delButton(kind, k)}</td></tr>` });
+    report.push(`${kind} ${k} (${mb(size)}) [${owner(k)}]`);
+  }
+  if (data[kind].length) report.push(`${kind}: ${data[kind].length} keys, ${mb(total)}`);
+  draw(kind);
+}
+
+async function idb() {
+  data.idb = [];
+  if (!indexedDB.databases) { EMPTY.idb = "this browser cannot list databases"; draw("idb"); return; }
+  for (const d of await indexedDB.databases()) {
+    let storesText = "?", count = 0, stores = 0;
+    try {
+      const db = await new Promise((ok, no) => { const r = indexedDB.open(d.name); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); r.onupgradeneeded = () => { r.transaction.abort(); no(new Error("would create it")); }; });
+      const names = [...db.objectStoreNames];
+      const counts = await Promise.all(names.map((n) => new Promise((ok) => { const r = db.transaction(n, "readonly").objectStore(n).count(); r.onsuccess = () => ok(r.result); r.onerror = () => ok(0); })));
+      db.close();
+      stores = names.length; count = counts.reduce((a, b) => a + b, 0);
+      storesText = names.map((n, i) => `${esc(n)}: ${counts[i]} records`).join("<br>") || "(no stores)";
+    } catch (err) { storesText = "could not open: " + esc(err.message); }
+    data.idb.push({ name: d.name, owner: owner(d.name), count, stores, html:
+      `<tr><td class="k">${esc(d.name)}<div class="owner">${esc(owner(d.name))}</div></td><td>v${d.version ?? "?"}</td><td>${storesText}</td><td>${delButton("idb", d.name)}</td></tr>` });
+    report.push(`IndexedDB ${d.name} v${d.version ?? "?"}: ${storesText.replace(/<br>/g, "; ")} [${owner(d.name)}]`);
+  }
+  draw("idb");
+}
+
+async function cacheList() {
+  data.caches = [];
+  if (!("caches" in window)) { EMPTY.caches = "Cache Storage not available here"; draw("caches"); return; }
+  for (const name of await caches.keys()) {
+    const c = await caches.open(name);
+    const reqs = await c.keys();
+    let bytes = 0, unknown = 0, newest = null;
+    const items = [];
+    for (const r of reqs) {
+      const res = await c.match(r);
+      const len = res && res.headers.get("content-length");
+      let size = len ? Number(len) : null;
+      if (size == null && res && reqs.length <= 60) { try { size = (await res.clone().blob()).size; } catch {} }   // small caches: measure; big ones: skip to spare the phone
+      if (size == null) unknown++; else bytes += size;
+      const d = res && res.headers.get("date") ? new Date(res.headers.get("date")) : null;
+      if (d && !isNaN(d) && (!newest || d > newest)) newest = d;
+      items.push({ d, html: `<div class="pre">${mb(size)} · ${d && !isNaN(d) ? when(d) + " · " : ""}${esc(r.url.replace(/^https?:\/\//, ""))}</div>` });
+    }
+    items.sort((a, b) => ((b.d ? b.d.getTime() : 0) - (a.d ? a.d.getTime() : 0)));
+    data.caches.push({ name, owner: owner(name), size: bytes, count: reqs.length, date: newest, html:
+      `<tr><td class="k">${esc(name)}<div class="owner">${esc(owner(name))}${newest ? " · newest download " + when(newest) : ""}</div><details><summary>${reqs.length} files</summary>${items.map((i) => i.html).join("")}</details></td>
+      <td class="n">${mb(bytes)}${unknown ? `<br><span class="pre">+${unknown} of unknown size</span>` : ""}</td><td>${delButton("cache", name)}</td></tr>` });
+    report.push(`Cache ${name}: ${reqs.length} files, ${mb(bytes)}${unknown ? ` (+${unknown} unknown)` : ""}${newest ? ", newest " + when(newest) : ""} [${owner(name)}]`);
+  }
+  draw("caches");
+}
+
+async function refresh() {
+  report.length = 0;
+  report.push("Browser storage report, " + new Date().toLocaleString());
+  say("reading…");
+  const failed = [];
+  for (const [name, fn] of [["summary", summary], ["local", () => storageRows(localStorage, "local")], ["session", () => storageRows(sessionStorage, "session")], ["idb", idb], ["caches", cacheList]]) {
+    try { await fn(); } catch (err) { failed.push(name); $(name).innerHTML = `<tr><td class="empty">could not read: ${esc(err.message)}</td></tr>`; }
+  }
+  say(failed.length ? "some sections could not be read: " + failed.join(", ") : "");
+}
+
+async function del(kind, key) {
+  if (kind === "local") localStorage.removeItem(key);
+  else if (kind === "session") sessionStorage.removeItem(key);
+  else if (kind === "cache") await caches.delete(key);
+  else if (kind === "idb") await new Promise((ok, no) => {
+    const r = indexedDB.deleteDatabase(key);
+    r.onsuccess = ok; r.onerror = () => no(r.error);
+    r.onblocked = () => no(new Error("blocked: another tab has this database open; close the reader's tabs and try again"));
+  });
+}
+
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-del]");
+  if (!b) return;
+  const { del: kind, key } = b.dataset;
+  b.disabled = true; b.textContent = "deleting…";
+  try { await del(kind, key); say(`deleted ${key}`); } catch (err) { say("could not delete: " + err.message); }
+  refresh();
+});
+
+$("refresh").onclick = refresh;
+$("copy").onclick = async () => {
+  const text = report.join("\n");
+  try { await navigator.clipboard.writeText(text); say("report copied"); }
+  catch { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); say("report copied"); }
+};
+
+// Delete everything: the first tap arms the button, the second tap (within 5 s) deletes. No pop-ups.
+let armed = 0;
+$("nuke").onclick = async () => {
+  const b = $("nuke");
+  if (!armed) { armed = setTimeout(() => { armed = 0; b.classList.remove("arm"); b.textContent = "Delete everything"; }, 5000); b.classList.add("arm"); b.textContent = "Tap again to delete everything"; return; }
+  clearTimeout(armed); armed = 0; b.classList.remove("arm"); b.textContent = "Delete everything";
+  const errors = [];
+  localStorage.clear(); sessionStorage.clear();
+  if ("caches" in window) for (const n of await caches.keys()) await caches.delete(n);
+  if (indexedDB.databases) for (const d of await indexedDB.databases()) { try { await del("idb", d.name); } catch (err) { errors.push(d.name + ": " + err.message); } }
+  say(errors.length ? "deleted, except " + errors.join("; ") : "everything deleted");
+  refresh();
+};
+
+refresh();
+</script>
+</body>
+</html>
