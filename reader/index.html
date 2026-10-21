@@ -1,18 +1,18 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.336 and 2026-10-21 12:50 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.341 and 2026-10-21 1:01 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.336</title>
+<title>Book reader V1.0.341</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.336";
-  window.APP_BUILT = "2026-10-21 12:50 AM";
+  window.APP_VERSION = "Book reader V1.0.341";
+  window.APP_BUILT = "2026-10-21 1:01 AM";
   window.APP_NOTE = "test run";
   window.APP_KEY = "br1";
 </script>
@@ -2748,15 +2748,22 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         ? `None of the ${files.length} file${files.length === 1 ? " picked is" : "s picked is"} a text file (.txt, .text, .md).${/\.(epub|pdf|docx?|rtf|mobi|azw3?)$/i.test(files.map(f).join(" ")) ? " EPUB, PDF and Word files are not supported; this reader opens plain text." : ""}`
         : "Nothing was picked.");
     }
-    // The sizes (for the fit line) in yielding chunks: File.size is a call into the browser for each file,
-    // and 2,406 of them inside the picker's own task froze the page 550 ms at 4× slower CPU (bigimport).
+    // The sizes (for the fit line). File.size is a call into the browser per file, and on Android (a
+    // content URI) about 32 ms each: all 2,406 froze Jon's phone 77 s before the preview (BUGS 40). So a
+    // pick of over SAMPLE files measures SAMPLE of them, evenly spread, and the fit line says it is an
+    // estimate from those (s.measured of s.files); zip entries carry their sizes and are all counted.
+    const SAMPLE = 60;
     for (const s of specs) {
-      for (let i = 0; i < s.sources.length; i++) {
-        const src = s.sources[i];
+      const n = s.sources.length, picks = n <= SAMPLE ? s.sources : Array.from({ length: SAMPLE }, (_, k) => s.sources[Math.floor((k * n) / SAMPLE)]);
+      let sum = 0;
+      for (let i = 0; i < picks.length; i++) {
+        const src = picks[i];
         if (src.size === undefined) src.size = src.kind === "gz" ? src.file.size * 3 : src.file.size;
-        s.bytes += src.size || 0;
-        if (i % 150 === 149) await new Promise((r) => setTimeout(r, 0));
+        sum += src.size || 0;
+        if (i % 10 === 9) await new Promise((r) => setTimeout(r, 0));
       }
+      s.measured = s.sources.every((x) => x.size !== undefined) ? n : picks.length;
+      s.bytes = s.measured === n ? s.sources.reduce((t, x) => t + (x.size || 0), 0) : Math.round((sum * n) / picks.length);
     }
     for (const s of specs) {
       s.numbered = !s.sections && CHAPTER.numbered(s.paths);     // a sections book goes by place: numbers would collide across sections
@@ -2771,6 +2778,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         // One small read decides the defaults: hard-wrapped lines → join on; a single file's heading
         // lines and words → whether parts are offered.
         const first = s.sources[0];
+        if (first.size === undefined) first.size = first.kind === "gz" ? first.file.size * 3 : first.file.size;
         if ((first.size || 0) <= 25e6) {
           try {
             let t = ZIP.decode(await (first.kind === "zip" ? ZIP.bytes(zips[first.zip], first.entry) : first.kind === "gz" ? ZIP.gunzipBytes(first.file) : first.file.arrayBuffer())).text;
@@ -3555,11 +3563,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const fit = async () => {
       const chosen = p.books.filter((s) => !s.skip);
       const need = chosen.reduce((n, s) => n + s.bytes, 0) * 2;
+      const est = chosen.filter((s) => s.measured < s.files);   // sizes estimated from a sample (BUGS 40)
+      const from = est.length ? ` (estimated from the sizes of ${est.map((s) => `${fmt(s.measured)} of ${fmt(s.files)}`).join(", ")} files)` : "";
       let free = null;
       try { const e = await navigator.storage.estimate(); free = (e.quota || 0) - (e.usage || 0); } catch (e) {}
       st.need = need; st.free = free;
       const short = free !== null && need > free;
-      fitLine.textContent = `${chosen.length ? `Needs about ${MB(need)}` : "Nothing ticked"}${free !== null ? `; ${MB(free)} free in the browser` : ""}.${short ? " Not enough room: delete a book here, or voice files in Settings → Storage." : ""}`;
+      fitLine.textContent = `${chosen.length ? `Needs about ${MB(need)}${from}` : "Nothing ticked"}${free !== null ? `; ${MB(free)} free in the browser` : ""}.${short ? " Not enough room: delete a book here, or voice files in Settings → Storage." : ""}`;
       fitLine.classList.toggle("bad", short);
       addBtn.disabled = !chosen.length || short;
       addBtn.title = short ? "Not enough room in the browser's storage" : !chosen.length ? "Tick a book to add" : "";
