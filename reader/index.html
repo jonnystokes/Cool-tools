@@ -1,18 +1,18 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.327 and 2026-10-20 10:06 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.335 and 2026-10-20 11:44 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.327</title>
+<title>Book reader V1.0.335</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.327";
-  window.APP_BUILT = "2026-10-20 10:06 PM";
+  window.APP_VERSION = "Book reader V1.0.335";
+  window.APP_BUILT = "2026-10-20 11:44 PM";
   window.APP_NOTE = "test run";
   window.APP_KEY = "br1";
 </script>
@@ -1120,7 +1120,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 //   number(name) / isChapter(name) / nameTitle(name) / parse(name, text)   chapter files (as before)
 //   isText(name)            .txt, .text, .md
 //   natural(a, b)           name order: "2" before "10", case ignored
-//   group(paths, root)      which files make which book (top-level folders), each in natural order
+//   group(paths, root)      which files make which book (top-level folders), each in natural order; root = loose files
+//   topFolder(paths)        the deepest folder every path shares
+//   softenMd(text)          Markdown marks stripped so a .md file is not read as symbols
 //   numbered(names)         every name starts with a number
 //   looksWrapped(text)      hard-wrapped lines?
 //   paragraphs(text, join)  a plain document's paragraphs
@@ -1195,7 +1197,40 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const out = Array.from(books.values());
     for (const b of out) b.paths.sort(natural);
     out.sort((a, b) => (a.root !== b.root ? (a.root ? -1 : 1) : natural(a.title, b.title)));
-    return out.map(({ title, paths }) => ({ title, paths }));
+    return out.map(({ title, paths, root }) => ({ title, paths, root }));     // root: the loose files at the top, not a sub-folder
+  }
+  // The deepest folder every path shares ("manuscript" for "x/manuscript/art/1.md" + "x/manuscript/war/2.md"), or "".
+  function topFolder(paths) {
+    const list = paths.map((p) => String(p).replace(/\\/g, "/").replace(/^\/+/, ""));
+    let name = "";
+    for (;;) {
+      const first = list[0] && list[0].includes("/") ? list[0].slice(0, list[0].indexOf("/") + 1) : "";
+      if (!first || !list.every((p) => p.startsWith(first))) return name;
+      name = first.slice(0, -1);
+      for (let i = 0; i < list.length; i++) list[i] = list[i].slice(first.length);
+    }
+  }
+
+  // ---- Markdown, softened so it is not read as symbols (.md files, at import) --------------------
+  // Front matter and HTML comments go; images and links keep their text; heading marks, rules,
+  // blockquote marks, bullets, code marks, bold / italic marks and HTML tags are stripped. Nothing
+  // else changes, so a "# Chapter 12" heading still cuts a single file at its chapters (split).
+  function softenMd(text) {
+    let t = clean(text);
+    t = t.replace(/^---\n[\s\S]*?\n---\n/, "");
+    t = t.replace(/<!-{2}[\s\S]*?-{2}>/g, "");          // HTML comments (spelled with {2} so the build's comment-opener check passes)
+    t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+    t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+    t = t.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "");
+    t = t.replace(/^[ \t]*(?:[-*_][ \t]*){3,}$/gm, "");
+    t = t.replace(/^[ \t]{0,3}>[ \t]?/gm, "");
+    t = t.replace(/^[ \t]*[-*+][ \t]+/gm, "");
+    t = t.replace(/`+/g, "");
+    t = t.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2");
+    t = t.replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?=[^\w*]|$)/gm, "$1$2");
+    t = t.replace(/(^|[^\w_])_(?=\S)([^_\n]*?\S)_(?=[^\w_]|$)/gm, "$1$2");
+    t = t.replace(/<\/?[a-zA-Z][^>\n]*>/g, "");
+    return t;
   }
 
   // ---- Plain documents ----------------------------------------------------------------------------
@@ -1280,7 +1315,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return { chapters: [{ title: o.title, paras, n: null }], how: `one chapter (${heads.length ? "one" : "no"} heading line${heads.length === 1 ? "" : "s"}, ${words.toLocaleString("en-US")} words)`, numbered: false };
   }
 
-  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, looksWrapped, paragraphs, heading, split, countWords,
+  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, topFolder, softenMd, looksWrapped, paragraphs, heading, split, countWords,
     PART_WORDS, PARTS_FROM, source: "(" + chapterJs.toString() + ")();" };
 })();
 </script>
@@ -2555,8 +2590,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         }
         const recs = [];
         for (let k = 0; k < slice.length; k++) {
-          const s = slice[k], t = texts[k];
+          const s = slice[k];
+          let t = texts[k];
           if (t === null) { unreadable++; continue; }
+          if (/\.md$/i.test(s.name)) t = CHAPTER.softenMd(t);           // Markdown marks are not read aloud
           if (job.kind === "split") {
             const r = CHAPTER.split(t, { title: job.title, join: job.join, parts: job.parts });
             numbered = r.numbered; how = r.how;
@@ -2567,7 +2604,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
             if (!ch) { unreadable++; bad.push(`"${s.name}" has no chapter number`); continue; }
             recs.push(add(ch.n, ch.n, ch.title, ch.paras, s.name));
           } else {
-            recs.push(add(s.c, null, CHAPTER.stem(s.name) || `Part ${s.c}`, CHAPTER.paragraphs(t, job.join), s.name, false));
+            recs.push(add(s.c, null, (s.section ? s.section + " · " : "") + (CHAPTER.stem(s.name) || `Part ${s.c}`), CHAPTER.paragraphs(t, job.join), s.name, false));   // a sections book: "section · file"
           }
           await breathe();
         }
@@ -2577,7 +2614,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         await breathe();
       }
     } finally { db.close(); }
-    if (!how) how = job.kind === "numbered" ? "a chapter per numbered file" : "a chapter per file";
+    if (!how) how = job.kind === "numbered" ? "a chapter per numbered file" : job.sections ? `a chapter per file in ${job.sections} sections` : "a chapter per file";
     return { list: Array.from(seen.values()).sort((a, b) => a.c - b.c), numbered, how, unreadable, duplicates, dupNames, recoded, bad, bytes: size };
   }
   const WORKER = () => [ZIP.source, CHAPTER.source, "const upgrade = " + upgrade.toString() + ";", "const importJob = " + importJob.toString() + ";", `
@@ -2644,7 +2681,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   // ---- The plan: what the picked files would become (names only; the text is read by the import) ----
   // files: File objects from a picker. opts.separate: several loose files make a document each instead
-  // of one book. Gives { books: [spec], ignored: [names], zips }; a spec: { title, from, kind, numbered,
+  // of one book; opts.sections (a folder of folders; default true): one book, a section per sub-folder.
+  // Gives { books: [spec], ignored: [names], zips, folders, sections }; a spec: { title, from, kind, numbered, sections (count),
   // paths, sources, files, bytes, existing (the id of a stored book it would replace), join (default
   // from the first file: hard-wrapped lines), wrapped, headings, words (a single file) }. Throws with a
   // plain reason when nothing usable was picked.
@@ -2669,9 +2707,27 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const inFolder = files.some((x) => x.webkitRelativePath && x.webkitRelativePath.includes("/"));
     const root = files.length === 1 && items.length === 1 ? CHAPTER.stem(items[0].name) : items.length ? CHAPTER.stem(items[0].name) : "Book";
     const make = (title, list, from) => specs.push({ title: title.trim().slice(0, TITLE_MAX) || "Book", from: from || title, paths: list.map((s) => s.name), sources: list, files: list.length, bytes: 0 });
+    let folders = false, sections = false;      // a folder of folders (sub-folders only, no loose files); sections: made one book
     const grouped = (list, rootTitle) => {
       const byName = new Map(list.map((s) => [s.name, s]));
-      for (const b of CHAPTER.group(list.map((s) => s.name), rootTitle)) {
+      const groups = CHAPTER.group(list.map((s) => s.name), rootTitle);
+      // A folder of folders (Jon's manuscript, 2026-10-20): two or more sub-folders and nothing loose.
+      // By default ONE book named after the folder: each sub-folder a section, its files the chapters
+      // (sections in natural order, each file's title showing its section); opts.sections = false
+      // gives the old one book per sub-folder.
+      if (inFolder && !zips.length && groups.length >= 2 && groups.every((b) => !b.root)) {
+        folders = true;
+        sections = o.sections !== false;
+        if (sections) {
+          const srcs = [];
+          for (const b of groups) for (const p of b.paths) { const s = byName.get(p); s.section = b.title; srcs.push(s); }
+          const top = CHAPTER.topFolder(list.map((s) => s.name)) || rootTitle;
+          make(top, srcs, top);
+          specs[specs.length - 1].sections = groups.length;
+          return;
+        }
+      }
+      for (const b of groups) {
         const srcs = b.paths.map((p) => byName.get(p));
         if (!inFolder && o.separate && srcs.length > 1 && b.title === rootTitle) { for (const s of srcs) make(CHAPTER.stem(s.name), [s]); }
         else make(b.title, srcs);
@@ -2703,7 +2759,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       }
     }
     for (const s of specs) {
-      s.numbered = CHAPTER.numbered(s.paths);
+      s.numbered = !s.sections && CHAPTER.numbered(s.paths);     // a sections book goes by place: numbers would collide across sections
       s.kind = s.numbered ? "numbered" : s.files === 1 ? "split" : "files";
       s.sources.forEach((src, i) => { src.c = i + 1; });
       const same = (a, b) => a && b && a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -2717,7 +2773,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         const first = s.sources[0];
         if ((first.size || 0) <= 25e6) {
           try {
-            const t = ZIP.decode(await (first.kind === "zip" ? ZIP.bytes(zips[first.zip], first.entry) : first.kind === "gz" ? ZIP.gunzipBytes(first.file) : first.file.arrayBuffer())).text;
+            let t = ZIP.decode(await (first.kind === "zip" ? ZIP.bytes(zips[first.zip], first.entry) : first.kind === "gz" ? ZIP.gunzipBytes(first.file) : first.file.arrayBuffer())).text;
+            if (/\.md$/i.test(first.name)) t = CHAPTER.softenMd(t);
             s.wrapped = s.join = CHAPTER.looksWrapped(t);
             if (s.kind === "split") { const r = CHAPTER.split(t, { title: s.title }); s.headings = r.chapters.length > 1 ? r.chapters.length : 0; s.words = CHAPTER.countWords(t); }
           } catch (e) { log("book", `could not look at "${first.name}" for the preview: ${e.message}`); }
@@ -2725,7 +2782,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       }
     }
     log("book", `plan: ${specs.map((s) => `"${s.title}" (${s.files} file${s.files === 1 ? "" : "s"}, ${s.kind}${s.existing ? `, replaces "${s.existingTitle}"` : ""})`).join("; ")}${ignored.length ? `; ${ignored.length} other file${ignored.length === 1 ? "" : "s"} ignored` : ""}`);
-    return { books: specs, ignored, zips, inFolder, loose: !inFolder && items.length > 1 && !zips.length };
+    return { books: specs, ignored, zips, inFolder, folders, sections, loose: !inFolder && items.length > 1 && !zips.length };
   }
 
   // Import one planned book (a spec from plan(), its title / join / parts as the preview left them).
@@ -2745,7 +2802,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     log("book", `adding "${title}": ${total} file${total === 1 ? "" : "s"} (${spec.kind}${spec.join ? ", wrapped lines joined" : ""}${spec.parts ? ", parts by size" : ""})${replacing ? `, replacing "${replacing.title}"` : ""}`);
     let r;
     try {
-      r = await runJob({ db: DB_NAME, version: DB_VERSION, g: gen, kind: spec.kind, join: !!spec.join, parts: !!spec.parts, title, batch: BATCH, sources: spec.sources, zips: zips || spec.zips || [], failAt: hooks.failAt },
+      r = await runJob({ db: DB_NAME, version: DB_VERSION, g: gen, kind: spec.kind, join: !!spec.join, parts: !!spec.parts, sections: spec.sections || 0, title, batch: BATCH, sources: spec.sources, zips: zips || spec.zips || [], failAt: hooks.failAt },
         (m) => say(m.chapters ? `Adding ${title}: ${m.chapters.toLocaleString("en-US")} chapters found` : `Adding ${title}: ${m.done.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} file${total === 1 ? "" : "s"}`, total ? m.done / total : 0));
       for (const x of r.bad) log("error", `adding "${title}": ${x}`);
       if (!r.list.length) throw new Error("no chapter could be read.");
@@ -3409,13 +3466,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   // ---- The preview ------------------------------------------------------------------------------
-  async function pick(files) {
+  async function pick(files, opts) {
     files = Array.from(files || []);
     if (!files.length || st.busy) return;
     open();
     say("Looking at the files…");
     let plan;
-    try { plan = await BOOK.plan(files); }
+    try { plan = await BOOK.plan(files, opts); }
     catch (e) { say(e.message, true); log("book", `nothing to add: ${e.message}`); st.mode = "list"; render(); return; }
     plan.files = files;
     st.plan = plan;
@@ -3424,8 +3481,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (test()) { add(); return; }
     render();
   }
-  async function replan(separate) {
-    try { const p = await BOOK.plan(st.plan.files, { separate }); p.files = st.plan.files; p.separate = separate; st.plan = p; }
+  async function replan(opts) {
+    try { const p = await BOOK.plan(st.plan.files, opts); p.files = st.plan.files; p.separate = !!opts.separate; st.plan = p; }
     catch (e) { say(e.message, true); }
     render();
   }
@@ -3437,9 +3494,19 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (p.loose) {
       const l = h("label", "libopt");
       const c = h("input"); c.type = "checkbox"; c.checked = !!p.separate;
-      c.addEventListener("change", () => replan(c.checked));
+      c.addEventListener("change", () => replan({ separate: c.checked }));
       l.append(c, h("span", null, "A separate document per file (else one book, a chapter per file)"));
       box.appendChild(l);
+    }
+    // A folder of folders (Jon, 2026-10-20): asked once, here; one book with sections by default.
+    if (p.folders) {
+      for (const [on, text] of [[true, "One book: each sub-folder is a section, its files are chapters"], [false, "One book per sub-folder"]]) {
+        const l = h("label", "libopt libfolders");
+        const r = h("input"); r.type = "radio"; r.name = "libsections"; r.checked = p.sections === on;
+        r.addEventListener("change", () => { if (r.checked) replan({ sections: on }); });
+        l.append(r, h("span", null, text));
+        box.appendChild(l);
+      }
     }
     const list = h("div", "libplan");
     p.books.forEach((s, k) => {
@@ -3452,7 +3519,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       top.append(tick, name);
       r.appendChild(top);
       const what = s.numbered ? `${fmt(s.files)} chapter files numbered ${CHAPTER.number(s.paths[0])}-${CHAPTER.number(s.paths[s.paths.length - 1])}`
-        : s.kind === "split" ? (s.headings ? `1 file: split at its ${fmt(s.headings)} heading lines` : `1 file: one chapter (${fmt(s.words)} words)`) : `${fmt(s.files)} files, a chapter each, in name order`;
+        : s.kind === "split" ? (s.headings ? `1 file: split at its ${fmt(s.headings)} heading lines` : `1 file: one chapter (${fmt(s.words)} words)`)
+        : s.sections ? `${fmt(s.files)} files in ${fmt(s.sections)} sections, a chapter each, in folder order` : `${fmt(s.files)} files, a chapter each, in name order`;
       r.appendChild(h("div", "libsub", what));
       if (s.existing) r.appendChild(h("div", "libsub librepl", `Replaces the stored "${s.existingTitle}" (your place in it is kept).`));
       if (!s.numbered) {
