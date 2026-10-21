@@ -1,18 +1,18 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.335 and 2026-10-20 11:44 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.336 and 2026-10-21 12:50 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.335</title>
+<title>Book reader V1.0.336</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.335";
-  window.APP_BUILT = "2026-10-20 11:44 PM";
+  window.APP_VERSION = "Book reader V1.0.336";
+  window.APP_BUILT = "2026-10-21 12:50 AM";
   window.APP_NOTE = "test run";
   window.APP_KEY = "br1";
 </script>
@@ -11616,15 +11616,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         box.appendChild(pick);
         box.appendChild(h("div", "sline", sg.reason));
       } else box.appendChild(h("div", "sline bad", "No voice runs on this device: no model voice keeps up and the browser lists no voices of its own."));
-      B.appendChild(row("Suggested", "Good enough uses it at once: Settings opens to show it and the voice's files download there.", box, { block: true }));
+      B.appendChild(row("Suggested", (rec.full ? "Use the suggestion" : "Good enough") + " uses it at once: Settings opens to show it and the voice's files download there.", box, { block: true }));
     }
     // 2. The full benchmark, while it runs and once it has
     if (phase === "full" || fullNote) B.appendChild(row("Full benchmark", "The voices are loaded and a few sentences are timed for real; nothing is played.", h("div", "sline frun-full", fullNote || "Running…"), { block: true }));
     // 3. What the buttons do
     const bl = h("div", "sfit");
+    const done = !!(rec && rec.full);
     for (const [name, what] of [
-      ["Good enough", "use the suggestion now. It is applied and saved at once; Settings opens on the Voice tab to show it and the download's progress."],
-      ["Full benchmark", "download the suggested voice and one alternative and time them for real: a few minutes, nothing is played. The first tap says how much would be downloaded."],
+      [done ? "Use the suggestion" : "Good enough", "use the suggestion now. It is applied and saved at once; Settings opens on the Voice tab to show it and the download's progress."],
+      [done ? "Run the full benchmark again" : "Full benchmark", done ? "measure again (the files are stored now, so nothing more is downloaded unless the suggestion changed)." : "download the suggested voice and one alternative and time them for real: a few minutes, nothing is played. The first tap says how much would be downloaded."],
       ["Default", "use the reader's standard settings (Kokoro on the graphics card) now, applied and saved the same way."],
       ["Skip", "close this window and keep the settings as they are. The check can be run again from Settings → System → Debug → Re-check this device."],
     ]) bl.appendChild(labelled("sline", name, what));
@@ -11672,7 +11673,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     el.good.disabled = busy || !(rec && rec.suggestion);
     el.good.classList.toggle("hot", !el.good.disabled);
     el.full.disabled = phase === "light" || !(rec && rec.predictions && BENCH.candidates(rec).length);
-    el.full.textContent = phase === "full" ? "Stop the benchmark" : armedAt && Date.now() - armedAt < 15000 ? "Start the full benchmark" : "Full benchmark";
+    const done = !!(rec && rec.full);            // after the full benchmark (Jon, 2026-10-21): not "Good enough" any more
+    el.good.textContent = done ? "Use the suggestion" : "Good enough";
+    el.full.textContent = phase === "full" ? "Stop the benchmark" : armedAt && Date.now() - armedAt < 15000 ? "Start the full benchmark" : done ? "Run the full benchmark again" : "Full benchmark";
   }
 
   // ---- The runs -----------------------------------------------------------------------------------
@@ -11717,7 +11720,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       rec = await BENCH.full(rec, (t) => { if (my === ctl) { fullNote = t; say(t); const n = el && el.body.querySelector(".frun-full"); if (n) n.textContent = t; } }, my);
       const res = rec.full.results;
       fullNote = res.map((r) => (r.x ? `${r.label}: measured ${r1(r.x)}× real time` : `${r.label}: ${r.skipped ? "skipped (" + r.skipped + ")" : "failed (" + r.failed + ")"}`)).join(" · ") + ".";
-      say(`Full benchmark done. ${rec.suggestion ? `Suggested: ${rec.suggestion.setup.label}.` : ""}`);
+      say(`Full benchmark done. ${rec.suggestion ? `Suggested: ${rec.suggestion.setup.label}. Next: tap "Use the suggestion" to apply it.` : ""}`);
     } catch (e) {
       fullNote = e.stopped ? "Stopped; nothing was measured." : `The full benchmark stopped: ${e.message}`;
       say(fullNote);
