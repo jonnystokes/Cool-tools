@@ -1,18 +1,18 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.322 and 2026-10-20 9:19 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.327 and 2026-10-20 10:06 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.322</title>
+<title>Book reader V1.0.327</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.322";
-  window.APP_BUILT = "2026-10-20 9:19 PM";
+  window.APP_VERSION = "Book reader V1.0.327";
+  window.APP_BUILT = "2026-10-20 10:06 PM";
   window.APP_NOTE = "test run";
   window.APP_KEY = "br1";
 </script>
@@ -406,35 +406,6 @@ html[data-marks="detailed"] .book p.issue, html[data-marks="detailed"] .book h1.
 html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .book h1.issue.slight {
   background-image: repeating-linear-gradient(to bottom, var(--spelled) 0 9px, transparent 9px 13px);
 }
-/* Edits (edits.js, step 9): an edited paragraph's mark, the tool row under the current paragraph, the
-   editor box (on the page and in the viewer), and the viewer's rows with the change highlighted. */
-.book p.edited { border-right: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); padding-right: 0.4em; }
-.book p[data-orig] { color: var(--muted); }
-.edtools, .edacts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -0.5em 0 1em; font-size: var(--ui); }
-.edacts { margin: 8px 0 0; }
-.edbtn { min-height: var(--tap); padding: 0 1em; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); cursor: pointer; font-size: var(--ui); }
-.edbtn:not(:disabled):hover { border-color: var(--accent); }
-.edbtn:disabled { opacity: 0.5; cursor: default; }
-.edbtn.edsave:not(:disabled) { border-color: var(--accent); font-weight: 600; }
-.edbtn.eddel.armed { border-color: var(--err); color: var(--err); font-weight: 600; }
-.ednote { color: var(--muted); font-size: 0.86em; }
-.edbox { margin: 0 0 1em; }
-.edta { display: block; width: 100%; min-height: 6em; padding: 0.5em 0.6em; border: 1px solid var(--accent); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; line-height: inherit; resize: vertical; }
-.edmsg { color: var(--muted); font-size: var(--ui); margin-top: 4px; }
-.edmsg:empty { display: none; }
-.edv { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 14px; }
-.edvmsg { padding: 0.4em 0.6em; border-radius: 8px; background: var(--bar); white-space: pre-line; }
-.edvempty, .edvcount, .edlab { color: var(--muted); }
-.edlab { font-size: 0.86em; margin-top: 4px; }
-.edrow { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
-.edrow.stale { border-color: var(--err); }
-.edwhere { font-weight: 600; margin-bottom: 4px; }
-.edstale { color: var(--err); font-weight: 600; margin-bottom: 4px; }
-.eddiff, .edorig, .edtext { white-space: pre-line; line-height: 1.5; }
-.edorig { color: var(--muted); }
-.eddiff .del { color: var(--err); text-decoration: line-through; }
-.eddiff .add { background: color-mix(in srgb, var(--made) 30%, transparent); border-radius: 3px; }
-.edrow .edta { min-height: 4em; }
 .book .heard { margin: -0.5em 0 0.9em; display: flex; flex-wrap: wrap; gap: 0.25em 0.6em; font-size: 0.78em; line-height: 1.4; color: var(--muted); }
 .book .heard span { white-space: nowrap; }
 .book .heard .miss { color: var(--miss); text-decoration: line-through; }
@@ -773,7 +744,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 (function () {
   const g = globalThis;
   const TYPES = ["app", "settings", "book", "voice", "listener", "pieces", "playback", "timing", "memory",
-    "storage", "download", "worker", "text", "page", "media", "device", "edits", "error"];
+    "storage", "download", "worker", "text", "page", "media", "device", "error"];
   const DB_NAME = (g.APP_KEY || "br1") + "-logs";
   const KEEP_VISITS = 30;      // past visits kept in the database; the oldest go first
   const MEMORY_MAX = 20000;    // lines kept in memory for the viewer; older ones drop off
@@ -960,6 +931,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     visits: () => (store ? store.visits().catch(() => []) : Promise.resolve([])),     // stored visits: { id, started, last, lines, version }
     read: (id) => (store ? store.read(id).then((rows) => rows.join("\n")).catch(() => "") : Promise.resolve("")),
     clear: () => (store ? store.prune(0, visit.id) : Promise.resolve()),            // past visits go; this one stays
+    // Settings → Storage → Delete all storage: let go of the log database so it can be deleted; the log
+    // goes on in memory until the page reloads.
+    close: () => { waiting = []; try { if (store && store.close) store.close(); } catch (x) {} store = null; state = "not saved: the stored data was deleted (the page reloads)"; },
   };
   g.log = log;
 
@@ -1024,17 +998,15 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     speaker: 0,                    // Piper's voices with several speakers only (libritts, vctk...); ignored by the rest
     burst: true,                   // make sound in bursts (5 min ahead, then rest until 2 min are left): a smoother word highlight with a card voice
     // Word highlight
-    wordTiming: "model",           // "model" (Kokoro), "listener", "estimate", "off"; the player falls to "estimate" when the voice gives no times
+    wordTiming: "off",             // "model" (Kokoro), "listener", "estimate", "off"; Off by default (Jon, 2026-10-20: nothing turns it on by itself, the benchmark included)
     // Listener
-    listenerOn: null,              // null = automatic: on for Supertonic, off for Kokoro, Piper and the browser voices (a re-roll would give the same sound); true / false once chosen
+    listenerOn: false,             // off by default (Jon, 2026-10-20); on only when chosen
     listener: "whisper-base:gpu",  // "whisper-base:gpu" (most accurate), "parakeet:gpu" (fast), "moonshine-tiny:cpu" (phones): listener.js
     listenMode: null,              // "play" = check while it plays (marks only), "before" = check before reading (each chunk waits for its check and re-rolls); null = "before" for Supertonic, else "play"
     reroll: true,                  // Supertonic only: a chunk with a missing or an added word is made again with a new seed (at most 3 takes, only with spare speed)
     // Voice data
     offline: false,
     slim: false,                   // delete the old model's files when switching
-    // Edits group
-    showSpoken: true,              // the reader page shows what is spoken (false = the original text)
     // System group: Background
     backgroundPlay: true,
     keepAlive: true,
@@ -1062,7 +1034,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     watermarkRules: (v) => !!v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(strings),
     steps: (v) => typeof v === "number" && Number.isFinite(v),
     copies: (v) => typeof v === "number" && Number.isFinite(v),
-    listenerOn: (v) => typeof v === "boolean",
     listenMode: (v) => v === "play" || v === "before",
   };
   // A value this setting can hold: null only where the default is null (D7), numbers finite, else the
@@ -1819,8 +1790,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // less any watermarks; pause is true when nothing can be said (a line of "***": half a second of
 // silence, never sent to the voice); a paragraph that was only a watermark is dropped.
 // PIECES.split(piece) gives a joined piece back as one piece per part.
-// opts.edits (step 9, edits.js): { para: "new text" } replaces a paragraph before it is cut (null = the
-// open book's edits through EDITS.mapFor; an edit of "" = a pause).
 // PIECES.chunks(speech) cuts a piece's speech into the chunks the voice makes it in (step 5c): whole
 // sentences packed up to CHUNK characters, a chunk under CHUNK_MIN merged into its shorter neighbour
 // when that stays under CHUNK + CHUNK_MIN / 2; a chunk never breaks a sentence (an over-long one stays
@@ -1924,14 +1893,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   function build(ch, opts) {
-    const o = Object.assign({ readTitle: true, joinShort: true, maxChars: 600, edits: null, text: undefined }, opts);
+    const o = Object.assign({ readTitle: true, joinShort: true, maxChars: 600, text: undefined }, opts);
     const TEXT = globalThis.TEXT;
     const paras = ch.text || ch.paras || [];
     const skipped = [], seen = new Set();
     const items = [];
-    // The edits (edits.js, step 9): { p: text } replaces a paragraph BEFORE it is cut, so the spans
-    // are spans of the edited paragraph (what the page shows). Null asks the open book's edits.
-    const edits = o.edits || (globalThis.EDITS ? EDITS.mapFor(ch) : null);
     const make = (para, from, to, shown, title) => {
       const c = TEXT.clean(shown, o.text);
       for (const w of c.skipped) if (!seen.has(w)) { seen.add(w); skipped.push(w); }
@@ -1947,9 +1913,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const p = make(-1, 0, title.length, spoken, true);
       if (p) items.push(p);
     }
-    paras.forEach((orig, i) => {
-      const para = edits && typeof edits[i] === "string" ? edits[i] : orig;
-      if (edits && typeof edits[i] === "string" && !trim(para, 0, para.length)) { const p = make(i, 0, 0, "", false); if (p) items.push(p); return; }   // edited to nothing: a pause
+    paras.forEach((para, i) => {
       for (const s of cut(para, o.maxChars)) {
         const p = make(i, s.from, s.to, String(para).slice(s.from, s.to));
         if (p) items.push(p);
@@ -2005,7 +1969,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   function options(settings) {
     const s = settings || globalThis.SETTINGS;
-    return { readTitle: s.get("readTitle"), joinShort: s.get("joinShort"), maxChars: 600, edits: null, text: globalThis.TEXT.options(s) };
+    return { readTitle: s.get("readTitle"), joinShort: s.get("joinShort"), maxChars: 600, text: globalThis.TEXT.options(s) };
   }
 
   globalThis.PIECES = { build, split, cut, chunks, sentences, words, options, SHORT, TAIL, CHUNK, CHUNK_MIN };
@@ -2336,8 +2300,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 //   index    per book: { id, list: [{ c, n, title, paras, g }] }   (read when the book is opened)
 //   text     the chapters, keyed [g, c]: { g, c, n, title, text: [paragraphs] }; g = the import that wrote them
 //   imports  { g, book, title, started }: an import still running, or one that never finished
-//   edits    keyed [book, c, p, from]: one record per edited paragraph (edits.js, step 9): { book, c, p,
-//            from: 0, to, orig: the original paragraph, text: the edit, at }
+//   (edits   the Edits system of step 9 was removed in V1.0.318: a database made before then still has
+//            its empty `edits` store, left alone; a new database does not get one)
 // `c` is the chapter id everything uses: the chapter number in a numbered book (Jon's: every file name
 // starts with its number, so every stored position stays valid), the place 1..N otherwise; `n` is the
 // number shown, or null. kind: "numbered" (chapter files) / "files" (a chapter per plain file) /
@@ -2346,7 +2310,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // final transaction makes it visible (books + index rows, the imports row gone, an older generation of
 // the same book deleted). A failed, stopped or killed import never touches the books already stored; at
 // load the leftovers of one are cleared and counted (`unfinished`). Storing a book that is already here
-// (the same source name) REPLACES it under the same id, so its reading place and edits stay (Jon's
+// (the same source name) REPLACES it under the same id, so its reading place stays (Jon's
 // answer 6). The version 2 book (one book, `chapters` / `chapters2` / `meta`) is moved inside the 2 → 3
 // upgrade, all or nothing, as the book "Walker of Worlds" (Jon's answer 10) with c = n.
 // Reading places live in localStorage per book: br1-pos-<id> { c, p, top, at, pct }; br1-current is the
@@ -2382,7 +2346,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // worker as text, so nothing of this file's closure is used here.
   function upgrade(d, tx, oldVersion, report) {
     const mk = (name, opts) => { if (!d.objectStoreNames.contains(name)) d.createObjectStore(name, opts); };
-    mk("books", { keyPath: "id" }); mk("index", { keyPath: "id" }); mk("text", { keyPath: ["g", "c"] }); mk("imports", { keyPath: "g" }); mk("edits", { keyPath: ["book", "c", "p", "from"] });
+    mk("books", { keyPath: "id" }); mk("index", { keyPath: "id" }); mk("text", { keyPath: ["g", "c"] }); mk("imports", { keyPath: "g" });
     const old = ["chapters", "chapters2", "meta"].filter((s) => d.objectStoreNames.contains(s));
     if (!old.includes("meta")) return;
     const done = () => { for (const s of old) d.deleteObjectStore(s); };
@@ -2522,14 +2486,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     log("book", `renamed "${old}" to "${title}"`);
     return row;
   }
-  // Delete a book: its rows, its chapters, its edits, its reading place. The open book → none open.
+  // Delete a book: its rows, its chapters, its reading place. The open book → none open.
   async function remove(id) {
     const row = books.find((b) => b.id === id);
     if (!row) return null;
-    await tx(["books", "index", "text", "edits"], "readwrite", (b, ix, t, e) => {
+    await tx(["books", "index", "text"], "readwrite", (b, ix, t) => {
       b.delete(id); ix.delete(id);
       for (const gen of row.gens || []) t.delete(genRange(gen));
-      e.delete(IDBKeyRange.bound([id], [id, []]));
     });
     books = books.filter((b) => b.id !== id);
     ls.set(posKey(id), null); ls.set(readKey(id), null);
@@ -2538,16 +2501,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     log("book", `deleted "${row.title}" (${row.chapters.toLocaleString("en-US")} chapters, ${(row.bytes / 1e6).toFixed(1)} MB)`);
     return row;
   }
-
-  // ---- Edits (step 9, edits.js): the `edits` store, one record per edited paragraph, keyed
-  // [book, c, p, 0]: { book, c, p, from: 0, to, orig, text, at }. Deleting a book deletes them (remove);
-  // replacing a book keeps them (they are checked against the new text when used).
-  const bookRange = (id) => IDBKeyRange.bound([id], [id, []]);
-  const editsOf = (id) => tx(["edits"], "readonly", (e) => e.getAll(bookRange(id)));
-  const putEdit = (rec) => tx(["edits"], "readwrite", (e) => { e.put(rec); });
-  const deleteEdit = (id, c, p) => tx(["edits"], "readwrite", (e) => { e.delete([id, c, p, 0]); });
-  const clearEdits = (id) => tx(["edits"], "readwrite", (e) => { if (id) e.delete(bookRange(id)); else e.clear(); });
-  const countEdits = () => tx(["edits"], "readonly", (e) => e.count());
 
   // ---- The import job (BUGS 30: reading and parsing 2,406 files froze the Pixel's page for 7.2 s) ----
   // Reads every source, makes chapters by the book's kind and writes the records a batch per
@@ -2853,7 +2806,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     index: () => index,
     indexOf: (c) => (byC.has(c) ? byC.get(c) : -1),
     label, chapter, warm, load, open: openBook, rename, remove, plan, importBook, stopImport, pos, setPos, posOf, readKey, hooks, kept,
-    editsOf, putEdit, deleteEdit, clearEdits, countEdits,
     // Settings → Storage deletes everything: let go of the database (so it can be deleted), the books
     // and every per-book key, and the mark (deleted on purpose, so the start says nothing about it).
     forget: () => {
@@ -2865,7 +2817,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 })();
 </script>
 <script>
-// float.js: a small floating window, used by the chapter list, Settings and the edited-pieces viewer.
+// float.js: a small floating window, used by the chapter list, Settings, the Open window and the rest.
 // FLOAT.open(name, { title, width, height, onClose }) makes (or fronts) the window and returns
 // { el, body, title(text), close() }; the caller fills body. Movable by its title bar, resizable by its
 // corner, a scroll bar when the content needs one, a close button, Escape closes the front one. It
@@ -2974,302 +2926,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 })();
 </script>
 <script>
-// edits.js: the edits of a book (step 9; SETTINGS.md "Edits", PLAN.md "Edits"). The original book is
-// never changed: an edit is one record per edited PARAGRAPH (the page's unit: one <p>) in the `edits`
-// store of br1-book (book.js), keyed by the book, the chapter id `c`, the paragraph `p` and the span it
-// replaces (the whole paragraph: from 0), holding the ORIGINAL paragraph text and the edit. When a
-// chapter is read (pieces.js asks EDITS.mapFor), each edit is checked against the paragraph: an edit
-// whose original no longer matches (the book was replaced with different text) is NOT applied and the
-// viewer lists it as "no longer matches the text" (never a silent misplacement). An edit of "" makes
-// the paragraph a pause. Deleting a book deletes its edits (BOOK.remove); replacing one keeps them.
-// Here also: the word diff for the viewer, the editor box the page and the viewer share (a textarea,
-// Save only while the text differs, Cancel = back to how it was when Edit was pressed), the edited-
-// paragraphs viewer (a floating window: every edit with its place and the change highlighted; Play,
-// Edit / Cancel, Delete in two taps), and the downloads (the changed chapters, or every chapter, as one
-// zip of .txt files in the book's format: the title line, a blank line, the paragraphs; stored, no
-// compression, through zipwrite.js; the save picker where the browser has one, else a download).
-// EDITS.onChange(fn) tells the page (redraw) and the player (stop with the reason) about a change.
-(function () {
-  const g = globalThis;
-  let bookId = null;
-  let byC = new Map();            // c -> Map(p -> record); the open book's edits
-  const listeners = [];
-  const hooks = { blob: null };   // the tests: hooks.blob(blob, name) takes the zip instead of saving it
-  const emit = (what, v) => { for (const fn of listeners) { try { fn(what, v); } catch (e) { log("error", `edits listener (${what})`, e); } } };
-  const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const btn = (cls, text, fn, title) => { const b = h("button", cls, text); b.type = "button"; if (title) b.title = title; b.addEventListener("click", fn); return b; };
-  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
-
-  // ---- The store, in memory for the open book --------------------------------------------------------
-  async function load(id) {
-    bookId = id || null;
-    byC = new Map();
-    if (!bookId) return;
-    const rows = (await BOOK.editsOf(bookId)) || [];
-    for (const r of rows) { if (!byC.has(r.c)) byC.set(r.c, new Map()); byC.get(r.c).set(r.p, r); }
-    if (rows.length) log("edits", `"${BOOK.title}": ${fmt(rows.length)} edited paragraph${rows.length === 1 ? "" : "s"} in ${fmt(byC.size)} chapter${byC.size === 1 ? "" : "s"}`);
-  }
-  const get = (c, p) => (byC.get(c) && byC.get(c).get(p)) || null;
-  const all = () => { const out = []; for (const m of byC.values()) out.push(...m.values()); return out.sort((a, b) => a.c - b.c || a.p - b.p); };
-  const count = () => { let n = 0; for (const m of byC.values()) n += m.size; return n; };
-  // The map pieces.js applies to a chapter record: { p: text } for the edits whose original still is
-  // the paragraph; the others are marked stale (and not applied).
-  function mapFor(rec) {
-    const m = rec && byC.get(rec.c);
-    if (!m) return null;
-    const out = {};
-    let n = 0;
-    for (const e of m.values()) {
-      e.stale = rec.text[e.p] !== e.orig;
-      if (!e.stale) { out[e.p] = e.text; n++; }
-    }
-    return n ? out : null;
-  }
-  // Save an edit of paragraph p of chapter c (orig = the paragraph as the book has it). The same text as
-  // the original removes the edit instead (back to the original).
-  async function save(c, p, orig, text) {
-    if (!bookId) throw new Error("no book is open");
-    if (text === orig) { await remove(c, p); return null; }
-    const was = get(c, p);
-    const rec = { book: bookId, c, p, from: 0, to: orig.length, orig, text, at: Date.now() };
-    await BOOK.putEdit(rec);
-    if (!byC.has(c)) byC.set(c, new Map());
-    byC.get(c).set(p, rec);
-    log("edits", `${label(c)} ¶ ${p + 1} ${was ? "edited again" : "edited"}: ${short(was ? was.text : orig)} -> ${short(text)}`);
-    emit("change", { c, p });
-    return rec;
-  }
-  async function remove(c, p) {
-    const e = get(c, p);
-    if (!e) return false;
-    await BOOK.deleteEdit(bookId, c, p);
-    byC.get(c).delete(p);
-    if (!byC.get(c).size) byC.delete(c);
-    log("edits", `${label(c)} ¶ ${p + 1}: edit removed, back to the original`);
-    emit("change", { c, p });
-    return true;
-  }
-  // Every edit of every book (Settings → Storage → Edits → Delete).
-  async function clearAll() {
-    const n = await BOOK.countEdits();
-    await BOOK.clearEdits(null);
-    byC = new Map();
-    log("edits", `every edit deleted (${fmt(n)}); the books are untouched`);
-    emit("change", null);
-    return n;
-  }
-  const short = (t) => { t = String(t); return JSON.stringify(t.length > 60 ? t.slice(0, 57) + "…" : t); };
-  const label = (c) => { const i = BOOK.indexOf(c); return i >= 0 ? BOOK.label(i) : `Chapter ${c}`; };
-
-  // ---- The word diff (the change highlighted in the viewer) -----------------------------------------
-  // [{ t: "same" | "del" | "add", text }] over whitespace-split words (a longest common subsequence);
-  // very long texts (over 1,500 words a side) are shown whole, old then new, instead.
-  function diff(a, b) {
-    const A = String(a).split(/\s+/).filter(Boolean), B = String(b).split(/\s+/).filter(Boolean);
-    if (A.length > 1500 || B.length > 1500) return [{ t: "del", text: a }, { t: "add", text: b }];
-    const n = A.length, m = B.length, L = new Uint16Array((n + 1) * (m + 1));
-    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i * (m + 1) + j] = A[i] === B[j] ? L[(i + 1) * (m + 1) + j + 1] + 1 : Math.max(L[(i + 1) * (m + 1) + j], L[i * (m + 1) + j + 1]);
-    const out = [];
-    const push = (t, w) => { const last = out[out.length - 1]; if (last && last.t === t) last.text += " " + w; else out.push({ t, text: w }); };
-    let i = 0, j = 0;
-    while (i < n && j < m) {
-      if (A[i] === B[j]) { push("same", A[i]); i++; j++; }
-      else if (L[(i + 1) * (m + 1) + j] >= L[i * (m + 1) + j + 1]) push("del", A[i++]);
-      else push("add", B[j++]);
-    }
-    while (i < n) push("del", A[i++]);
-    while (j < m) push("add", B[j++]);
-    return out;
-  }
-  function diffEl(a, b) {
-    const el = h("div", "eddiff");
-    for (const d of diff(a, b)) { el.appendChild(h("span", d.t === "same" ? "" : d.t, d.text)); el.appendChild(document.createTextNode(" ")); }
-    return el;
-  }
-
-  // ---- The editor box (the page and the viewer) -------------------------------------------------------
-  // editor(c, p, orig, current, done): a textarea holding `current` (the text as it is now: the edit, or
-  // the original), Save lit only while it differs from that, Cancel. done(saved) when it closes.
-  function editor(c, p, orig, current, done) {
-    const box = h("div", "edbox");
-    const ta = h("textarea", "edta");
-    ta.value = current; ta.spellcheck = true; ta.setAttribute("aria-label", `Paragraph ${p + 1} of ${label(c)}`);
-    ta.rows = Math.min(14, Math.max(3, current.split("\n").length + Math.ceil(current.length / 70)));
-    const msg = h("div", "edmsg", "");
-    const acts = h("div", "edacts");
-    const saveBtn = btn("edbtn edsave", "Save", async () => {
-      if (ta.value === current) return;
-      saveBtn.disabled = true;
-      try { await save(c, p, orig, ta.value); done(true); }
-      catch (e) { msg.textContent = `Not saved: ${e.message}`; log("error", `saving the edit of ${label(c)} ¶ ${p + 1}`, e); saveBtn.disabled = false; }
-    });
-    saveBtn.disabled = true;
-    const cancel = btn("edbtn", "Cancel", () => done(false), "Back to how it was when Edit was pressed");
-    ta.addEventListener("input", () => { saveBtn.disabled = ta.value === current; msg.textContent = ta.value === orig && current !== orig ? "Saving this removes the edit: the paragraph goes back to the original." : ""; });
-    ta.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); } });
-    acts.append(saveBtn, cancel);
-    if (orig !== current) acts.appendChild(h("span", "ednote", "This paragraph is edited; the original is in the Edits viewer (Settings → Edits)."));
-    box.append(ta, acts, msg);
-    setTimeout(() => { try { ta.focus(); } catch (e) {} }, 0);
-    return box;
-  }
-
-  // ---- The viewer window ----------------------------------------------------------------------------
-  const vs = { win: null, editing: "", armed: "", armedAt: 0, msg: "", recs: new Map() };   // recs: c -> chapter record (for the stale check and Play)
-  function openViewer() {
-    vs.win = FLOAT.open("edits", { title: "Edited paragraphs", width: 560, height: 600, onClose: () => { vs.win = null; vs.editing = ""; } });
-    renderViewer();
-    return vs.win;
-  }
-  async function renderViewer() {
-    const w = vs.win;
-    if (!w) return;
-    w.title(`Edited paragraphs${BOOK.title ? " · " + BOOK.title : ""}`);
-    const box = h("div", "edv");
-    const msg = h("div", "edvmsg", vs.msg); msg.hidden = !vs.msg; msg.setAttribute("aria-live", "polite");
-    box.appendChild(msg);
-    const list = all();
-    if (!bookId) box.appendChild(h("div", "edvempty", "No book is open."));
-    else if (!list.length) box.appendChild(h("div", "edvempty", `No edited paragraphs in "${BOOK.title}" yet. Tap a paragraph on the page, then Edit under it.`));
-    else {
-      // The chapters of the edits, read once each (the stale check needs the text as the book has it now).
-      for (const c of new Set(list.map((e) => e.c))) {
-        if (vs.recs.has(c)) continue;
-        const i = BOOK.indexOf(c);
-        let rec = null;
-        if (i >= 0) { try { rec = await BOOK.chapter(i); } catch (e) { log("error", `reading ${label(c)} for the Edits viewer`, e); } }
-        vs.recs.set(c, rec);
-        if (rec) mapFor(rec); else for (const e of byC.get(c).values()) e.stale = true;
-      }
-      if (vs.win !== w) return;
-      box.appendChild(h("div", "edvcount", `${fmt(list.length)} edited paragraph${list.length === 1 ? "" : "s"} in ${fmt(new Set(list.map((e) => e.c)).size)} chapter${new Set(list.map((e) => e.c)).size === 1 ? "" : "s"}.`));
-      for (const e of list) box.appendChild(viewerRow(e));
-    }
-    w.body.replaceChildren(box);
-  }
-  function viewerRow(e) {
-    const key = `${e.c}:${e.p}`;
-    const r = h("div", "edrow" + (e.stale ? " stale" : ""));
-    r.dataset.c = e.c; r.dataset.p = e.p;
-    const rec = vs.recs.get(e.c);
-    r.appendChild(h("div", "edwhere", `${label(e.c)} ¶ ${e.p + 1}${rec && rec.title ? ` · ${rec.title}` : ""}`));
-    if (e.stale) {
-      r.appendChild(h("div", "edstale", rec ? "This edit no longer matches the text: the book was replaced and this paragraph is different now, so the edit is not used." : "This edit no longer matches the text: its chapter is no longer in the book, so the edit is not used."));
-      r.appendChild(h("div", "edlab", "The paragraph the edit was made on:"));
-      r.appendChild(h("div", "edorig", e.orig));
-      r.appendChild(h("div", "edlab", "The edit:"));
-      r.appendChild(h("div", "edtext", e.text === "" ? "(nothing: a pause)" : e.text));
-    } else if (vs.editing === key) {
-      r.appendChild(editor(e.c, e.p, e.orig, e.text, (saved) => { vs.editing = ""; vs.msg = saved ? `Saved: ${label(e.c)} ¶ ${e.p + 1}.` : ""; renderViewer(); }));
-      return r;
-    } else {
-      r.appendChild(diffEl(e.orig, e.text === "" ? "" : e.text));
-      if (e.text === "") r.appendChild(h("div", "edlab", "Edited to nothing: the paragraph is a half-second pause."));
-    }
-    const acts = h("div", "edacts");
-    if (!e.stale) {
-      acts.appendChild(btn("edbtn", "Play", () => playFrom(e.c, e.p), "Read from this paragraph (its sound is made again when the text changed)"));
-      acts.appendChild(btn("edbtn", "Edit", () => { vs.editing = key; vs.armed = ""; renderViewer(); }));
-    }
-    const armed = vs.armed === key && Date.now() - vs.armedAt < 8000;
-    acts.appendChild(btn("edbtn eddel" + (armed ? " armed" : ""), armed ? "Delete now?" : "Delete", () => delTap(e, key), "Remove this edit: the paragraph goes back to the original"));
-    r.appendChild(acts);
-    return r;
-  }
-  async function delTap(e, key) {
-    if (vs.armed !== key || Date.now() - vs.armedAt > 8000) {
-      vs.armed = key; vs.armedAt = Date.now();
-      vs.msg = `Delete the edit of ${label(e.c)} ¶ ${e.p + 1}: the paragraph goes back to the original. Tap Delete again to delete it.`;
-      renderViewer();
-      setTimeout(() => { if (vs.armed === key && Date.now() - vs.armedAt >= 8000) { vs.armed = ""; vs.msg = ""; renderViewer(); } }, 8100);
-      return;
-    }
-    vs.armed = "";
-    try { await remove(e.c, e.p); vs.msg = `Deleted the edit of ${label(e.c)} ¶ ${e.p + 1}; the original is back.`; }
-    catch (x) { vs.msg = `Deleting failed: ${x.message}`; log("error", "deleting an edit", x); }
-    renderViewer();
-  }
-  // Play from a paragraph: the page goes there (a jump while reading, the start for Play when stopped).
-  function playFrom(c, p) {
-    const i = BOOK.indexOf(c);
-    if (i < 0) { vs.msg = `${label(c)} is not in the book any more.`; renderViewer(); return; }
-    READER.go(i, { p });
-    if (PLAYER.state === "stopped") PLAYER.play();
-  }
-
-  // ---- The downloads ----------------------------------------------------------------------------------
-  // One zip of .txt files in the book's format: line 1 the title (not for a chapter whose title is its
-  // file name), a blank line, the paragraphs separated by blank lines; the edits applied where they still
-  // match. all: every chapter; else only the chapters with an edit that applies. target: the save
-  // picker's promise (from the click), or null for a download. progress(n, total). Gives { files, bytes, how }.
-  const safe = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
-  function fileName(i, rec) {
-    const t = safe(rec.title) || `Chapter ${rec.c}`;
-    if (BOOK.numbered) return `${rec.c} - ${t}.txt`;
-    if (BOOK.kind === "files") return `${t}.txt`;
-    return `${String(i + 1).padStart(String(BOOK.count).length, "0")} - ${t}.txt`;
-  }
-  function chapterText(rec) {
-    const map = mapFor(rec) || {};
-    const paras = rec.text.map((t, p) => (map[p] !== undefined ? map[p] : t));
-    return (rec.heading === false ? "" : rec.title + "\n\n") + paras.join("\n\n") + "\n";
-  }
-  async function download(all, target, progress) {
-    if (!bookId) throw new Error("no book is open");
-    if (target) target.catch(() => {});          // a refusal (cancelled, no gesture) is reported when it is awaited below, not as an unhandled rejection meanwhile
-    if (target && hooks.blob) target = null;
-    const which = all ? BOOK.index().map((e, i) => i) : BOOK.index().map((e, i) => (byC.has(e.c) ? i : -1)).filter((i) => i >= 0);
-    const name = `${safe(BOOK.title) || "Book"}${all ? "" : " - edited chapters"}.zip`;
-    const parts = [], enc = new TextEncoder();
-    const w = ZIPWRITE.writer((part) => { parts.push(part); });
-    let files = 0, skipped = 0;
-    for (let k = 0; k < which.length; k++) {
-      const i = which[k], rec = await BOOK.chapter(i);
-      if (!rec) { skipped++; log("error", `download: ${BOOK.label(i)} is missing from storage; left out`); continue; }
-      if (!all && !mapFor(rec)) continue;        // only stale edits here: nothing changed in this chapter
-      const bytes = enc.encode(chapterText(rec));
-      await w.add(fileName(i, rec), bytes, bytes.length, ZIPWRITE.crc32(bytes));
-      files++;
-      if (progress && (k % 25 === 0 || k === which.length - 1)) { progress(k + 1, which.length); await new Promise((r) => setTimeout(r, 0)); }
-    }
-    const r = await w.finish();
-    const blob = new Blob(parts, { type: "application/zip" });
-    let how;
-    if (hooks.blob) { hooks.blob(blob, name); how = "taken by the test"; }
-    else if (target) {
-      const handle = await target;
-      const ws = await handle.createWritable();
-      try { await ws.write(blob); await ws.close(); } catch (e) { try { await ws.abort(); } catch (x) {} throw e; }
-      how = `saved as ${handle.name || name}`;
-    } else {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob); a.download = name; a.hidden = true;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 600000);
-      how = `offered as a download (${name})`;
-    }
-    log("edits", `download: ${all ? "every chapter" : "the changed chapters"} of "${BOOK.title}": ${fmt(files)} file${files === 1 ? "" : "s"}, ${(r.bytes / 1e3).toFixed(0)} KB, ${how}${skipped ? `; ${skipped} missing from storage left out` : ""}`);
-    return { files, bytes: r.bytes, how, name, skipped };
-  }
-  // The save picker, where the browser has one (Chrome on a computer); call it straight from a click.
-  const savePicker = (all) => (typeof g.showSaveFilePicker === "function"
-    ? g.showSaveFilePicker({ suggestedName: `${safe(BOOK.title) || "Book"}${all ? "" : " - edited chapters"}.zip`, types: [{ description: "Zip of text files", accept: { "application/zip": [".zip"] } }] })
-    : null);
-
-  // The viewer follows every change (and a book switch, through load).
-  listeners.push(() => { vs.recs.clear(); if (vs.win) renderViewer(); });
-
-  g.EDITS = {
-    load, get, all, count, mapFor, save, remove, clearAll, diff, editor, download, savePicker, hooks,
-    open: openViewer, close: () => FLOAT.close("edits"), render: renderViewer,
-    onChange: (fn) => { listeners.push(fn); },
-    get book() { return bookId; },
-    get chapters() { return byC.size; },
-    get viewer() { return vs.win; },
-  };
-})();
-</script>
-<script>
 // reader.js: the reader page. Shows the current chapter (title, one <p> per paragraph with its index),
 // the top bar's chapter navigation (previous, number box with the chapter list, Go, next; left and
 // right arrow keys), the empty state when no book is open (the Open window, library.js, brings books
@@ -3338,17 +2994,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     fitName();
     title.textContent = rec.title;
     const frag = document.createDocumentFragment();
-    // The edits (edits.js): the page shows the edit (the "Show what is spoken" setting, the default) or
-    // the original; an edited paragraph is marked either way, and one showing its original keeps the
-    // word tint off (data-orig: the voice reads other text). A stale edit is not applied.
-    const edits = EDITS.mapFor(rec) || {}, spoken = SETTINGS.get("showSpoken");
-    editing = null; tools = null;
     rec.text.forEach((t, i) => {
       const p = document.createElement("p");
       p.dataset.i = i;
-      const e = edits[i];
-      p.textContent = spoken && e !== undefined ? e : t;
-      if (e !== undefined) { p.classList.add("edited"); if (!spoken) p.dataset.orig = "1"; }
+      p.textContent = t;
       frag.appendChild(p);
     });
     if (!rec.text.length) { const p = document.createElement("p"); p.className = "empty"; p.textContent = "(this chapter has no text)"; frag.appendChild(p); }
@@ -3371,8 +3020,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const token = ++showing;
     let rec = null;
     try { rec = await BOOK.chapter(i); } catch (e) { log("error", `${BOOK.label(i)} would not load`, e); say(`${BOOK.label(i)} could not be read from storage: ${e.message}`); return; }
-    if (token !== showing) return;
-    if (EDITS.book !== BOOK.current) { try { await EDITS.load(BOOK.current); } catch (e) { log("error", `the edits of "${BOOK.title}" could not be read`, e); say(`The edits of "${BOOK.title}" could not be read from storage: ${e.message}. The book is shown without them.`, 15000); } }
     if (token !== showing) return;
     if (!rec) { say(`${BOOK.label(i)} of "${BOOK.title}" is missing from storage. Add the book again (it replaces the stored copy and keeps your place).`, 15000); log("error", `${BOOK.label(i)} of "${BOOK.title}" is missing from storage`); return; }
     cur = i;
@@ -3418,73 +3065,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   function markPara() {
     for (const p of paragraphs()) p.classList.toggle("current", Number(p.dataset.i) === para);
     title.classList.toggle("current", para === -1);
-    placeTools();
   }
-
-  // ---- Edit / Save / Cancel on the page (edits.js, step 9) -------------------------------------------
-  // The current (tapped) paragraph gets a small tool row under it: Edit, and when it is edited, Remove
-  // edit (two taps). Edit hides the paragraph and puts the editor box in its place: Save (only while the
-  // text differs) stores the edit and the chapter is drawn again; Cancel puts back what was there when
-  // Edit was pressed. The chapter title is not editable.
-  let tools = null, editing = null;       // editing: { p, el, box }
-  let armedRemove = 0;
-  function placeTools() {
-    if (tools) { tools.remove(); tools = null; }
-    if (editing || para < 0 || cur < 0 || !curRec) return;
-    const el = paragraphs()[para];
-    if (!el) return;
-    const c = curRec.c, e = EDITS.get(c, para), applied = e && !e.stale;
-    tools = document.createElement("div");
-    tools.className = "edtools";
-    tools.dataset.for = para;
-    const mk = (cls, text, fn, title) => { const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = text; if (title) b.title = title; b.addEventListener("click", (ev) => { ev.stopPropagation(); fn(); }); return b; };
-    tools.appendChild(mk("edbtn", "Edit", () => startEdit(para), "Change the text the voice reads for this paragraph (the original book is never changed)"));
-    if (applied) {
-      const armed = armedRemove && Date.now() - armedRemove < 8000;
-      tools.appendChild(mk("edbtn eddel" + (armed ? " armed" : ""), armed ? "Remove now?" : "Remove edit", () => removeEdit(para), "Back to the original paragraph"));
-      tools.appendChild(Object.assign(document.createElement("span"), { className: "ednote", textContent: SETTINGS.get("showSpoken") ? "edited" : "edited; the original is shown (Settings → Edits)" }));
-    } else if (e && e.stale) tools.appendChild(Object.assign(document.createElement("span"), { className: "ednote", textContent: "an old edit of this paragraph no longer matches the text and is not used (Settings → Edits)" }));
-    el.after(tools);
-  }
-  function startEdit(p) {
-    const el = paragraphs()[p];
-    if (!el || !curRec || editing) return;
-    const orig = curRec.text[p], e = EDITS.get(curRec.c, p), current = e && !e.stale ? e.text : orig;
-    if (tools) { tools.remove(); tools = null; }
-    const box = EDITS.editor(curRec.c, p, orig, current, (saved) => {
-      if (editing && editing.box === box) { box.remove(); el.hidden = false; editing = null; }
-      if (!saved) { placeTools(); say("Edit cancelled: the paragraph is as it was."); }
-    });
-    editing = { p, el, box };
-    el.hidden = true;
-    el.after(box);
-    log("edits", `editing ${BOOK.label(cur)} ¶ ${p + 1}`);
-  }
-  async function removeEdit(p) {
-    if (!armedRemove || Date.now() - armedRemove > 8000) {
-      armedRemove = Date.now();
-      say("Tap Remove again to drop this edit: the paragraph goes back to the original.");
-      placeTools();
-      setTimeout(() => { if (armedRemove) { armedRemove = 0; placeTools(); } }, 8000);
-      return;
-    }
-    armedRemove = 0;
-    try { await EDITS.remove(curRec.c, p); say("Edit removed: the paragraph is back to the original."); }
-    catch (e) { say(`The edit could not be removed: ${e.message}`, 12000); log("error", "removing an edit", e); }
-  }
-  // The chapter drawn again (an edit saved or removed, "Show what is spoken" changed): the same
-  // paragraph and screen place.
-  function redraw() {
-    if (cur < 0 || !curRec) return;
-    const y = scrollY;
-    render(curRec);
-    buildPieces(curRec);
-    markPara();
-    scrollTo(0, y);
-    HIGHLIGHT.refresh(pieces, (id) => (PLAYER.made(id) && PLAYER.made(id).done ? { flags: PLAYER.made(id).chunks.map((c) => c.dur != null), spans: PLAYER.made(id).spans } : null));
-    if (globalThis.LISTENER && LISTENER.redraw) LISTENER.redraw();
-  }
-  EDITS.onChange((what, v) => { if (cur >= 0 && curRec && (!v || v.c === curRec.c)) redraw(); else placeTools(); });
   function setPara(i, scroll) {
     const ps = paragraphs();
     if (!ps.length) return;
@@ -3652,7 +3233,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   function closeBook() {
     if (BOOK.row) log("book", `"${BOOK.title}" closed`);
     showEmpty("");
-    EDITS.load(null);
     emit("book", null);
   }
   function refreshTitle() { if (cur >= 0) { document.title = `${shortName(cur)} — ${BOOK.title || "Book reader"}`; } }
@@ -3689,8 +3269,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   globalThis.READER = {
-    start, applyLook, say, go, openBook, closeBook, refreshTitle, redraw,
-    get editing() { return editing ? editing.p : -1; },
+    start, applyLook, say, go, openBook, closeBook, refreshTitle,
     showImport: () => LIBRARY.open(),                              // the old name (Settings → Book, Storage)
     noteAdded: (list) => emit("added", list),
     get chapter() { return cur; },
@@ -3813,7 +3392,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   async function del(b) {
     if (st.armed !== b.id || Date.now() - st.armedAt > 8000) {
       st.armed = b.id; st.armedAt = Date.now();
-      say(`Delete "${b.title}": ${fmt(b.chapters)} chapter${b.chapters === 1 ? "" : "s"}, ${MB(b.bytes)}, your place in it and its edits. Tap Delete again to delete it.`);
+      say(`Delete "${b.title}": ${fmt(b.chapters)} chapter${b.chapters === 1 ? "" : "s"}, ${MB(b.bytes)}, and your place in it. Tap Delete again to delete it.`);
       render();
       setTimeout(() => { if (st.armed === b.id && Date.now() - st.armedAt >= 8000) { st.armed = ""; if (st.mode === "list") render(); } }, 8100);
       return;
@@ -6825,7 +6404,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const x = piece.parts[part];
     if (!x || x.para < 0) return;
     const el = paraEl(x.para), w = wordsOf(x.text)[i];
-    if (el && el.dataset.orig) return;          // the original is shown while an edit is read (edits.js): no tint on other text
     const node = el && el.firstChild;
     if (!w || !node || node.nodeType !== 3 || node.length < x.from + w.to) return;
     const r = document.createRange();
@@ -6977,7 +6555,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // fit check, export lists, watchdogs) on Transformers.js 4.3.1 / ORT 1.31, the runtime Supertonic and the
 // Kokoro newer engine share (MODELS.RUNTIME, one owner in Voice data: EFF-15).
 //
-// Settings: listenerOn (null = automatic: on for Supertonic, off for Kokoro, Piper and the browser voices,
+// Settings: listenerOn (off by default since 2026-10-20; on only when chosen,
 // whose re-roll would give the same sound), listener ("whisper-base:gpu" / "parakeet:gpu" /
 // "moonshine-tiny:cpu"), listenMode (null = automatic: "before" for Supertonic, else "play"): "play" =
 // check while it plays (marks only), "before" = check before reading (each chunk waits until it has been
@@ -7104,7 +6682,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const engineOf = (v) => { const p = g.ENGINE.parse(S(v, "voice")); return g.ENGINE.get(p.engine); };
   const isModel = (E) => !!(E && typeof E.files === "function");
   const seeded = (E) => !!(E && E.can && E.can.reroll);
-  function enabled(v) { const on = S(v, "listenerOn"); return on == null ? seeded(engineOf(v)) : !!on; }   // automatic: on for a seed-based voice (Supertonic)
+  function enabled(v) { return !!S(v, "listenerOn"); }   // off by default, on only when chosen (Jon, 2026-10-20)
   function mode(v) { const m = S(v, "listenMode"); return m === "play" || m === "before" ? m : seeded(engineOf(v)) ? "before" : "play"; }
   const choice = (v) => byId(S(v, "listener")) || LIST[0];
   // Why the listener cannot check with these settings ("" = it can).
@@ -9517,18 +9095,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     }
     if (names.includes("backgroundPlay") && state !== "stopped") status(`Background playback ${SETTINGS.get("backgroundPlay") ? "on" : "off"} from the next Play.`);
   }
-  // A paragraph was edited (edits.js): the pieces of its chapter change, so a reading that has that
-  // chapter prepared stops, saying so, and everything made goes; stopped, the lists are just dropped so
-  // the next Play cuts them afresh (the page's own pieces are rebuilt by reader.js first).
-  EDITS.onChange((what, v) => {
-    const ch = v ? BOOK.indexOf(v.c) : -1;
-    if (state !== "stopped") {
-      if (v && !lists.has(ch)) return;                       // a chapter not prepared yet: it is cut afresh when its turn comes
-      stop(`Stopped: the text was edited${v ? ` (${BOOK.label(ch)} ¶ ${v.p + 1})` : ""}. Press Play to continue with the new text.`);
-    }
-    reset();
-    HIGHLIGHT.refresh(READER.pieces, () => null);
-  });
   READER.onChange((what, v) => {
     if (what === "para") { if (state === "stopped") { last = null; forgetReading(); } else if (!moving) jumpToPara(READER.chapter, v, "tap"); }
     else if (what === "chapter") {
@@ -9631,7 +9197,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // settingswin.js: the Settings window (SETTINGS.md), opened by the gear in the top bar. A floating
 // window (float.js: move, resize, a scroll bar when needed, kept on screen, its size and place
 // remembered) with the tabs in four groups across the top, in SETTINGS.md's order: Reading (Book ·
-// Reading · Text) | Sound (Voice · Word highlight · Listener · Voice data) | Edits | System
+// Reading · Text) | Sound (Voice · Word highlight · Listener · Voice data) | System
 // (Background · Storage · Debug; Storage is storagetab.js), and the buttons above them.
 // LIVE vs APPLY (Jon, 2026-10-20, job 1): the light settings (LIVE: theme, text size, UI size, speed,
 // volume, title first, continue, word timing, scroll pause, keep-alive ×2, screen awake, debug view, log
@@ -9651,7 +9217,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // voice's files only after the new ones are in and the Save is written; a write the browser refuses
 // says "Not saved" and keeps the changes pending), Delete downloaded voices (N MB) (was Clear data:
 // deletes only the big re-downloadable files, voice
-// models and libraries, through MODELS.remove; never the book, edits, settings or logs; the first tap
+// models and libraries, through MODELS.remove; never the book, settings or logs; the first tap
 // says what would go, the second deletes and says what went) and a big ✕ Exit. Changing a heavy control
 // loads nothing: changes wait in `pending` (a dot on the tab and its group,
 // the Save button lit) until Save writes them in one go (SETTINGS.update: one settings log line) and
@@ -9673,18 +9239,18 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // left-edge diagnostics, highlight.js), the log viewer (logwin.js, embedded, with the Log types fold),
 // the past logs with Clear (two taps), the version and This device; the Log button in the button row
 // opens the same viewer in its own window (UX-09: it left the top bar; the ? button stays there). The
-// Edits tab is editstab.js (step 9: "Show what is spoken" is live) and the Voice data tab is
-// datatab.js, both added through SETTINGSWIN.addTab with the builders in SETTINGSWIN.ui. A progress bar
+// Voice data tab is datatab.js and the Storage tab storagetab.js, both added through SETTINGSWIN.addTab
+// with the builders in SETTINGSWIN.ui. A progress bar
 // under the message line shows files being taken or downloaded.
 // SETTINGSWIN.open / close / show(group, tab) / save / clearData / choose / pending / tab, for the tests.
 (function () {
   const S = globalThis.SETTINGS;
-  const GROUPS = [["Reading", ["Book", "Reading", "Text"]], ["Sound", ["Voice", "Word highlight", "Listener", "Voice data"]], ["Edits", ["Edits"]], ["System", ["Background", "Storage", "Debug"]]];
+  const GROUPS = [["Reading", ["Book", "Reading", "Text"]], ["Sound", ["Voice", "Word highlight", "Listener", "Voice data"]], ["System", ["Background", "Storage", "Debug"]]];
   const OWNS = {
     Book: ["skipWatermarks", "watermarkRules"], Reading: ["speed", "volume", "readTitle", "continueChapters", "theme", "textSize", "uiSize"],
     Text: ["spelling", "capsAsWords", "numbersToWords", "joinShort"], Voice: ["voice", "kokoroEngine", "runOn", "precision", "pace", "steps", "copies", "speaker", "burst"],
     "Word highlight": ["wordTiming"], Listener: ["listenerOn", "listener", "listenMode", "reroll"], "Voice data": ["offline", "slim"], Background: ["backgroundPlay", "keepAlive", "keepAliveIdle", "holdOnScroll", "screenAwake"],
-    Debug: ["debugView", "detailedMarks", "logTypesOff"], Edits: ["showSpoken"],
+    Debug: ["debugView", "detailedMarks", "logTypesOff"],
   };
   const LABELS = {
     skipWatermarks: "Skip website watermarks", watermarkRules: "Watermark rules", speed: "Speed", volume: "Volume", readTitle: "Read the chapter title first",
@@ -9694,13 +9260,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     backgroundPlay: "Background playback", keepAlive: "Keep-alive sound", keepAliveIdle: "Keep-alive while stopped or paused", screenAwake: "Keep the screen awake",
     offline: "Offline mode", slim: "Slim mode", kokoroEngine: "Engine", holdOnScroll: "Pause making sound while I scroll",
     listenerOn: "Listener", listener: "Listener model", listenMode: "Word check timing", reroll: "Re-roll faulty chunks",
-    debugView: "Debug view", detailedMarks: "Detailed marks (diagnostics)", logTypesOff: "Log types", showSpoken: "Show what is spoken",
+    debugView: "Debug view", detailedMarks: "Detailed marks (diagnostics)", logTypesOff: "Log types",
   };
   // Saved and applied the moment they change (Jon, 2026-10-20). Everything else a tab owns waits for Apply.
-  const LIVE = ["theme", "textSize", "uiSize", "speed", "volume", "readTitle", "continueChapters", "wordTiming", "holdOnScroll", "keepAlive", "keepAliveIdle", "screenAwake", "debugView", "detailedMarks", "logTypesOff", "showSpoken"];
+  const LIVE = ["theme", "textSize", "uiSize", "speed", "volume", "readTitle", "continueChapters", "wordTiming", "holdOnScroll", "keepAlive", "keepAliveIdle", "screenAwake", "debugView", "detailedMarks", "logTypesOff"];
   const HEAVY = new Set(Object.values(OWNS).flat().filter((n) => !LIVE.includes(n)));
   const APPLY_NOTE = "Applies when you press Apply";
-  const LATER = {};                                         // tabs not built yet (none since step 9); editstab.js, datatab.js and storagetab.js add theirs
+  const LATER = {};                                         // tabs not built yet (none); datatab.js and storagetab.js add theirs
   const FILE_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "offline", "listenerOn", "listener"];   // a change here may need model files
   const MEM_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "copies", "listenerOn", "listener"];     // a change here may change the working memory (D3)
   const pending = new Map();                                // name -> the value not saved yet; kept while the window is closed
@@ -10117,7 +9683,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (rec && rec.scores) {
       const s = rec.scores, c = rec.ceiling, sg = rec.suggestion;
       // The outcome first, in plain words; the numbers under a fold.
-      if (sg) line(`Suggested: ${sg.setup.label} (${PLAIN[sg.level] || sg.level}), word highlight ${sg.highlight === "off" ? "off" : "on"}.`);
+      if (sg) line(`Suggested: ${sg.setup.label} (${PLAIN[sg.level] || sg.level}).`);
       else line("Suggested: nothing. No model voice keeps up here and the browser lists no voices of its own.", true);
       for (const p of rec.predictions || []) if (p.measured) line(`Full benchmark: ${p.label} measured ${r1(p.x)}× real time (predicted ${r1(p.predicted)}×).`);
       line(`Last check: ${LOG.when(rec.when)} with ${rec.version || "an earlier version"}${rec.choice ? ` · chosen: ${{ suggested: "Good enough", default: "Default", skip: "Skip" }[rec.choice] || rec.choice}` : ""}.`);
@@ -10140,12 +9706,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // The Listener tab (step 8a): on / off, which listener, when to check, re-roll; what runs where.
   // Choices that don't apply are greyed with the reason but stay selectable (Jon: never locked).
   function listenerTab(body) {
-    const a = after(), E = engineOf(a.voice), auto = a.listenerOn == null, on = LISTENER.enabled(a), no = LISTENER.cannot(a);
-    const t = toggle("listenerOn", "Listener", `Listens to each chunk of sound the voice makes and marks under the paragraph any words that are missing, added or spelled differently from the text.${auto ? ` Automatic: ${on ? "on" : "off"} for ${E ? E.name : "this voice"} (on for Supertonic, off for the other voices).` : ""}`, no ? `cannot check this voice: ${no}` : "");
+    const a = after(), E = engineOf(a.voice), on = LISTENER.enabled(a), no = LISTENER.cannot(a);
+    const t = toggle("listenerOn", "Listener", "Listens to each chunk of sound the voice makes and marks under the paragraph any words that are missing, added or spelled differently from the text. Off by default.", no ? `cannot check this voice: ${no}` : "");
     const inp = t.querySelector("input"); inp.checked = on; inp.disabled = false;
-    // Once chosen, both rows can go back to Automatic (null), as Steps and Copies can (D11).
+    // Once chosen, Word check timing can go back to Automatic (null), as Steps and Copies can (D11).
     const autoLink = (name, what) => button("slink sauto", `Back to Automatic (${what})`, () => { change(name, null); rerender(); });
-    if (!auto) t.querySelector(".slab").appendChild(autoLink("listenerOn", "on for Supertonic, off for the other voices"));
     body.appendChild(t);
     if (!caps && !capsAsked) askCaps();
     const gpuOff = caps && !caps.ok ? (caps.why || "no graphics card here") : "";
@@ -10176,7 +9741,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const save = button("save", "Apply", () => saveClick());
     save.title = "Apply the changes marked \"Applies when you press Apply\" (the other settings apply the moment you change them)";
     const clear = button("clear", clearLabel(), clearData);
-    clear.title = "Delete the downloaded voice and listener files (they download again when needed; never the book, edits, settings or logs)";
+    clear.title = "Delete the downloaded voice and listener files (they download again when needed; never the book, settings or logs)";
     const logBtn = button("log", "Log", () => LOGWIN.open());
     logBtn.title = "The log in its own window: what the reader has done this visit, and the logs of earlier visits";
     const exit = button("exit", "✕ Exit", () => { if (win) win.close(); });
@@ -10386,7 +9951,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (has("offline") && globalThis.MODELS && MODELS.syncOffline) MODELS.syncOffline();     // the workers too (D15)
     if (has("debugView") && globalThis.DEBUGVIEW) DEBUGVIEW.apply();
     if (has("logTypesOff") && globalThis.LOGWIN) LOGWIN.filterChanged();
-    if (has("showSpoken")) READER.redraw();                  // the page shows the edits or the originals (edits.js)
     HIGHLIGHT.settingsChanged(names);                        // the marks' mode and the open Key window (UX-16)
     PLAYER.settingsChanged(names);
   }
@@ -10410,7 +9974,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     let files;
     try { files = await MODELS.stored(); } catch (e) { say(`The file store could not be read: ${e.message}`); return; }
     storedBytes = files.reduce((n, f) => n + (f.size || 0), 0);
-    if (!files.length) { disarm(); say("Nothing to delete: no voice or listener files are stored. The book, edits, settings and logs are never deleted here."); return; }
+    if (!files.length) { disarm(); say("Nothing to delete: no voice or listener files are stored. The book, settings and logs are never deleted here."); return; }
     const bytes = storedBytes;
     const groups = new Map();
     for (const f of files) { const o = ownerOf(f); groups.set(o, (groups.get(o) || 0) + (f.size || 0)); }
@@ -10418,14 +9982,14 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (!armed || Date.now() - armed > 8000) {
       armed = Date.now();
       el.clear.textContent = `Tap again to delete ${MODELS.MB(bytes)}`;
-      say(`${files.length} stored file${files.length === 1 ? "" : "s"}, ${MODELS.MB(bytes)}: ${list}. Tap again to delete them; a voice downloads them again when it needs them (offline: from Voice_data.zip). The book, edits, settings and logs stay.`);
+      say(`${files.length} stored file${files.length === 1 ? "" : "s"}, ${MODELS.MB(bytes)}: ${list}. Tap again to delete them; a voice downloads them again when it needs them (offline: from Voice_data.zip). The book, settings and logs stay.`);
       setTimeout(() => { if (el && armed) disarm(); }, 8000);
       return;
     }
     disarm();
     try {
       const n = await MODELS.remove(files.map((f) => f.url));
-      say(`Deleted ${n} file${n === 1 ? "" : "s"} (${MODELS.MB(bytes)}): ${list}. The book, edits, settings and logs are untouched; a voice downloads its files again at the next Play.`);
+      say(`Deleted ${n} file${n === 1 ? "" : "s"} (${MODELS.MB(bytes)}): ${list}. The book, settings and logs are untouched; a voice downloads its files again at the next Play.`);
     } catch (e) { say(`Deleting failed: ${e.message}`); }
     refreshClear();
     rerenderIf("Voice data");
@@ -10484,59 +10048,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     get tab() { return { group, tab }; },
     get window() { return win; },
   };
-})();
-</script>
-<script>
-// editstab.js: Settings → Edits (SETTINGS.md "Edits group"; the edits themselves are edits.js). The
-// "Show what is spoken" switch (live: on, the page shows each edited paragraph as the voice reads it;
-// off, the original text, the edit still read), the Edited paragraphs viewer button (edits.js's
-// window), a line with the open book's edit count, and the two downloads for the open book: the changed
-// chapters, or every chapter, as one zip of .txt files in the book's format (the save picker where the
-// browser has one, asked in the click; else a download). A download with nothing to give says why.
-(function () {
-  const W = globalThis.SETTINGSWIN;
-  if (!W) return;
-  const U = W.ui, h = U.h;
-  const st = { running: "" };
-  const shown = () => W.isOpen && W.tab.tab === "Edits";
-  const redo = () => { if (shown()) U.rerender(); };
-  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
-
-  function render(body) {
-    body.appendChild(U.toggle("showSpoken", "Show what is spoken", "On: the page shows each edited paragraph as the voice reads it. Off: the page shows the original text (the voice still reads the edit, and the word highlight is off on those paragraphs). An edited paragraph is marked either way."));
-    const n = EDITS.count(), ch = EDITS.chapters, book = BOOK.title;
-    const box = h("div", "sfit");
-    box.appendChild(h("div", "sline", !BOOK.current ? "No book is open." : n ? `"${book}": ${fmt(n)} edited paragraph${n === 1 ? "" : "s"} in ${fmt(ch)} chapter${ch === 1 ? "" : "s"}.` : `"${book}": no edited paragraphs yet. Tap a paragraph on the page, then Edit under it.`));
-    box.appendChild(U.button("sbtn", "Edited paragraphs viewer", () => { EDITS.open(); }));
-    body.appendChild(U.row("Edited paragraphs", "A movable window listing every edited paragraph of the open book with its place and the change highlighted. Each one: Play (its sound is made again when the text changed), Edit / Cancel, Delete (back to the original).", box, { block: true }));
-    const dl = h("div", "sfit");
-    dl.appendChild(h("div", "sline", st.running || "The original book is never changed; a download writes the text with the edits in, as .txt files in the book's format."));
-    const b1 = U.button("sbtn", `Download changed chapters${BOOK.current ? ` (${fmt(ch)})` : ""}`, () => download(false));
-    const b2 = U.button("sbtn", `Download all chapters${BOOK.current ? ` (${fmt(BOOK.count)})` : ""}`, () => download(true));
-    b1.disabled = b2.disabled = !!st.running;
-    const btns = h("div", "sbtnrow");
-    btns.append(b1, b2);
-    dl.appendChild(btns);
-    body.appendChild(U.row("Download", "One zip: the chapters with an edit, or the whole book with the edits in.", dl, { block: true }));
-  }
-  function download(all) {
-    if (st.running) { U.say(`${st.running} Wait for it to finish.`); return; }
-    if (!BOOK.current) { U.say("No book is open: nothing to download. Open one from the Open button (top left)."); return; }
-    if (!all && !EDITS.chapters) { U.say(`"${BOOK.title}" has no edited chapters, so there is nothing to download here. Download all chapters gives the whole book.`); return; }
-    let target = null;
-    try { target = EDITS.savePicker(all); } catch (e) { target = null; }
-    st.running = `Writing the zip of ${all ? "every chapter" : "the changed chapters"}…`;
-    U.say(st.running);
-    redo();
-    EDITS.download(all, target, (k, n) => U.progress(`Writing the zip: ${fmt(k)} of ${fmt(n)} chapters`, k / n)).then(
-      (r) => { U.say(`Downloaded ${all ? "every chapter" : "the changed chapters"} of "${BOOK.title}": ${fmt(r.files)} file${r.files === 1 ? "" : "s"}, ${(r.bytes / 1e3).toFixed(0)} KB, ${r.how}.${r.skipped ? ` ${r.skipped} chapter${r.skipped === 1 ? " was" : "s were"} missing from storage and left out (the log names them).` : ""}`); },
-      (e) => { const cancelled = e && e.name === "AbortError"; U.say(cancelled ? "Download cancelled: no zip was written." : `The download failed: ${e.message}`); if (!cancelled) log("error", "the edits download failed", e); })
-      .finally(() => { st.running = ""; U.progress(""); redo(); });
-  }
-
-  W.addTab("Edits", render);
-  EDITS.onChange(() => redo());
-  globalThis.EDITSTAB = { render, download, get running() { return st.running; } };
 })();
 </script>
 <script>
@@ -10917,7 +10428,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // never listed, counted or deleted here. What is looked at: localStorage keys, IndexedDB databases
 // (indexedDB.databases(); where a browser lacks it, the reader's own br1-book and br1-logs) and Cache API
 // caches. Grouped: Books (br1-book: a row per stored book with its chapters and size; the reading
-// places br1-pos-<id> / br1-reading-<id>, br1-current, br1-library-kept) · Edits (br1-edits*: step 9; "none yet") · Voice and listener files (br1-models, by owner
+// places br1-pos-<id> / br1-reading-<id>, br1-current, br1-library-kept) · Voice and listener files (br1-models, by owner
 // from voicedata.js) · Settings (br1-settings and every other br1- key: window places, the lock; each
 // with a "show" fold of its JSON) · Logs (br1-logs: past logs, lines) · Device results (br1-device,
 // br1-memory-ceiling, br1-memory-probe, br1-step / br1-step-stopped: log.js's self-test step marks) · Other (a br1- name this version does not know). Within a group
@@ -10927,14 +10438,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // the defaults (applied at once); logs → the past logs (this visit's stays: it is still being written);
 // voice files → MODELS.remove (they download again). Then the total, the browser's used / quota line
 // and whether the storage is persisted; Refresh looks again. Sizes are estimates (a record's JSON
-// length; a stored file's real size). STORED.survey() / remove(id) for the tests.
+// length; a stored file's real size). At the top, Delete all storage (Jon, 2026-10-20): every br1- name
+// of every kind in one go, two taps, then the page reloads as on a first run. STORED.survey() /
+// remove(id) / removeAll() for the tests (STORED.hooks.reload = false keeps the page).
 (function () {
   const W = globalThis.SETTINGSWIN;
   if (!W) return;
   const U = W.ui, h = U.h;
   const P = (globalThis.APP_KEY || "br1") + "-";
   const mine = (name) => typeof name === "string" && name.startsWith(P);
-  const st = { data: null, scanning: null, armed: "", armedAt: 0, open: new Set() };
+  const st = { data: null, scanning: null, armed: "", armedAt: 0, open: new Set(), hooks: { reload: true } };   // hooks.reload: the tests keep the page
   const shown = () => W.isOpen && W.tab.tab === "Storage";
   const redo = () => { if (shown()) U.rerender(); };
   const line = (text, bad) => h("div", "sline" + (bad ? " bad" : ""), text);
@@ -10966,11 +10479,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       r.onerror = () => res(null);
       r.onsuccess = () => {
         const db = r.result, names = Array.from(db.objectStoreNames), out = { bytes: 0, count: 0, stores: {}, meta: null, books: [] };
-        const done = () => {
-          try { db.close(); } catch (e) {}
-          if (out.edits) out.editsBy = Array.from(out.edits, ([id, n]) => [(out.books.find((b) => b.id === id) || {}).title || `a book no longer stored (${id})`, n]);
-          res(out);
-        };
+        const done = () => { try { db.close(); } catch (e) {} res(out); };
         if (!names.length) return done();
         let t;
         try { t = db.transaction(names, "readonly"); } catch (e) { return done(); }
@@ -10983,7 +10492,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
             const b = sizeOf(c.value) + sizeOf(c.key);
             one.count++; one.bytes += b; out.count++; out.bytes += b;
             if (s === "books" && c.value && c.value.id) out.books.push({ id: c.value.id, title: c.value.title || "", chapters: c.value.chapters || 0, bytes: c.value.bytes || 0 });
-            if (s === "edits" && c.value) (out.edits = out.edits || new Map()).set(c.value.book, (out.edits.get(c.value.book) || 0) + 1);
             c.continue();
           };
         }
@@ -11006,8 +10514,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // The groups in the order shown. kind: "ls" (localStorage), "db", "cache".
   const DEVICE = [P + "device", P + "memory-ceiling", P + "memory-probe", P + "step", P + "step-stopped"];
   const GROUPS = [
-    { id: "book", title: "Books", help: "Every stored book: its chapters, your reading place in it and its edits. Delete removes them all and leaves the page empty; the Open window (top left) deletes one book at a time, or adds books again." },
-    { id: "edits", title: "Edits", help: "Your edited paragraphs (every book), kept apart from the book's text in the same database. Delete removes every edit; the original books are never changed." },
+    { id: "book", title: "Books", help: "Every stored book: its chapters and your reading place in it. Delete removes them all and leaves the page empty; the Open window (top left) deletes one book at a time, or adds books again." },
     { id: "voice", title: "Voice and listener files", help: "The voice and listener models and their libraries. Delete removes them all: a voice downloads its files again at its next Play, or copies them from Voice_data.zip." },
     { id: "settings", title: "Settings", help: "Your settings and the small things the page remembers (window sizes and positions, the lock button). Delete returns every setting to its default at once; unsaved changes in this window stay pending. This device's broken precisions (graphics-card facts, not choices) are kept." },
     { id: "logs", title: "Logs", help: "The logs of earlier visits. Delete removes them; this visit's log stays, as it is still being written." },
@@ -11016,7 +10523,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   ];
   function groupOf(kind, name) {
     if (name === P + "book" || name === P + "pos" || name === P + "book-kept" || name === P + "current" || name === P + "library-kept" || name.startsWith(P + "pos-") || name.startsWith(P + "reading-")) return "book";
-    if (name.startsWith(P + "edits")) return "edits";
     if (name === P + "models") return "voice";
     if (name === P + "logs") return "logs";
     if (DEVICE.includes(name)) return "device";
@@ -11062,14 +10568,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const book = byId.book.targets.find((f) => f.name === P + "book");
     if (book && book.books) { for (const b of book.books) byId.book.items.push({ label: b.title, note: plural(b.chapters, "chapter"), bytes: b.bytes }); byId.book.items.sort((a, b) => b.bytes - a.bytes); }
     byId.book.summary = book && book.books && book.books.length ? `${plural(book.books.length, "book")}: ${book.books.map((b) => `"${b.title}" (${plural(b.chapters, "chapter")})`).join(", ")}; about ${size(book.bytes)} in all.` : "No book is stored.";
-    // The edits live in the book database's `edits` store (edits.js): counted out of it, by book.
-    const ed = book && book.stores && book.stores.edits;
-    if (ed && ed.count) {
-      byId.edits.targets.push({ kind: "edits", name: P + "book (edits)", bytes: ed.bytes, count: ed.count });
-      byId.edits.bytes += ed.bytes; byId.book.bytes -= ed.bytes;
-      for (const [title, n] of book.editsBy || []) byId.edits.items.push({ label: title, note: plural(n, "edited paragraph"), bytes: 0 });
-    }
-    byId.edits.summary = ed && ed.count ? `${plural(ed.count, "edited paragraph")}, about ${size(ed.bytes)}.` : "None yet.";
     const files = byId.voice.items.reduce((n, i) => n + (parseInt(i.note, 10) || 0), 0);
     byId.voice.summary = files ? `${plural(files, "file")} for ${plural(byId.voice.items.length, "owner")}, ${size(byId.voice.bytes)}.` : "No voice or listener files are stored.";
     byId.settings.summary = byId.settings.targets.length ? `${plural(byId.settings.targets.length, "key")}, ${size(byId.settings.bytes)}${byId.settings.targets.some((f) => f.name === P + "settings") ? "" : "; every setting is at its default"}.` : "Nothing stored: every setting is at its default.";
@@ -11120,7 +10618,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     }
     for (const f of targets) {
       if (f.kind === "ls") { try { localStorage.removeItem(f.name); } catch (e) {} }
-      else if (f.kind === "edits") await EDITS.clearAll();
       else if (f.kind === "db" && id !== "logs") await dropDb(f.name);
       else if (f.kind === "cache") { if (f.name === MODELS.CACHE) await MODELS.remove(f.urls, "(Delete in Settings → Storage)"); else await caches.delete(f.name); }
     }
@@ -11134,11 +10631,56 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const bp = SETTINGS.get("brokenPrecisions");
       text = `Deleted ${targets.map((f) => f.name).join(", ")}: every setting is back to its default${names.length ? ` (${names.length} changed)` : ""}.${bp.length ? ` Kept: this device's broken precisions (${bp.join(", ")}), which are device facts, not settings.` : ""}`;
     } else if (id === "logs") text = `Deleted the past logs (${g.summary.replace(/\.$/, "")})${logNote ? "." + logNote : "; this visit's log stays."}`;
-    else if (id === "edits") text = `Deleted every edit (${g.summary.replace(/\.$/, "")}). The books are untouched: every paragraph is back to its original.`;
     else text = `Deleted ${g.title.toLowerCase()}: ${targets.map((f) => f.name).join(", ")} (${size(g.bytes)}).`;
     log("storage", `Settings → Storage, Delete ${g.title}: ${id === "logs" ? "past logs in " : ""}${targets.map((f) => f.name).join(", ")} (about ${size(g.bytes)})`);
     return { names: targets.map((f) => f.name), bytes: g.bytes, text };
   }
+  // ---- Delete all storage (Jon, 2026-10-20) ----------------------------------------------------------
+  // Everything the reader keeps here, in one go: every br1- name of every kind (the books and places,
+  // the voice and listener files, the settings and the small keys, the logs, the device results, the
+  // unknown ones), then the page reloads as on a first run. Two taps, like the groups. The databases
+  // are let go of first (BOOK.forget, LOG.close) so deleteDatabase is not blocked by this page.
+  async function removeAll() {
+    const under = globalThis.VOICEDATA ? VOICEDATA.storeBusy() : "";
+    if (under) return { ok: false, text: `Not now: ${under}. Delete all storage waits until that is finished, so nothing lands in the store after it is deleted.` };
+    const d = await survey();
+    const targets = d.groups.flatMap((g) => g.targets).filter((f) => mine(f.name));
+    if (globalThis.PLAYER && PLAYER.state !== "stopped") PLAYER.stop();
+    READER.closeBook(); BOOK.forget();
+    if (globalThis.LOG && LOG.close) LOG.close();
+    const failed = [];
+    for (const f of targets) {
+      try {
+        if (f.kind === "ls") localStorage.removeItem(f.name);
+        else if (f.kind === "db") await dropDb(f.name);
+        else if (f.kind === "cache") await caches.delete(f.name);
+      } catch (e) { failed.push(`${f.name}: ${e.message}`); }
+    }
+    try { for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i); if (mine(k)) localStorage.removeItem(k); } } catch (e) {}   // anything written meanwhile
+    const text = failed.length ? `Deleted ${targets.length - failed.length} of ${targets.length} stored names (${size(d.total)}); not deleted: ${failed.join("; ")}.`
+      : `Deleted everything this reader stored here: ${plural(targets.length, "stored name")}, ${size(d.total)}. Reloading as a first run…`;
+    log("storage", `Settings → Storage, Delete all storage: ${targets.map((f) => f.name).join(", ")} (about ${size(d.total)})${failed.length ? `; failed: ${failed.join("; ")}` : ""}`);
+    return { ok: !failed.length, text, names: targets.map((f) => f.name), bytes: d.total };
+  }
+  async function tapAll() {
+    if (st.armed !== "all" || Date.now() - st.armedAt > 8000) {
+      const d = st.data && !st.data.error ? st.data : await survey();
+      const parts = d.groups.filter((g) => g.targets.length).map((g) => `${g.title.toLowerCase()} ${size(g.bytes)}`);
+      st.armed = "all"; st.armedAt = Date.now();
+      U.say(d.count ? `Delete all storage: ${plural(d.count, "stored name")}, ${size(d.total)} (${parts.join(", ")}). Tap Delete all storage again to delete every book, voice file, setting, log and device result this reader keeps in this browser; the page then reloads as on a first run.`
+        : "Nothing is stored: the page is already as on a first run. Tap again to reload it anyway.");
+      redo();
+      setTimeout(() => { if (st.armed === "all" && Date.now() - st.armedAt >= 8000) { st.armed = ""; redo(); } }, 8100);
+      return;
+    }
+    st.armed = "";
+    let r;
+    try { r = await removeAll(); } catch (e) { r = { ok: false, text: `Deleting failed: ${e.message}` }; }
+    U.say(r.text);
+    if (r.ok && st.hooks.reload) setTimeout(() => location.reload(), 400);
+    else { U.refreshNeed(); st.data = null; refresh(); }
+  }
+
   // Two taps: the first says what would go, a second within 8 s deletes.
   async function tap(g) {
     if (st.armed !== g.id || Date.now() - st.armedAt > 8000) {
@@ -11159,6 +10701,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // ---- The tab ------------------------------------------------------------------------------------
   function render(body) {
     const d = st.data;
+    const allArmed = st.armed === "all" && Date.now() - st.armedAt < 8000;
+    const allBtn = U.button("sbtn sdel", allArmed ? `Delete all storage${d && !d.error ? ` (${size(d.total)})` : ""}?` : "Delete all storage", tapAll);
+    allBtn.dataset.group = "all";
+    const allRow = U.row("Delete all storage", "Deletes everything this reader keeps in this browser: the books and your places in them, the voice and listener files, every setting, the logs and the device results. Two taps; the page then reloads as on a first run.", allBtn, { block: true });
+    allRow.dataset.group = "all";
+    body.appendChild(allRow);
     const top = h("div", "sbtnrow");
     const rb = U.button("sbtn", st.scanning ? "Refreshing…" : "Refresh", () => { st.data = null; refresh(); });
     rb.disabled = !!st.scanning;
@@ -11216,7 +10764,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   W.addTab("Storage", render);
   // The stored data changed elsewhere (the Open window added or deleted a book): the next look is fresh.
   const stale = () => { st.data = null; if (shown()) refresh(); };
-  globalThis.STORED = { PREFIX: P, survey, remove, refresh, stale, get data() { return st.data; } };
+  globalThis.STORED = { PREFIX: P, survey, remove, removeAll, refresh, stale, hooks: st.hooks, get data() { return st.data; } };
 })();
 </script>
 <script>
@@ -11314,9 +10862,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // "can't run here" with a one-line why; RULES.suggest(list, input) picks the setup to suggest: the
 // best-sounding engine with a setup above real time (1.05× after the warm factor, so the Pixel's
 // predicted 1.4× card counts: Jon would rather have the card's voice than the highlight), given its
-// fastest setup (the spare speed pays for re-rolls), else the browser's voices; and the word highlight: Off when the
-// suggested voice runs on the card under HIGHLIGHT_BAR (the card busy most of the time freezes the
-// screen: BUGS 31, the Pixel), else from the voice. Sources, x = times real time:
+// fastest setup (the spare speed pays for re-rolls), else the browser's voices. The word highlight is
+// not part of the suggestion (Off by default since 2026-10-20). Sources, x = times real time:
 //   - Processor voices, one copy: x = k × cpu.f32 / 1000 (ANALYSIS-2026-10-13 3.2): Piper low 0.435,
 //     medium 0.309, Supertonic 30 steps 0.051; margin = the line's worst over-prediction (3.4).
 //   - Kokoro q8 on the processor, all copies: x = 0.0196 × all-core / 1000 (REPORT 2026-10-16, the
@@ -11448,7 +10995,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     p.why = parts.join("; ");
   }
 
-  // The suggestion: { id, setup, settings, reason, highlight, highlightWhy } or null (nothing at all runs).
+  // The suggestion: { id, setup, settings, reason } or null (nothing at all runs).
   const ENGINES = ["kokoro", "piper", "supertonic"];
   // Jon (2026-10-17, "maximize, not good enough"): the best-sounding engine with a setup above real
   // time (C.aboveBar after the warm factor, no model margin), given its fastest such setup, even when
@@ -11477,7 +11024,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const where = pick.runOn === "gpu" ? "on the card" : "on the processor";
       reason = level === "runs well"
         ? `${lead}This is its fastest setup here: ${speed} real time.`
-        : `${lead}${ENGINE_NAME[pick.engine]} ${where} keeps up here (about ${r1(pick.keep)}×${pick.warm < 1 ? " once warm" : ""}; ${speed}), with little to spare${pick.runOn === "gpu" && pick.keep < C.highlightBar ? "; the word highlight is off because the card is busy most of the time" : ""}.`;
+        : `${lead}${ENGINE_NAME[pick.engine]} ${where} keeps up here (about ${r1(pick.keep)}×${pick.warm < 1 ? " once warm" : ""}; ${speed}), with little to spare.`;
     }
     const v = { voice: `${pick.engine}:${pick.voice || (pick.engine === "kokoro" ? "af_heart" : pick.engine)}` };
     if (pick.engine === "webspeech") v.voice = "webspeech:webspeech";
@@ -11485,13 +11032,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (pick.precision) v.precision = pick.precision;
     if (pick.engine === "supertonic") v.steps = pick.steps;
     if (pick.copies) v.copies = pick.copies < autoCopies(inp.threads) ? pick.copies : null;
-    let highlight = pick.timing ? "model" : "estimate", highlightWhy = pick.timing ? "word times from the voice" : "this voice gives no word times: estimated";
-    if (pick.runOn === "gpu" && pick.keep < C.highlightBar) {
-      highlight = "off";
-      highlightWhy = `the card would be busy most of the time at ${r1(pick.keep)}× real time, which freezes the screen: the highlight would stutter (it can be switched on in Settings → Word highlight)`;
-    }
-    v.wordTiming = highlight;
-    return { id: pick.id, setup: pick, level, settings: v, reason, highlight, highlightWhy };
+    // The word highlight is never part of the suggestion (Jon, 2026-10-20): it is Off by default and only
+    // a choice in Settings → Word highlight turns it on. (BUGS 31's rule, Off under 2.5× on a card, is
+    // moot while it is Off anyway.)
+    return { id: pick.id, setup: pick, level, settings: v, reason };
   }
   const ENGINE_NAME = { kokoro: "Kokoro", piper: "Piper", supertonic: "Supertonic", webspeech: "the browser's voices" };
 
@@ -11800,7 +11344,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       ceiling, input, predictions, suggestion, measured: {}, full: null, choice: old && old.choice ? old.choice : null });
     log("device", `light benchmark (${rec.seconds} s): one core ${r0(input.f32)} MMAC/s · all cores ${r0(input.multi)} MMAC/s · card ${input.card.ok ? r0(input.alu) + " G FMA/s" : "none (" + input.card.why + ")"} · memory ceiling ${ceiling ? (ceiling.top ? "at least " : "") + r0(ceiling.mb) + " MB" : "not measured"}`);
     log("device", `predictions: ${predictions.map((p) => `${p.label}: ${p.status}${p.x ? ` (${p.x.toFixed(1)}×)` : ""}`).join(" · ")}`);
-    log("device", suggestion ? `suggested: ${suggestion.setup.label} (${suggestion.reason}) · word highlight ${suggestion.highlight} (${suggestion.highlightWhy})` : "suggested: nothing (no voice runs on this device)");
+    log("device", suggestion ? `suggested: ${suggestion.setup.label} (${suggestion.reason})` : "suggested: nothing (no voice runs on this device)");
     return rec;
   }
 
@@ -11892,7 +11436,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     rec.predictions = RULES.predict(rec.input);
     rec.suggestion = RULES.suggest(rec.predictions, rec.input);
     save(rec);
-    log("device", rec.suggestion ? `suggested after the full benchmark: ${rec.suggestion.setup.label} · word highlight ${rec.suggestion.highlight}` : "suggested after the full benchmark: nothing");
+    log("device", rec.suggestion ? `suggested after the full benchmark: ${rec.suggestion.setup.label}` : "suggested after the full benchmark: nothing");
     return rec;
   }
 
@@ -11911,7 +11455,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // check, without measuring the memory again), and from Settings → Debug → Re-check this device. A
 // floating window in the Settings window's look. The light benchmark starts at once (about 10 s,
 // nothing downloaded, the page stays usable; the step and a progress bar in the head). Then, the
-// suggestion first: the setup's name with its status chip, a one-line reason and the word highlight;
+// suggestion first: the setup's name with its status chip and a one-line reason;
 // what the buttons do; what was found, in plain words, with the numbers and the technical list under a
 // "Numbers and details" fold; every setup marked runs well / barely / too slow / can't run here with its
 // speed and the working in small type. Buttons: Good enough (the suggestion is APPLIED at once, UX-02:
@@ -12002,9 +11546,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         const pick = h("div", "spick");
         pick.append(h("span", "spickname", sg.setup.label), h("span", "schip " + (CHIP[sg.level] || "cant"), sg.level));
         box.appendChild(pick);
-        // The reason's tail about the highlight is said by the next line, in full.
-        box.appendChild(h("div", "sline", sg.reason.replace(/; the word highlight is off because the card is busy most of the time\.$/, ".")));
-        box.appendChild(h("div", "sline", `Word highlight ${sg.highlight === "off" ? "off" : "on"}: ${sg.highlightWhy}.`));
+        box.appendChild(h("div", "sline", sg.reason));
       } else box.appendChild(h("div", "sline bad", "No voice runs on this device: no model voice keeps up and the browser lists no voices of its own."));
       B.appendChild(row("Suggested", "Good enough uses it at once: Settings opens to show it and the voice's files download there.", box, { block: true }));
     }
@@ -12127,14 +11669,14 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (cur.engine === sug.engine && (cur.engine === "kokoro" || cur.engine === "supertonic") && E && E.voices.some((x) => x.id === cur.voice)) v.voice = SETTINGS.get("voice");
     choose("suggested");
     close(true);
-    return SETTINGSWIN.choose(v, `The benchmark's suggestion: ${rec.suggestion.setup.label}, word highlight ${rec.suggestion.highlight === "off" ? "off" : "on"}.`);
+    return SETTINGSWIN.choose(v, `The benchmark's suggestion: ${rec.suggestion.setup.label}.`);
   }
   function useDefault() {
     if (ctl) ctl.cancel();
     const D = SETTINGS.DEFAULTS;
     choose("default");
     close(true);
-    return SETTINGSWIN.choose({ voice: D.voice, runOn: D.runOn, precision: D.precision, wordTiming: D.wordTiming, steps: D.steps, copies: D.copies }, "The default: Kokoro af_heart, fp32, on the graphics card.");
+    return SETTINGSWIN.choose({ voice: D.voice, runOn: D.runOn, precision: D.precision, steps: D.steps, copies: D.copies }, "The default: Kokoro af_heart, fp32, on the graphics card.");
   }
 
   function open(opts = {}) {
