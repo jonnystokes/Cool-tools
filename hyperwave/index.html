@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 20, 2026 12:13 PM">
+<html lang="en" data-build="2.0.0 built October 20, 2026 8:46 PM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1006,7 +1006,7 @@ HW.glsl = {
   num("mot.drag", "Mouse drag speed", 0.006, 0.001, 0.02, 0.0005, "How far the shape turns when you drag the picture.", { fmt: F.rel(0.006), adv: true });
 
   // ================= AUTOPILOT ===============================================================
-  bool("auto.on", "Autopilot", true,
+  bool("auto.on", "Autopilot", false,
     "Changes the shape by itself: on a beat once the earliest time has passed, and at the latest time for sure. (Key A.)");
   num("auto.min", "Autopilot: earliest change", 16, 2, 120, 1, "Autopilot never changes the shape sooner than this.", { fmt: F.s1 });
   num("auto.max", "Autopilot: latest change", 34, 4, 300, 1, "Autopilot always changes the shape by this time (never before the earliest time).", { fmt: F.s1 });
