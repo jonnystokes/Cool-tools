@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Bench</title>
+<style>
+:root {
+  --bg: #f5f6f8; --card: #ffffff; --ink: #1a1e23; --muted: #59626c; --line: #dadfe5;
+  --accent: #1f55c4; --accent-ink: #ffffff; --good: #17713f; --warn: #8a5300; --bad: #b3261e; --soft: #eef1f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111316; --card: #1b1e23; --ink: #e7e9ec; --muted: #a0a8b1; --line: #2d3239;
+    --accent: #8ab4ff; --accent-ink: #0b1a36; --good: #6fcf97; --warn: #f2c94c; --bad: #ff8a80; --soft: #24282e;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.55rem; margin: 2px 0 2px; }
+h2 { font-size: 1.15rem; margin: 22px 0 10px; }
+p { margin: 0 0 10px; }
+.sub { color: var(--muted); }
+.warn { color: var(--bad); font-weight: 600; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+button { font: inherit; min-height: 44px; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button:disabled { opacity: 0.45; cursor: default; }
+#status { min-height: 1.45em; color: var(--muted); }
+#status.err { color: var(--bad); }
+.device { font-weight: 600; overflow-wrap: anywhere; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; overflow-wrap: anywhere; }
+.card h3 { margin: 0 0 4px; font-size: 0.95rem; font-weight: 600; color: var(--muted); }
+.score { font-size: 2.3rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.score small { font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.raw { color: var(--muted); font-size: 0.9rem; }
+.na { font-size: 1.05rem; font-weight: 600; color: var(--muted); padding: 6px 0 2px; }
+ul.facts { list-style: none; padding: 0; margin: 4px 0 0; }
+ul.facts li { padding: 4px 0; border-top: 1px solid var(--line); font-size: 0.93rem; }
+ul.facts li:first-child { border-top: 0; }
+ul.facts b { font-weight: 600; }
+.yes { color: var(--good); font-weight: 600; }
+.no { color: var(--bad); font-weight: 600; }
+.mid { color: var(--warn); font-weight: 600; }
+.line { background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: 12px; padding: 14px 16px; margin: 0 0 12px; overflow-wrap: anywhere; }
+.line.max { border-left-color: var(--warn); }
+.tag { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); }
+.pick { font-size: 1.2rem; font-weight: 700; margin: 2px 0 4px; }
+.lis { margin: 0 0 4px; }
+.note { margin: 6px 0 0; padding: 8px 10px; background: var(--soft); border-radius: 8px; font-size: 0.93rem; }
+.how { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+.foot { margin-top: 18px; font-size: 0.85rem; color: var(--muted); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Simple Bench</h1>
+  <p class="sub">A short device test (about 10 to 20 seconds): processor and graphics card scores against Jon's PC (= 1000), and which voice and settings the Book reader would suggest here, with every voice setup marked. Nothing is downloaded and nothing is spoken aloud.</p>
+  <p id="old" class="warn">This browser is too old to run Simple Bench (it needs JavaScript from 2017 or later). Try a current Chrome.</p>
+  <div class="actions">
+    <button id="start" class="primary" disabled>Start the test</button>
+    <button id="copy" disabled>Copy results</button>
+    <button id="save" disabled>Save results</button>
+  </div>
+  <p id="status"></p>
+  <div id="out" hidden>
+    <p id="device" class="device"></p>
+    <h2>Scores</h2>
+    <div id="cards" class="grid"></div>
+    <h2>What this means for the reader</h2>
+    <div id="reader"></div>
+    <p class="foot">Scores: Jon's PC (Ryzen 7 2700X, GTX 1050 Ti, Chrome 155) = 1000; higher is faster. The suggestion uses the Book reader's own rules (its rules.js, copied in by build.py), so it matches the reader's first-run check. "Runs well" = 1.3x real time after the model's margin; "barely" = keeps up with little to spare; phones, tablets and laptops on battery count 0.8 of their speed for warming up. The reader's full check also measures memory, which this short test does not.</p>
+  </div>
+</main>
+
+<script>
+/* ES3/ES5 only here: shows an error instead of a blank page if the main script cannot run. */
+if (typeof globalThis === "undefined") window.globalThis = window;
+window.onerror = function (msg, src, line) {
+  var s = document.getElementById("status");
+  if (s) { s.className = "err"; s.textContent = "Error: " + msg + (line ? " (line " + line + ")" : ""); }
+};
+</script>
+
+<script type="text/plain" id="sb-worker">
+// The kernel worker: the Benchmark Studio's src/workers/kernel-worker.js (bench, calib, windowRate, prep,
+// scaleRun, init), unchanged in every line used here; the JavaScript workloads, memory, hashing and clock
+// tests are left out because Simple Bench does not run them.
+"use strict";
+var ex = null, sink = 0, prepped = "", batchCache = {}, lastBeat = 0;
+function now() { return performance.now(); }
+function errText(e) { return (e && e.name && e.name !== "Error" ? e.name + ": " : "") + (e && e.message ? e.message : String(e)); }
+function beat(extra) { var t = now(); if (t - lastBeat >= 1000) { lastBeat = t; self.postMessage({ progress: extra == null ? 0 : extra, pulse: true }); } }
+function need(total) { var cur = ex.mem.buffer.byteLength; if (cur < total) ex.mem.grow(Math.ceil((total - cur) / 65536)); }
+function prep(kind, bytes) {
+  var key = kind + ":" + bytes;
+  if (prepped === key) return;
+  if (!ex) throw new Error("the kernel module is not loaded in this worker");
+  if (kind === "f32s" || kind === "f32x") { need(2 * bytes); var f = new Float32Array(ex.mem.buffer, 0, bytes / 2); for (var i = 0; i < f.length; i++) f[i] = 0.5 + (i & 7) * 0.125; }
+  else if (kind === "i8d") { need(2 * bytes); var b = new Int8Array(ex.mem.buffer, 0, 2 * bytes); for (var j = 0; j < b.length; j++) b[j] = ((j * 7) & 15) - 8; }
+  prepped = key;
+}
+function kernel(kind, bytes) {
+  if (kind === "f32s") return { fn: function (n) { return ex.f32s(n, bytes); }, units: bytes / 4 };
+  if (kind === "f32x") return { fn: function (n) { return ex.f32x(n, bytes); }, units: bytes / 4 };
+  if (kind === "i8d") return { fn: function (n) { return ex.i8d(n, bytes); }, units: bytes };
+  throw new Error("unknown kernel " + kind);
+}
+function isJs(kind) { return kind.indexOf("js.") === 0; }
+// Batch size: grow n until one batch takes 20 ms or more (A5.2: batches of 20 ms or more).
+function calib(k) {
+  var n = 1, d = 0;
+  for (;;) {
+    var t = now(); sink += k.fn(n); d = now() - t;
+    if (d >= 20 || n >= 1073741824) break;
+    n = d < 0.5 ? n * 16 : Math.max(n * 2, Math.ceil(n * 25 / d));
+  }
+  return { n: n, ms: d };
+}
+function windowRate(k, n, ms) { var units = 0, t0 = now(), t1 = t0; while (t1 - t0 < ms) { sink += k.fn(n); units += n * k.units; t1 = now(); beat(); } return units / ((t1 - t0) / 1000); }
+function spread(a) { var s = a.slice().sort(function (x, y) { return x - y; }), m = s.length >> 1, md = s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; return (s[s.length - 1] - s[0]) / md; }
+// Warm-up first (the first batch is "startup"), then 5 samples; 4 more if the spread is over 10 % (A5.2).
+function bench(m) {
+  var k = kernel(m.kind, m.bytes);
+  if (!isJs(m.kind)) prep(m.kind, m.bytes);
+  var t0 = now(), c = calib(k), n = c.n, startup = n * k.units / (c.ms / 1000);
+  var curve = [[Math.round(now() - t0), Math.round(startup)]], last = [], stable = false;
+  var warmMin = now() + (m.warmMin || 300), warmEnd = now() + (m.warmMs || 1000);
+  while (now() < warmEnd) {
+    var t = now(); sink += k.fn(n); var d = now() - t, r = n * k.units / (d / 1000);
+    curve.push([Math.round(t + d - t0), Math.round(r)]);
+    beat();
+    last.push(r); if (last.length > 3) last.shift();
+    if (now() > warmMin && last.length === 3 && (Math.max.apply(null, last) - Math.min.apply(null, last)) / Math.max.apply(null, last) < 0.05) { stable = true; break; }
+  }
+  var warmMs = now() - t0, samples = [];
+  for (var s = 0; s < (m.samples || 5); s++) samples.push(windowRate(k, n, m.windowMs || 500));
+  if (m.extend && samples.length >= 3 && spread(samples) > 0.10) for (s = 0; s < 4; s++) samples.push(windowRate(k, n, m.windowMs || 500));
+  batchCache[m.kind + ":" + m.bytes] = n;
+  return { startup: startup, batchN: n, batchMs: c.ms, warmMs: warmMs, stable: stable, curve: curve.slice(0, 200), samples: samples, sink: sink === 1.5 ? 1 : 0 };
+}
+// Scaling: every worker warms up, then all start their window at the same wall-clock moment.
+function scaleRun(m) {
+  var k = kernel(m.kind, m.bytes);
+  if (!isJs(m.kind)) prep(m.kind, m.bytes);
+  var key = m.kind + ":" + m.bytes, n = batchCache[key];
+  if (!n) { n = calib(k).n; batchCache[key] = n; }
+  var end = now() + (m.warmMs || 150); while (now() < end) { sink += k.fn(n); beat(); }
+  while (Date.now() < m.startAt) { beat(); /* wait for the shared start */ }
+  var late = Date.now() - m.startAt;
+  return { rate: windowRate(k, n, m.windowMs), late: late };
+}
+function init(m) {
+  var t = now();
+  return WebAssembly.instantiate(m.module || m.bytes).then(function (r) { ex = (r.instance || r).exports; return { ms: now() - t, via: m.module ? "module" : "bytes" }; });
+}
+self.onmessage = function (ev) {
+  var m = ev.data || {}, id = m.id;
+  if (id == null || id < 0) return;
+  lastBeat = now();
+  Promise.resolve().then(function () {
+    switch (m.cmd) {
+      case "init": return init(m);
+      case "ping": return { pong: 1 };
+      case "bench": return bench(m);
+      case "scale": return scaleRun(m);
+      default: throw new Error("unknown command " + m.cmd);
+    }
+  }).then(function (r) { r = r || {}; r.id = id; self.postMessage(r); }, function (e) { self.postMessage({ id: id, error: errText(e), errorName: e && e.name }); });
+};
+</script>
+
+<script type="application/json" id="sb-data">
+{
+ "about": "From benchmark-studio/data/kernels.json (the probe's kernels, tested on Jon's PC 2026-10-13): kmod = the CPU kernel module (f32 SIMD dot products), simd = a tiny SIMD module for WebAssembly.validate, ALU_F32 and TINY = the WGSL of gpu.alu and of the dependent-dispatch check.",
+ "kmod": "AGFzbQEAAAABDQJgAn9/AX1gAn9/AX8DBAMAAAEFAwEAAgcbBANtZW0CAARmMzJzAAAEZjMyeAABA2k4ZAACCqYEA8ABAgN/BHsCQANAIAIgAE8NAUEAIQMCQANAIAMgAU8NASADIAFqIQQgBSAD/QAEACAE/QAEAP3mAf3kASEFIAYgA/0ABBAgBP0ABBD95gH95AEhBiAHIAP9AAQgIAT9AAQg/eYB/eQBIQcgCCAD/QAEMCAE/QAEMP3mAf3kASEIIANBwABqIQMMAAsLIAJBAWohAgwACwsgBSAG/eQBIAf95AEgCP3kASEFIAX9HwAgBf0fAZIgBf0fApIgBf0fA5ILiAECA38EfQJAA0AgAiAATw0BQQAhAwJAA0AgAyABTw0BIAMgAWohBCAFIAMqAgAgBCoCAJSSIQUgBiADKgIEIAQqAgSUkiEGIAcgAyoCCCAEKgIIlJIhByAIIAMqAgwgBCoCDJSSIQggA0EQaiEDDAALCyACQQFqIQIMAAsLIAUgBpIgB5IgCJIL1wECA38EewJAA0AgAiAATw0BQQAhAwJAA0AgAyABTw0BIAMgAWohBCAFIAP9AAQA/YcBIAT9AAQA/YcB/boB/a4BIQUgBiAD/QAEAP2IASAE/QAEAP2IAf26Af2uASEGIAcgA/0ABBD9hwEgBP0ABBD9hwH9ugH9rgEhByAIIAP9AAQQ/YgBIAT9AAQQ/YgB/boB/a4BIQggA0EgaiEDDAALCyACQQFqIQIMAAsLIAUgBv2uASAH/a4BIAj9rgEhBSAF/RsAIAX9GwFqIAX9GwJqIAX9GwNqCw==",
+ "simd": [0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11],
+ "ALU_F32": "\nstruct P { iters: u32, seed: u32, pad0: u32, pad1: u32 }\n@group(0) @binding(0) var<storage, read_write> o: array<f32>;\n@group(0) @binding(1) var<uniform> p: P;\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) g: vec3u) {\n  let s = f32(g.x ^ p.seed) * 1e-9;\n  var a0 = vec4<f32>(s); var a1 = a0 + 1e-3; var a2 = a0 + 2e-3; var a3 = a0 + 3e-3;\n  let y = vec4<f32>(0.999, 0.998, 0.997, 0.996);\n  let x = vec4<f32>(1e-4);\n  for (var i = 0u; i < p.iters; i++) {\n    a0 = fma(a0, y, x); a1 = fma(a1, y, x); a2 = fma(a2, y, x); a3 = fma(a3, y, x);\n  }\n  o[g.x] = dot(a0 + a1 + a2 + a3, vec4<f32>(1.0));\n}",
+ "TINY": "\n@group(0) @binding(0) var<storage, read_write> o: array<u32>;\n@compute @workgroup_size(1)\nfn main() { o[0] = o[0] + 1u; }"
+}
+</script>
+
+<script id="sb-rules">
+// Copied by build.py from the Book reader (Walker of Worlds/src/rules.js), reader version 341. Do not edit here: change the reader's file and run python build.py.
+// rules.js: the benchmark's rules, pure (no page, no device: test/rules.mjs runs this file in Node).
+// RULES.predict(input) turns the light benchmark's scores into a prediction for every voice setup, in
+// the PLAN.md voice order (best-sounding first), each marked "runs well" / "barely" / "too slow" /
+// "can't run here" with a one-line why; RULES.suggest(list, input) picks the setup to suggest: the
+// best-sounding engine with a setup above real time (1.05× after the warm factor, so the Pixel's
+// predicted 1.4× card counts: Jon would rather have the card's voice than the highlight), given its
+// fastest setup (the spare speed pays for re-rolls), else the browser's voices. The word highlight is
+// not part of the suggestion (Off by default since 2026-10-20). Sources, x = times real time:
+//   - Processor voices, one copy: x = k × cpu.f32 / 1000 (ANALYSIS-2026-10-13 3.2): Piper low 0.435,
+//     medium 0.309, Supertonic 30 steps 0.051; margin = the line's worst over-prediction (3.4).
+//   - Kokoro q8 on the processor, all copies: x = 0.0196 × all-core / 1000 (REPORT 2026-10-16, the
+//     Simple Bench all-core score; over-predicted the RedMagic by 24 %, so that is the margin).
+//   - Kokoro fp32 on the card: 1/x = 0.2125 + 104.2 / alu, fitted on the three cards measured
+//     (PC alu 749 → 3.16×, RedMagic 279, Pixel 203 → 1.5×); a fixed cost per chunk plus the card's part,
+//     like Supertonic's line. EFF-11 (2026-10-20): the RedMagic's speed is now Jon's real in-reader log,
+//     1.7× over 7.5 minutes (fp32, the current engine, chunks of 120 then 40 characters; 2-3× in the
+//     first minute, about 1.5× after), not the 1.47× of the device tests; the line already gives it
+//     1.71×, so a and b stay (errors −10 / +0.4 / −8 %). The margin, 13 %, is that log's sag from its
+//     1.7× average to the ~1.5× it held once warm (1.7 / 1.5), larger than any device's
+//     over-prediction; it keeps both phones "barely" (the RedMagic 1.2× after it and the warm factor,
+//     1.4× warm), as Jon's log reads: it keeps up with little to spare. fp16 and 8-bit on a card were never
+//     measured: rough guesses (×1.6, ×0.5), never suggested (fp16 broke on the Pixel, BUGS 28; 8-bit is
+//     garbled on the GTX 1050 Ti). A phone's alu reading can be high (the RedMagic read 536 in Simple
+//     Bench on 2026-10-16, 279 in the Studio): the full benchmark measures the real speed.
+//   - Supertonic on the card: 1/x = 0.039 + 4.13 × steps / alu (3.3); steps from 30 to 100.
+//   - Warm factor 0.8 for phones, tablets and laptops on battery, 1.0 for a computer on mains (3.4).
+// "Runs well" = 1.3× after the margin and the warm factor; "barely" = keeps up (1.0×) with the warm
+// factor but no margin; "too slow" under that. A measured speed (the full benchmark) replaces the
+// prediction (no model margin, the warm factor kept) and corrects the same engine's guesses on that
+// device. The memory ceiling (when measured) gates a setup whose peak working memory (MODELS.peak,
+// times its copies) is over it, and caps the processor copies.
+(function () {
+  const C = { okBar: 1.3, keepUp: 1.0, aboveBar: 1.05, warm: 0.8, highlightBar: 2.5, stepsFloor: 30, stepsTop: 100 };
+  const KOKORO_CARD = { a: 0.2125, b: 104.2, margin: 0.13 };
+  const ST_CARD = { a: 0.039, b: 4.13, margin: 0.10 };
+  const PEAKS = { "kokoro gpu": 660, "kokoro cpu q8": 600, "piper cpu": 200, "supertonic gpu": 500, "supertonic cpu": 900 };   // when models.js is not loaded
+  const peakOf = (engine, runOn, precision) => (globalThis.MODELS && MODELS.peak ? MODELS.peak(engine, runOn, precision) : 0) || PEAKS[`${engine} ${runOn} ${precision}`] || PEAKS[`${engine} ${runOn}`] || 0;
+  const r1 = (x) => (x >= 10 ? x.toFixed(0) : x.toFixed(1));
+  const pct = (m) => Math.round(m * 100) + " %";
+  const autoCopies = (threads) => Math.max(1, Math.min(8, Math.floor((threads || 2) / 2)));   // as VOICEWORK.copies(null)
+
+  // The setups, in the voice order. card: needs the graphics card; f16: needs shader-f16; guess: never measured.
+  const SETUPS = [
+    { id: "kokoro-gpu-fp32", engine: "kokoro", runOn: "gpu", precision: "fp32", label: "Kokoro on the graphics card, fp32", card: true, margin: KOKORO_CARD.margin, suggest: true, timing: true },
+    { id: "kokoro-gpu-fp16", engine: "kokoro", runOn: "gpu", precision: "fp16", label: "Kokoro on the graphics card, fp16", card: true, f16: true, margin: 0.3, guess: 1.6, of: "kokoro-gpu-fp32", note: "faster where it works; some cards give broken sound (the Pixel did)" },
+    { id: "kokoro-gpu-q8", engine: "kokoro", runOn: "gpu", precision: "q8", label: "Kokoro on the graphics card, 8-bit", card: true, margin: 0.3, guess: 0.5, of: "kokoro-gpu-fp32", note: "slow on a card, and garbled on the GTX 1050 Ti" },
+    { id: "kokoro-cpu-q8", engine: "kokoro", runOn: "cpu", precision: "q8", label: "Kokoro on the processor, 8-bit", margin: 0.25, suggest: true, timing: true, copies: true },
+    { id: "piper-low", engine: "piper", runOn: "cpu", voice: "en_US-amy-low", label: "Piper Amy (low) on the processor", k: 0.435, margin: 0.18, suggest: true },
+    { id: "piper-medium", engine: "piper", runOn: "cpu", voice: "en_US-lessac-medium", label: "Piper Lessac (medium) on the processor", k: 0.309, margin: 0.11, suggest: true },
+    { id: "supertonic-gpu", engine: "supertonic", runOn: "gpu", voice: "M3", label: "Supertonic M3 on the graphics card", card: true, margin: ST_CARD.margin, suggest: true },
+    { id: "supertonic-cpu", engine: "supertonic", runOn: "cpu", voice: "M3", label: "Supertonic M3 on the processor, 30 steps", k: 0.051, margin: 0.06, suggest: true, steps: 30 },
+    { id: "browser", engine: "webspeech", runOn: "", label: "The browser's own voices", suggest: true, timing: true },
+  ];
+  const kokoroCard = (alu) => 1 / (KOKORO_CARD.a + KOKORO_CARD.b / alu);
+  const stCard = (steps, alu) => 1 / (ST_CARD.a + ST_CARD.b * steps / alu);
+  // The most steps that keep a raw speed of xNeed: (1/x − 0.039) × alu / 4.13, rounded down.
+  const stSteps = (xNeed, alu) => Math.max(0, Math.floor((1 / xNeed - ST_CARD.a) * alu / ST_CARD.b + 1e-9));
+
+  // input: { f32, multi, alu (MMAC/s, MMAC/s, G FMA/s), card: { ok, f16, why }, wasm (SIMD + shared
+  // memory), mobile, battery (on battery), threads, ceilingMB (measured, or null), voices: { supported,
+  // total, local, enLocal, enOnline }, measured: { id: { x, steps? } } }
+  function predict(input) {
+    const inp = input || {};
+    const warm = inp.mobile || inp.battery ? C.warm : 1;
+    const ceiling = Number(inp.ceilingMB) > 0 ? Number(inp.ceilingMB) : 0;
+    const measured = inp.measured || {};
+    const auto = autoCopies(inp.threads);
+    const out = [];
+    const byId = {};
+    for (const s of SETUPS) {
+      const p = { id: s.id, engine: s.engine, runOn: s.runOn, precision: s.precision || null, voice: s.voice || null, label: s.label, margin: s.margin || 0, warm, suggest: !!s.suggest, timing: !!s.timing, guess: !!s.guess, x: 0, steps: s.steps || null, copies: null, status: "", why: "", note: s.note || "" };
+      byId[s.id] = p;
+      out.push(p);
+      const blocked = (why) => { p.status = "can't run here"; p.why = why; };
+      // Gates
+      if (s.engine === "webspeech") {
+        const v = inp.voices || {};
+        if (v.supported === false) { blocked("this browser has no speech synthesis"); continue; }
+        if (!(v.total > 0)) { blocked("the device listed no voices (Android: Settings → Accessibility → Text-to-speech output)"); continue; }
+        p.status = "runs well";
+        p.why = v.enLocal > 0 ? `${v.enLocal} English voice${v.enLocal > 1 ? "s" : ""} on the device` : v.enOnline > 0 ? "English online voices only: they need the internet" : `${v.total} voice${v.total > 1 ? "s" : ""}, none in English`;
+        continue;
+      }
+      if (inp.wasm === false) { blocked("no WebAssembly SIMD with shared memory here, so no model voice runs"); continue; }
+      if (s.card && !(inp.card && inp.card.ok)) { blocked((inp.card && inp.card.why) || "no usable graphics card"); continue; }
+      if (s.f16 && !inp.card.f16) { blocked("needs a card with 16-bit math (shader-f16)"); continue; }
+      // Memory: the peak per copy against the measured ceiling; the processor's copies capped to fit.
+      const each = peakOf(s.engine, s.runOn, s.precision);
+      let copies = s.copies ? auto : 1;
+      if (ceiling && each) {
+        if (each > ceiling) { blocked(`needs about ${each} MB of working memory; this device's measured ceiling is ${ceiling} MB`); continue; }
+        if (s.copies) copies = Math.max(1, Math.min(copies, Math.floor(ceiling / each)));
+      }
+      if (s.copies) { p.copies = copies; p.label = `${s.label}, ${copies} cop${copies === 1 ? "y" : "ies"}`; }
+      p.memMB = each * copies;
+      // The prediction
+      let how = "";
+      if (s.id === "kokoro-gpu-fp32") {
+        if (!(inp.alu > 0)) { blocked("the graphics test did not finish"); continue; }
+        p.x = kokoroCard(inp.alu); how = `card ${Math.round(inp.alu)} G FMA/s`;
+      } else if (s.guess) {
+        const base = byId[s.of];
+        if (!(base && base.x > 0)) { blocked(base && base.why ? base.why : "the graphics test did not finish"); continue; }
+        p.x = base.x * s.guess; how = `a rough guess, ${s.guess}× the ${base.measured ? "measured" : "predicted"} fp32 (never measured on a card)`;
+      } else if (s.id === "kokoro-cpu-q8") {
+        if (!(inp.multi > 0)) { blocked("the all-cores test did not finish"); continue; }
+        p.x = 0.0196 * inp.multi / 1000 * copies / auto; how = `all cores ${Math.round(inp.multi).toLocaleString("en-US")} MMAC/s${copies < auto ? `, ${copies} of ${auto} copies fit in memory` : ""}`;
+      } else if (s.id === "supertonic-gpu") {
+        if (!(inp.alu > 0)) { blocked("the graphics test did not finish"); continue; }
+        // The most steps (30-100) that run well; else that keep up; else 30.
+        const ok = Math.min(C.stepsTop, stSteps(C.okBar * (1 + s.margin) / warm, inp.alu)), keep = Math.min(C.stepsTop, stSteps(C.keepUp / warm, inp.alu));
+        p.steps = ok >= C.stepsFloor ? ok : keep >= C.stepsFloor ? keep : C.stepsFloor;
+        p.label = `${s.label}, ${p.steps} steps`;
+        p.x = stCard(p.steps, inp.alu); how = `card ${Math.round(inp.alu)} G FMA/s, ${p.steps} steps`;
+      } else {
+        if (!(inp.f32 > 0)) { blocked("the one-core test did not finish"); continue; }
+        p.x = s.k * inp.f32 / 1000; how = `one core ${Math.round(inp.f32).toLocaleString("en-US")} MMAC/s, one copy`;
+      }
+      p.predicted = p.x;
+      // A measured speed replaces the prediction (the guesses above follow a measured fp32).
+      const m = measured[s.id];
+      if (m && m.x > 0 && (!m.steps || m.steps === p.steps)) {
+        p.x = m.x; p.measured = true; p.margin = 0;
+        how = `measured by the full benchmark; predicted ${r1(p.predicted)}×`;
+      }
+      classify(p, how);
+    }
+    return out;
+  }
+  function classify(p, how) {
+    p.safe = p.x / (1 + p.margin) * p.warm;
+    p.keep = p.x * p.warm;
+    p.status = p.safe >= C.okBar ? "runs well" : p.keep >= C.keepUp ? "barely" : "too slow";
+    const parts = [`${r1(p.x)}× real time (${how})`];
+    if (p.margin) parts.push(`${r1(p.x / (1 + p.margin))}× after its ${pct(p.margin)} margin`);
+    if (p.warm < 1) parts.push(`× ${p.warm} for a phone or a laptop on battery warming up`);
+    p.why = parts.join("; ");
+  }
+
+  // The suggestion: { id, setup, settings, reason } or null (nothing at all runs).
+  const ENGINES = ["kokoro", "piper", "supertonic"];
+  // Jon (2026-10-17, "maximize, not good enough"): the best-sounding engine with a setup above real
+  // time (C.aboveBar after the warm factor, no model margin), given its fastest such setup, even when
+  // its label is "barely" (the highlight then goes off: the card matters more than the highlight).
+  // No model voice above it: the browser's voices; none listed: the best model voice that keeps up.
+  function suggest(list, input) {
+    const inp = input || {};
+    let pick = null;
+    for (const e of ENGINES) {
+      const c = list.filter((p) => p.engine === e && p.suggest && p.status !== "can't run here" && p.keep >= C.aboveBar);
+      if (c.length) { pick = c.reduce((a, b) => (b.keep > a.keep ? b : a)); break; }
+    }
+    if (!pick) { const b = list.find((p) => p.id === "browser"); if (b && b.status !== "can't run here") pick = b; }
+    if (!pick) { const c = list.filter((p) => p.suggest && p.engine !== "webspeech" && p.status === "barely"); if (c.length) pick = c[0]; }
+    if (!pick) return null;
+    const level = pick.status;
+    // Why this one: the best-sounding setup above it and what held it back.
+    const best = list.find((p) => p.suggest && p.engine !== "webspeech");
+    let reason;
+    if (pick.engine === "webspeech") reason = `No model voice keeps up here${best ? ` (${best.label}: ${best.status}${best.x ? `, ${r1(best.keep)}×` : ""})` : ""}; the browser's own voices need no download (${pick.why}).`;
+    else {
+      const above = list.filter((p) => p.suggest && p.engine !== "webspeech" && ENGINES.indexOf(p.engine) < ENGINES.indexOf(pick.engine));
+      const held = above.length ? above.reduce((a, b) => ((b.keep || 0) > (a.keep || 0) ? b : a)) : null;     // the fastest that runs at all, else the first that can't
+      const speed = pick.measured ? `measured ${r1(pick.x)}×` : `predicted ${r1(pick.x)}×`;
+      const lead = held ? `${ENGINE_NAME[held.engine]} would ${held.status === "too slow" || held.status === "barely" ? "fall behind" : "not run"} here (${held.status === "can't run here" ? held.why : `${r1(held.keep)}× at best`}). ` : "The best-sounding voice. ";
+      const where = pick.runOn === "gpu" ? "on the card" : "on the processor";
+      reason = level === "runs well"
+        ? `${lead}This is its fastest setup here: ${speed} real time.`
+        : `${lead}${ENGINE_NAME[pick.engine]} ${where} keeps up here (about ${r1(pick.keep)}×${pick.warm < 1 ? " once warm" : ""}; ${speed}), with little to spare.`;
+    }
+    const v = { voice: `${pick.engine}:${pick.voice || (pick.engine === "kokoro" ? "af_heart" : pick.engine)}` };
+    if (pick.engine === "webspeech") v.voice = "webspeech:webspeech";
+    if (pick.runOn) v.runOn = pick.runOn;
+    if (pick.precision) v.precision = pick.precision;
+    if (pick.engine === "supertonic") v.steps = pick.steps;
+    if (pick.copies) v.copies = pick.copies < autoCopies(inp.threads) ? pick.copies : null;
+    // The word highlight is never part of the suggestion (Jon, 2026-10-20): it is Off by default and only
+    // a choice in Settings → Word highlight turns it on. (BUGS 31's rule, Off under 2.5× on a card, is
+    // moot while it is Off anyway.)
+    return { id: pick.id, setup: pick, level, settings: v, reason };
+  }
+  const ENGINE_NAME = { kokoro: "Kokoro", piper: "Piper", supertonic: "Supertonic", webspeech: "the browser's voices" };
+
+  // The status of a voice setting on this device, for the Settings window's Voice tab: the matching
+  // setup of a stored list, or null. value: { voice, runOn, precision }.
+  function statusOf(list, value) {
+    if (!list || !value) return null;
+    const [engine, voice = ""] = String(value.voice || "").split(":");
+    const runOn = engine === "piper" ? "cpu" : value.runOn;
+    return list.find((p) => {
+      if (p.engine !== engine) return false;
+      if (engine === "webspeech") return true;
+      if (p.runOn !== runOn) return false;
+      if (engine === "kokoro") return p.precision === value.precision;
+      if (engine === "piper") return (p.voice || "").split("-").pop() === voice.split("-").pop();     // by quality: low / medium
+      return true;
+    }) || null;
+  }
+
+  globalThis.RULES = { C, SETUPS, predict, suggest, statusOf, kokoroCard, stCard, stSteps, autoCopies, KOKORO_CARD, ST_CARD };
+})();
+</script>
+
+<script id="sb-main">
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  $("old").hidden = true;
+  var R = window.RULES;
+  // Numbers with thousands commas.
+  function fx(v, d) {
+    if (v == null || !isFinite(v)) return "?";
+    d = d == null ? 2 : d;
+    var s = (+v).toFixed(d), neg = s.charAt(0) === "-";
+    if (neg) s = s.slice(1);
+    var p = s.split("."), i = p[0], o = "";
+    while (i.length > 3) { o = "," + i.slice(-3) + o; i = i.slice(0, -3); }
+    return (neg ? "-" : "") + i + o + (p[1] ? "." + p[1] : "");
+  }
+  // Jon's PC = 1000: data/ref.json (f32, multi); gpu.alu from the PC's run.
+  var REF = { f32: 14000, multi: 92000, alu: 749 };
+  function scores(inp) {
+    function sc(v, ref) { return v > 0 ? Math.round(1000 * v / ref) : null; }
+    return { f32: sc(inp.f32, REF.f32), multi: sc(inp.multi, REF.multi), alu: inp.card.ok ? sc(inp.alu, REF.alu) : null };
+  }
+  // The reader's suggestion and every setup's prediction, by the reader's own rules (sb-rules).
+  function decide(inp) {
+    var list = R.predict(inp);
+    return { scores: scores(inp), list: list, suggestion: R.suggest(list, inp) };
+  }
+  var DATA = JSON.parse($("sb-data").textContent);
+  var state = { running: false, done: false, results: null, text: "" };
+  window.SB = { state: state, rules: R };
+
+  function now() { return performance.now(); }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function errText(e) { return (e && e.name && e.name !== "Error" ? e.name + ": " : "") + (e && e.message ? e.message : String(e)); }
+  function withTimeout(p, ms, what) {
+    return new Promise(function (res, rej) {
+      var t = setTimeout(function () { rej(new Error(what + " did not finish within " + Math.round(ms / 1000) + " s")); }, ms);
+      Promise.resolve(p).then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); });
+    });
+  }
+  function median(a) { var s = a.slice().sort(function (x, y) { return x - y; }), m = s.length >> 1; return s.length ? (s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2) : NaN; }
+  function sum(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i]; return s; }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function status(t, err) { var s = $("status"); s.className = err ? "err" : ""; s.textContent = t; }
+
+  // ---------- environment
+  function b64(s) { var bin = atob(s), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+  var KBYTES = b64(DATA.kmod);
+  function simdOk() { try { return typeof WebAssembly === "object" && WebAssembly.validate(new Uint8Array(DATA.simd)); } catch (e) { return false; } }
+  // The real gate for the reader's model engines (07-environment-detection.md): SIMD validates AND a shared
+  // WebAssembly memory can be made (ONNX Runtime's file imports one, even with one thread).
+  function sharedOk() { try { new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true }); return true; } catch (e) { return false; } }
+  function osInfo() {
+    var ua = navigator.userAgent || "", p = (navigator.userAgentData && navigator.userAgentData.platform) || "";
+    if (/Android/i.test(ua) || /Android/i.test(p)) return { os: "Android", mobile: true };
+    if (/iPhone|iPad|iPod/.test(ua)) return { os: "iOS", mobile: true };
+    if (/Windows/i.test(ua)) return { os: "Windows", mobile: false };
+    if (/CrOS/.test(ua)) return { os: "ChromeOS", mobile: false };
+    if (/Mac OS X|Macintosh/.test(ua)) return { os: "macOS", mobile: false };
+    if (/Linux/i.test(ua)) return { os: "Linux", mobile: false };
+    return { os: p || "unknown system", mobile: false };
+  }
+  async function browserInfo() {
+    var ua = navigator.userAgent || "", m;
+    var brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+    function brand(re) { for (var i = 0; i < brands.length; i++) if (re.test(brands[i].brand)) return brands[i]; return null; }
+    var chromium = brand(/^Chromium$/), cv = chromium ? chromium.version : (m = /Chrome\/(\d+)/.exec(ua)) ? m[1] : "";
+    var brave = !!brand(/Brave/);
+    try { if (!brave && navigator.brave && typeof navigator.brave.isBrave === "function") brave = !!(await withTimeout(navigator.brave.isBrave(), 1500, "navigator.brave.isBrave")); } catch (e) {}
+    if (brave) return { name: "Brave", version: cv };
+    if ((m = /Edg(?:A|iOS)?\/(\d+)/.exec(ua))) return { name: "Edge", version: m[1] };
+    if ((m = /OPR\/(\d+)/.exec(ua))) return { name: "Opera", version: m[1] };
+    if ((m = /SamsungBrowser\/(\d+)/.exec(ua))) return { name: "Samsung Internet", version: m[1] };
+    if ((m = /(?:Firefox|FxiOS)\/(\d+)/.exec(ua))) return { name: "Firefox", version: m[1] };
+    if ((m = /CriOS\/(\d+)/.exec(ua))) return { name: "Chrome", version: m[1] };
+    var gc = brand(/Google Chrome/);
+    if (gc) return { name: "Chrome", version: gc.version };
+    if (/HeadlessChrome/.test(ua)) return { name: "Chrome (headless)", version: cv };
+    if (cv) return { name: brands.length ? "Chromium-based browser" : "Chrome", version: cv };
+    if ((m = /Version\/(\d+)[^ ]* (?:Mobile\/\S+ )?Safari/.exec(ua))) return { name: "Safari", version: m[1] };
+    return { name: "unknown browser", version: "" };
+  }
+
+  // ---------- the kernel worker (as the Studio's K.kernelWorker: the module passed compiled, else the bytes)
+  var wurl = null;
+  function workerUrl() { if (!wurl) wurl = URL.createObjectURL(new Blob([$("sb-worker").textContent], { type: "text/javascript" })); return wurl; }
+  function KWorker() {
+    var w = new Worker(workerUrl()), seq = 0, pending = {}, me = this;
+    me.dead = false;
+    function failAll(msg) { Object.keys(pending).forEach(function (id) { var p = pending[id]; delete pending[id]; clearTimeout(p.t); p.rej(new Error(msg)); }); }
+    w.onmessage = function (ev) {
+      var m = ev.data || {};
+      if (m.pulse || m.id == null) return;
+      var p = pending[m.id];
+      if (!p) return;
+      delete pending[m.id]; clearTimeout(p.t);
+      if (m.error) p.rej(new Error(m.error)); else p.res(m);
+    };
+    w.onerror = function (ev) { me.dead = true; failAll("the worker stopped: " + ((ev && ev.message) || "error")); if (ev && ev.preventDefault) ev.preventDefault(); };
+    me.ask = function (msg, timeoutMs) {
+      return new Promise(function (res, rej) {
+        var id = ++seq;
+        msg.id = id;
+        pending[id] = { res: res, rej: rej, t: setTimeout(function () { delete pending[id]; rej(new Error("the worker gave no answer within " + Math.round(timeoutMs / 1000) + " s")); }, timeoutMs) };
+        try { w.postMessage(msg); } catch (e) { clearTimeout(pending[id].t); delete pending[id]; rej(e); }
+      });
+    };
+    me.kill = function () { me.dead = true; failAll("the worker was stopped"); try { w.terminate(); } catch (e) {} };
+  }
+  var modP = null;
+  function kmodule() {
+    if (!modP) modP = (async function () {
+      if (typeof WebAssembly !== "object") throw new Error("no WebAssembly");
+      if (!simdOk()) throw new Error("no WebAssembly SIMD: the kernel cannot load");
+      return WebAssembly.compile(KBYTES);
+    })();
+    return modP;
+  }
+  async function kernelWorker() {
+    var mod = await kmodule(), w = new KWorker();
+    try { await w.ask({ cmd: "init", module: mod }, 20000); }
+    catch (e) { if (w.dead) throw e; await w.ask({ cmd: "init", bytes: KBYTES.slice(0) }, 20000); }
+    return w;
+  }
+
+  // ---------- CPU, one core: the Studio's cpu.f32 (K.bench "f32s", 2 x 64 KB, 500 ms windows, warm-up up to
+  // 1 s and at least 0.3 s, 5 samples, 4 more when they spread over 10 %; the median).
+  async function testF32() {
+    var w = await kernelWorker();
+    try {
+      var r = await w.ask({ cmd: "bench", kind: "f32s", bytes: 65536, windowMs: 500, warmMs: 1000, warmMin: 300, samples: 5, extend: true }, 60000);
+      var s = r.samples.map(function (x) { return x / 1e6; });
+      var md = median(s), best = Math.max.apply(null, s), worst = Math.min.apply(null, s);
+      return { median: md, samples: s.map(function (x) { return +x.toFixed(1); }), spread: md ? (best - worst) / md : null, warmMs: Math.round(r.warmMs), stable: r.stable };
+    } finally { w.kill(); }
+  }
+
+  // ---------- CPU, all cores: a short cpu.scale. Every thread at once (navigator.hardwareConcurrency workers),
+  // each warmed 150 ms, all starting one shared moment; two windows (0.3 s fast, 0.6 s medium, 1 s slow
+  // device class from f32); the total of the workers, averaged over the two windows.
+  async function testMulti(f32) {
+    var hc = navigator.hardwareConcurrency || 2, k = Math.max(1, Math.min(64, hc));
+    var cls = !(f32 > 0) ? "medium" : f32 >= 9800 ? "fast" : f32 >= 1400 ? "medium" : "slow";
+    var win = cls === "slow" ? 1000 : cls === "medium" ? 600 : 300, pool = [], short = "";
+    try {
+      for (var i = 0; i < k; i++) {
+        try { pool.push(await kernelWorker()); }
+        catch (e) { if (!pool.length) throw e; short = "only " + pool.length + " workers could be made (" + errText(e) + ")"; break; }
+      }
+      var once = async function () {
+        var startAt = Date.now() + 250 + 25 * pool.length;
+        var rs = await Promise.all(pool.map(function (w) { return w.ask({ cmd: "scale", kind: "f32s", bytes: 65536, warmMs: 150, windowMs: win, startAt: startAt }, win + 30000); }));
+        return rs.map(function (r) { return r.rate / 1e6; });
+      };
+      var a = await once(), b = await once();
+      return { total: (sum(a) + sum(b)) / 2, workers: pool.length, threads: hc, windowMs: win, totals: [Math.round(sum(a)), Math.round(sum(b))], note: short };
+    } finally { pool.forEach(function (w) { w.kill(); }); }
+  }
+
+  // ---------- Graphics card: the Studio's gpu.alu (ALU_F32, 256 x 64 threads, iterations doubled until one
+  // dispatch takes 2 ms, then 3 windows of 250 ms; the median), after 1 s of card work as gpu.latency does
+  // (a card left idle sits in its power-saving state). The ALU kernel writes one value per thread, not a burst
+  // of scalar stores, so the D3D12 lost-writes fault the Studio found (scalar store bursts) does not touch it.
+  var GBU = typeof GPUBufferUsage !== "undefined" ? GPUBufferUsage : null;
+  function sbuf(G, sizeOrData) {
+    var data = typeof sizeOrData === "number" ? null : sizeOrData, size = data ? data.byteLength : sizeOrData;
+    size = Math.max(16, Math.ceil(size / 16) * 16);
+    var b = G.d.createBuffer({ size: size, usage: GBU.STORAGE | GBU.COPY_SRC | GBU.COPY_DST });
+    if (data) G.d.queue.writeBuffer(b, 0, data);
+    return b;
+  }
+  function ubuf(G, arr) { var b = G.d.createBuffer({ size: 16, usage: GBU.UNIFORM | GBU.COPY_DST }); G.d.queue.writeBuffer(b, 0, arr); return b; }
+  function bind(G, pipe, bufs) { return G.d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: bufs.map(function (b, i) { return { binding: i, resource: { buffer: b } }; }) }); }
+  function pass(enc, pipe, bg, x, y) { var p = enc.beginComputePass(); p.setPipeline(pipe); p.setBindGroup(0, bg); p.dispatchWorkgroups(x, y || 1); p.end(); }
+  async function submitWait(G, enc, capMs) {
+    var t = now(), timer = 0;
+    G.d.queue.submit([enc.finish()]);
+    var r = await Promise.race([G.d.queue.onSubmittedWorkDone().then(function () { return "done"; }), new Promise(function (res) { timer = setTimeout(function () { res("stalled"); }, capMs || 5000); })]);
+    clearTimeout(timer);
+    if (r === "stalled") { G.stalled = true; throw new Error("GPU work did not finish within " + ((capMs || 5000) / 1000) + " s (stalled)"); }
+    return now() - t;
+  }
+  async function readBuf(G, src, size) {
+    var rd = G.d.createBuffer({ size: size, usage: GBU.MAP_READ | GBU.COPY_DST });
+    var enc = G.d.createCommandEncoder(); enc.copyBufferToBuffer(src, 0, rd, 0, size); G.d.queue.submit([enc.finish()]);
+    await withTimeout(rd.mapAsync(GPUMapMode.READ), 10000, "mapAsync");
+    var copy = rd.getMappedRange().slice(0); rd.unmap(); rd.destroy();
+    return copy;
+  }
+  async function compile(G, code) {
+    G.d.pushErrorScope("validation");
+    var m = G.d.createShaderModule({ code: code }), msgs = [];
+    if (m.getCompilationInfo) { var info = await m.getCompilationInfo(); msgs = info.messages.filter(function (x) { return x.type === "error"; }).map(function (x) { return "line " + x.lineNum + ": " + x.message; }); }
+    var p = null, perr = null;
+    try { p = await G.d.createComputePipelineAsync({ layout: "auto", compute: { module: m, entryPoint: "main" } }); } catch (e) { perr = errText(e); }
+    var ve = await G.d.popErrorScope();
+    if (msgs.length || perr || ve) throw new Error(msgs.concat(perr ? [perr] : [], ve ? [ve.message] : []).join("; "));
+    return p;
+  }
+  // 256 dependent dispatches of o[0] += 1 must give exactly 256 (the Studio's checkTiny).
+  async function checkTiny(G) {
+    var ob = sbuf(G, new Uint32Array(4)), bg = bind(G, G.tiny, [ob]), enc = G.d.createCommandEncoder(), p = enc.beginComputePass();
+    p.setPipeline(G.tiny); p.setBindGroup(0, bg); for (var i = 0; i < 256; i++) p.dispatchWorkgroups(1); p.end();
+    await submitWait(G, enc);
+    var v = new Uint32Array(await readBuf(G, ob, 16))[0]; ob.destroy();
+    return v;
+  }
+  // GP.warm: size one dispatch to 8 ms or more, then submits of about 30 ms for `ms` milliseconds.
+  async function warm(G, ms) {
+    var pipe = G.alu, W = 256, ob = sbuf(G, W * 64 * 4), ub = ubuf(G, new Uint32Array([4096, 3, 0, 0])), bg = bind(G, pipe, [ob, ub]);
+    var iters = 4096, reps = 1, t0 = now(), n = 0, first = 0, last = 0, t = 0, i;
+    try {
+      for (;;) {
+        G.d.queue.writeBuffer(ub, 0, new Uint32Array([iters, 3, 0, 0]));
+        var e0 = G.d.createCommandEncoder(); pass(e0, pipe, bg, W); t = await submitWait(G, e0, 5000);
+        if (t >= 8 || iters >= 1048576) break;
+        iters *= 4;
+      }
+      reps = Math.max(1, Math.min(16, Math.ceil(30 / Math.max(t, 0.5))));
+      while (now() - t0 < (ms || 1000)) {
+        var e = G.d.createCommandEncoder(); for (i = 0; i < reps; i++) pass(e, pipe, bg, W);
+        last = await submitWait(G, e, 5000); n++;
+        if (n === 1) first = last;
+      }
+    } finally { ob.destroy(); ub.destroy(); }
+    if (!first) first = last = t * reps;
+    return { ms: Math.round(now() - t0), submits: n, speedup: +(first / last).toFixed(2) };
+  }
+  // gpuRate: grow the dispatches per submit until one submit takes about 50 ms, then samples over a window.
+  async function gpuRate(G, encode, units, windowMs, samples) {
+    var submit = async function (k) { var enc = G.d.createCommandEncoder(); for (var i = 0; i < k; i++) encode(enc); return submitWait(G, enc, 5000); };
+    await submit(1);
+    var k = 1, t1 = await submit(1);
+    while (k < 4096 && t1 < 50) { var nk = t1 < 5 ? k * 8 : k * 2; if (t1 * nk / k > 250) break; k = nk; t1 = await submit(k); }
+    var out = [];
+    for (var s = 0; s < (samples || 5); s++) {
+      var n = 0, t0 = now(), tt = t0;
+      while (tt - t0 < windowMs) { await submit(k); n += k * units; tt = now(); }
+      out.push(n / ((tt - t0) / 1000));
+    }
+    return { samples: out, perSubmit: k };
+  }
+  async function aluRate(G, units16) {
+    var pipe = G.alu, W = 256, threads = W * 64, ob = sbuf(G, threads * 4), ub = ubuf(G, new Uint32Array([256, 777, 0, 0])), bg = bind(G, pipe, [ob, ub]), iters = 256, per = 0;
+    try {
+      for (;;) {
+        G.d.queue.writeBuffer(ub, 0, new Uint32Array([iters, 777, 0, 0]));
+        var e = G.d.createCommandEncoder(); for (var i = 0; i < 4; i++) pass(e, pipe, bg, W);
+        var t = await submitWait(G, e); per = t / 4;
+        if (per >= 2 || iters >= 1048576) break;
+        iters *= per < 0.25 ? 8 : 2;
+      }
+      var r = await gpuRate(G, function (enc) { pass(enc, pipe, bg, W); }, threads * iters * units16, 250, 3);
+      return { rate: median(r.samples), samples: r.samples, iters: iters };
+    } finally { ob.destroy(); ub.destroy(); }
+  }
+  async function testGpu() {
+    var out = { webgpu: !!navigator.gpu, usable: false, why: "" };
+    if (!navigator.gpu || !GBU) { out.why = "no WebGPU in this browser"; return out; }
+    var a = null;
+    try { a = await withTimeout(navigator.gpu.requestAdapter({ powerPreference: "high-performance" }), 8000, "requestAdapter"); } catch (e) {}
+    if (!a) try { a = await withTimeout(navigator.gpu.requestAdapter({ featureLevel: "compatibility" }), 8000, "requestAdapter (compatibility)"); } catch (e) {}
+    if (!a) { out.why = "WebGPU gave no adapter (no graphics driver, or the browser blocks WebGPU on this card)"; return out; }
+    var info = a.info || null;
+    if (!info && a.requestAdapterInfo) { try { info = await a.requestAdapterInfo(); } catch (e) {} }
+    info = info || {};
+    out.adapter = { vendor: info.vendor || "", architecture: info.architecture || "", device: info.device || "", description: info.description || "", fallback: !!info.isFallbackAdapter };
+    out.name = [out.adapter.vendor, out.adapter.architecture, out.adapter.device, out.adapter.description].filter(Boolean).join(" ") || "unnamed adapter";
+    out.f16 = a.features.has("shader-f16"); out.subgroups = a.features.has("subgroups");
+    out.maxBufferSize = a.limits.maxBufferSize || 0; out.maxBinding = a.limits.maxStorageBufferBindingSize || 0;
+    if (info.isFallbackAdapter || /swiftshader|basic render|llvmpipe|softpipe|software/i.test(out.name)) { out.why = "a software renderer (" + out.name + "), not a real graphics card"; return out; }
+    // The device with the features and limits ONNX Runtime asks for, as the Studio makes it.
+    var want = ["shader-f16", "subgroups", "timestamp-query"].filter(function (f) { return a.features.has(f); }), lim = {};
+    ["maxBufferSize", "maxStorageBufferBindingSize", "maxComputeWorkgroupStorageSize", "maxComputeInvocationsPerWorkgroup", "maxComputeWorkgroupSizeX", "maxComputeWorkgroupSizeY", "maxComputeWorkgroupSizeZ", "maxComputeWorkgroupsPerDimension"].forEach(function (k) { if (a.limits[k]) lim[k] = a.limits[k]; });
+    var d = await withTimeout(a.requestDevice({ requiredFeatures: want, requiredLimits: lim }), 10000, "requestDevice");
+    var G = { d: d, lost: null, errors: [], stalled: false };
+    d.lost.then(function (i) { if (i && i.reason !== "destroyed") G.lost = (i.reason || "unknown") + (i.message ? ": " + i.message : ""); });
+    d.onuncapturederror = function (e) { G.errors.push(e && e.error ? e.error.message : "unknown"); };
+    try {
+      G.alu = await compile(G, DATA.ALU_F32);
+      G.tiny = await compile(G, DATA.TINY);
+      var t = await checkTiny(G);
+      if (t !== 256) { out.why = "the card gave a wrong answer in a tiny test (" + t + " instead of 256): unreliable"; return out; }
+      out.warm = await warm(G, 1000);
+      var r = await aluRate(G, 16);
+      if (G.lost) throw new Error("the card's device was lost: " + G.lost);
+      if (G.errors.length) throw new Error("WebGPU error: " + G.errors[0]);
+      out.alu = r.rate / 1e9;
+      out.samples = r.samples.map(function (x) { return +(x / 1e9).toFixed(1); });
+      out.usable = true;
+    } finally { try { d.destroy(); } catch (e) {} }
+    return out;
+  }
+
+  // ---------- Browser voices: read the list properly (voiceschanged plus polling, up to about 5 s; Android
+  // lists nothing until its engine is awake, so a silent empty utterance nudges it, as the reader does).
+  var VL = { list: [] };
+  function readVoices() { try { var v = window.speechSynthesis.getVoices() || []; if (v.length >= VL.list.length) VL.list = Array.prototype.slice.call(v); } catch (e) {} }
+  if (window.speechSynthesis) {
+    readVoices();
+    try { if (window.speechSynthesis.addEventListener) window.speechSynthesis.addEventListener("voiceschanged", readVoices); else window.speechSynthesis.onvoiceschanged = readVoices; } catch (e) {}
+  }
+  function hasLocal(list) { for (var i = 0; i < list.length; i++) if (list[i].localService) return true; return false; }
+  async function testVoices() {
+    var ss = window.speechSynthesis;
+    if (!ss || typeof SpeechSynthesisUtterance === "undefined") return { supported: false };
+    var t0 = now(), nudged = false;
+    readVoices();
+    while (now() - t0 < 5000 && !hasLocal(VL.list)) {
+      if (!VL.list.length && !nudged && now() - t0 > 800) {
+        nudged = true;
+        try { var u = new SpeechSynthesisUtterance(" "); u.volume = 0; ss.speak(u); } catch (e) {}
+      }
+      await sleep(200);
+      readVoices();
+    }
+    if (nudged) { try { if (ss.speaking || ss.pending) ss.cancel(); } catch (e) {} }
+    return { supported: true, nudged: nudged, waitedMs: Math.round(now() - t0) };
+  }
+  function countVoices(base) {
+    if (!base || !base.supported) return { supported: false };
+    readVoices();
+    var en = function (v) { return /^en([-_]|$)/i.test(v.lang || ""); }, c = { supported: true, total: VL.list.length, local: 0, online: 0, en: 0, enLocal: 0, enOnline: 0, nudged: base.nudged, waitedMs: base.waitedMs, names: [] };
+    VL.list.forEach(function (v) {
+      if (v.localService) c.local++; else c.online++;
+      if (en(v)) { c.en++; if (v.localService) c.enLocal++; else c.enOnline++; }
+      if (c.names.length < 12 && en(v)) c.names.push(v.name + (v.localService ? "" : " (online)"));
+    });
+    return c;
+  }
+
+  // ---------- the run
+  async function safe(label, fn) {
+    status("Testing: " + label + " ...");
+    try { return { ok: true, v: await fn() }; } catch (e) { return { ok: false, error: errText(e) }; }
+  }
+  async function run() {
+    if (state.running) return;
+    state.running = true; state.done = false;
+    $("start").disabled = true; $("copy").disabled = true; $("save").disabled = true;
+    $("out").hidden = true;
+    var t0 = now(), res = { when: new Date().toISOString(), page: location.protocol };
+    var voicesP = testVoices().catch(function (e) { return { supported: true, error: errText(e) }; });   // in parallel: it only waits
+    var os = osInfo();
+    res.env = { os: os.os, mobile: os.mobile, threads: navigator.hardwareConcurrency || null, deviceMemory: navigator.deviceMemory || null,
+      simd: simdOk(), sharedMemory: typeof WebAssembly === "object" ? sharedOk() : false, ua: navigator.userAgent };
+    try { res.env.browser = await browserInfo(); } catch (e) { res.env.browser = { name: "unknown browser", version: "" }; }
+    // On battery (a computer only, as the reader's device check): the rules then count it as warming up.
+    try { if (navigator.getBattery) { var bt = await withTimeout(navigator.getBattery(), 2000, "getBattery"); res.env.onBattery = !!(bt && !bt.charging && !os.mobile); } } catch (e) {}
+    var f = await safe("CPU, one core (1 of 4)", testF32);
+    res.f32 = f.ok ? f.v : { error: f.error };
+    var mt = await safe("CPU, all cores (2 of 4)", function () { return testMulti(f.ok ? f.v.median : null); });
+    res.multi = mt.ok ? mt.v : { error: mt.error };
+    var g = await safe("graphics card (3 of 4)", function () { return withTimeout(testGpu(), 45000, "the graphics test"); });
+    res.gpu = g.ok ? g.v : { usable: false, why: "the test failed: " + g.error };
+    status("Testing: browser voices (4 of 4) ...");
+    res.voices = countVoices(await voicesP);
+    res.seconds = +((now() - t0) / 1000).toFixed(1);
+    res.input = {
+      f32: res.f32.median || 0, multi: res.multi.total || 0, alu: res.gpu.usable ? res.gpu.alu : 0,
+      card: { ok: !!res.gpu.usable, f16: !!res.gpu.f16, why: res.gpu.usable ? "" : res.gpu.why },
+      wasm: !!(res.env.simd && res.env.sharedMemory), mobile: res.env.mobile, battery: !!res.env.onBattery,
+      threads: res.env.threads || 0, ceilingMB: null, voices: res.voices
+    };
+    try { res.decision = decide(res.input); } catch (e) { res.decisionError = errText(e); }
+    state.results = res;
+    state.text = report(res);
+    render(res);
+    status("Done in " + res.seconds + " s.");
+    state.running = false; state.done = true;
+    $("start").disabled = false; $("start").textContent = "Run the test again";
+    $("copy").disabled = false; $("save").disabled = false;
+  }
+
+  // ---------- showing the results
+  function browserText(e) { var b = e.browser || {}; return (b.name || "?") + (b.version ? " " + b.version : ""); }
+  function deviceText(e) {
+    return browserText(e) + " on " + e.os + " (" + (e.mobile ? "phone or tablet" : "desktop or laptop") + ") | " + (e.threads || "?") + " threads | memory " + (e.deviceMemory ? e.deviceMemory + " GB reported" : "not reported");
+  }
+  function mib(b) { return b ? fx(b / 1048576, 0) + " MiB" : "?"; }
+  function yn(v) { return v ? '<span class="yes">yes</span>' : '<span class="no">no</span>'; }
+  function scoreCard(title, score, raw, fail) {
+    if (fail) return '<div class="card"><h3>' + esc(title) + '</h3><div class="na">' + esc(fail) + "</div></div>";
+    return '<div class="card"><h3>' + esc(title) + '</h3><div class="score">' + esc(score == null ? "-" : fx(score, 0)) + ' <small>/ 1000</small></div><div class="raw">' + raw + "</div></div>";
+  }
+  var STCLASS = { "runs well": "yes", "barely": "mid", "too slow": "no", "can't run here": "no" };
+  var OPTIONAL = "The word highlight and the listener (checking) are off by default in the reader and are not part of the suggestion. You can turn them on in its Settings; each costs some speed.";
+  function pickText(s) {
+    var p = s.setup;
+    if (p.engine === "webspeech") return "The browser's own voices";
+    var t = p.engine === "kokoro" ? "Kokoro af_heart on the " + (p.runOn === "gpu" ? "graphics card" : "processor") + ", " + (p.precision === "fp32" ? "fp32" : "8-bit") + (s.settings.copies ? ", " + s.settings.copies + " copies" : "") : p.label;
+    return t + " (" + s.level + ", about " + fx(p.x, 1) + "x real time)";
+  }
+  function render(res) {
+    var e = res.env, d = res.decision || {}, sc = d.scores || {}, cards = [], gp = res.gpu, v = res.voices;
+    $("device").textContent = deviceText(e) + " | test took " + res.seconds + " s";
+    cards.push(scoreCard("CPU, one core", sc.f32, res.f32.median ? esc(fx(res.f32.median, 0)) + " MMAC/s (f32 SIMD, one worker)" : "", res.f32.median ? "" : "Not measured: " + (res.f32.error || "?")));
+    cards.push(scoreCard("CPU, all cores", sc.multi, res.multi.total ? esc(fx(res.multi.total, 0)) + " MMAC/s total, " + res.multi.workers + " workers at once" + (res.multi.note ? "; " + esc(res.multi.note) : "") : "", res.multi.total ? "" : "Not measured: " + (res.multi.error || "?")));
+    cards.push(scoreCard("Graphics card", sc.alu, gp.usable ? esc(fx(gp.alu, 0)) + " G FMA/s (f32), " + esc(gp.name) : "", gp.usable ? "" : "No usable card: " + gp.why));
+    var feat = '<div class="card"><h3>Feature checks</h3><ul class="facts">' +
+      "<li><b>Browser:</b> " + esc(browserText(e)) + ", " + esc(e.os) + (e.mobile ? " (phone or tablet)" : " (desktop or laptop)") + "</li>" +
+      "<li><b>Threads:</b> " + esc(e.threads || "not reported") + "</li>" +
+      "<li><b>Memory:</b> " + esc(e.deviceMemory ? e.deviceMemory + " GB reported (rough)" : "not reported") + (e.onBattery ? "; <b>on battery</b>" : "") + "</li>" +
+      "<li><b>WebAssembly SIMD:</b> " + yn(e.simd) + "; <b>shared memory:</b> " + yn(e.sharedMemory) + (e.simd && e.sharedMemory ? " (model voices can run)" : " (no model voice can run)") + "</li>" +
+      "<li><b>WebGPU:</b> " + (gp.adapter ? esc(gp.name) + "; f16 " + yn(gp.f16) + "; subgroups " + yn(gp.subgroups) + "; largest buffer " + esc(mib(gp.maxBufferSize)) + ", storage binding " + esc(mib(gp.maxBinding)) : esc(gp.why || "none")) + "</li>" +
+      "</ul></div>";
+    var vo = '<div class="card"><h3>Browser voices</h3><ul class="facts">' + (!v.supported ? "<li>No speech synthesis in this browser.</li>" :
+      "<li><b>Voices:</b> " + v.total + " (" + v.local + " on the device, " + v.online + " online)</li>" +
+      "<li><b>English:</b> " + v.enLocal + " on the device, " + v.enOnline + " online</li>" +
+      (v.names && v.names.length ? "<li>" + esc(v.names.slice(0, 6).join(", ")) + (v.names.length > 6 ? ", ..." : "") + "</li>" : "") +
+      "<li class=\"raw\">Read after " + fx((v.waitedMs || 0) / 1000, 1) + " s" + (v.nudged ? ", after waking the speech engine" : "") + "; nothing was spoken.</li>") + "</ul></div>";
+    $("cards").innerHTML = cards.join("") + feat + vo;
+    var r = "";
+    if (res.decisionError) r = '<div class="line"><div class="pick">The rules failed: ' + esc(res.decisionError) + "</div></div>";
+    else {
+      var s = d.suggestion;
+      r += '<div class="line"><div class="tag">The reader would suggest</div>' + (s ? '<div class="pick">' + esc(pickText(s)) + '</div><p>' + esc(s.reason) + "</p>" : '<div class="pick">Nothing: no voice can run here</div><p>No model voice keeps up and this device listed no browser voices. Install a text-to-speech voice (Android: Settings, Accessibility, Text-to-speech output), then run the test again.</p>') +
+        '<div class="note">' + esc(OPTIONAL) + "</div></div>";
+      r += '<div class="card"><h3>Every voice setup on this device (best-sounding first)</h3><ul class="facts">' + d.list.map(function (p) {
+        return '<li><b>' + esc(p.label) + ':</b> <span class="' + STCLASS[p.status] + '">' + esc(p.status) + "</span>" + (p.x > 0 ? ", about " + esc(fx(p.x, 1)) + "x real time" : "") +
+          '<div class="raw">' + esc(p.why) + (p.note ? "; " + esc(p.note) : "") + "</div></li>";
+      }).join("") + "</ul></div>";
+    }
+    $("reader").innerHTML = r;
+    $("out").hidden = false;
+  }
+
+  function report(res) {
+    var e = res.env, d = res.decision || {}, sc = d.scores || {}, gp = res.gpu, v = res.voices, o = [];
+    o.push("Simple Bench results");
+    o.push(res.when.replace("T", " ").slice(0, 19) + " UTC | test took " + res.seconds + " s | opened from " + res.page);
+    o.push("Device: " + deviceText(e));
+    o.push("");
+    o.push("Scores (Jon's PC = 1000)");
+    o.push("  CPU, one core:  " + (res.f32.median ? fx(sc.f32, 0) + "  (" + fx(res.f32.median, 0) + " MMAC/s, f32 SIMD)" : "not measured: " + res.f32.error));
+    o.push("  CPU, all cores: " + (res.multi.total ? fx(sc.multi, 0) + "  (" + fx(res.multi.total, 0) + " MMAC/s total, " + res.multi.workers + " workers)" : "not measured: " + res.multi.error));
+    o.push("  Graphics card:  " + (gp.usable ? fx(sc.alu, 0) + "  (" + fx(gp.alu, 0) + " G FMA/s f32, " + gp.name + ")" : "no usable card: " + gp.why));
+    o.push("");
+    o.push("Feature checks");
+    o.push("  WebAssembly SIMD " + (e.simd ? "yes" : "no") + ", shared memory " + (e.sharedMemory ? "yes" : "no"));
+    o.push("  WebGPU: " + (gp.adapter ? gp.name + "; f16 " + (gp.f16 ? "yes" : "no") + "; subgroups " + (gp.subgroups ? "yes" : "no") + "; largest buffer " + mib(gp.maxBufferSize) + ", storage binding " + mib(gp.maxBinding) : gp.why));
+    o.push("  Memory: " + (e.deviceMemory ? e.deviceMemory + " GB reported" : "not reported") + (e.onBattery ? "; on battery" : ""));
+    o.push("  Browser voices: " + (!v.supported ? "no speech synthesis" : v.total + " (" + v.local + " on the device, " + v.online + " online); English " + v.enLocal + " on the device, " + v.enOnline + " online"));
+    o.push("");
+    o.push("What this means for the reader");
+    if (res.decisionError) o.push("  The rules failed: " + res.decisionError);
+    else {
+      var s = d.suggestion;
+      o.push("  Suggested: " + (s ? pickText(s) : "nothing: no voice can run here"));
+      if (s) o.push("    Why: " + s.reason);
+      o.push("    " + OPTIONAL);
+      o.push("  Every setup (best-sounding first):");
+      d.list.forEach(function (p) { o.push("    " + p.label + ": " + p.status + (p.x > 0 ? ", about " + fx(p.x, 1) + "x" : "") + " (" + p.why + ")"); });
+    }
+    o.push("");
+    o.push("Raw: " + JSON.stringify({ f32: res.f32, multi: res.multi, gpu: { usable: gp.usable, alu: gp.alu, samples: gp.samples, warm: gp.warm, name: gp.name, why: gp.why }, env: { os: e.os, threads: e.threads, deviceMemory: e.deviceMemory, simd: e.simd, sharedMemory: e.sharedMemory, browser: e.browser } }));
+    return o.join("\n");
+  }
+
+  async function copy() {
+    var t = state.text, ok = false;
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(t); ok = true; } } catch (e) {}
+    if (!ok) {
+      try {
+        var ta = document.createElement("textarea"); ta.value = t; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.top = "-1000px";
+        document.body.appendChild(ta); ta.select(); ok = document.execCommand("copy"); document.body.removeChild(ta);
+      } catch (e) { ok = false; }
+    }
+    status(ok ? "Copied the results." : "Copying did not work here: use Save results.", !ok);
+  }
+  function save() {
+    var e = state.results.env, b = (e.browser && e.browser.name || "browser").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    var name = "simple-bench-" + e.os.toLowerCase() + "-" + b + "-" + state.results.when.slice(0, 16).replace(/[^0-9]+/g, "-") + ".txt";
+    try {
+      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([state.text], { type: "text/plain" })); a.download = name;
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+      status("Saved " + name + ".");
+    } catch (err) { status("Saving did not work here: " + errText(err), true); }
+  }
+
+  $("start").addEventListener("click", function () { run().catch(function (e) { state.running = false; $("start").disabled = false; status("The test stopped: " + errText(e), true); }); });
+  $("copy").addEventListener("click", function () { copy(); });
+  $("save").addEventListener("click", save);
+  if (typeof Worker === "undefined" || typeof Blob === "undefined" || typeof Promise === "undefined") status("This browser lacks Web Workers: the processor tests cannot run here.", true);
+  $("start").disabled = false;
+})();
+</script>
+</body>
+</html>
