@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 3:05 AM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 11:29 AM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -480,7 +480,7 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .chip { padding: .2rem .6rem; border-radius: 999px; border: 1px solid var(--line2); background: none; font-size: .78rem; color: var(--dim); }
 .chip.on, .chip:hover { border-color: var(--cyan); color: var(--cyan); }
 .tracks { display: grid; gap: 3px; }
-.track { display: grid; grid-template-columns: 1.6rem 1.4fr 1.2fr auto auto; gap: .6rem; align-items: center; padding: .45rem .6rem; border-radius: .45rem; border: 1px solid transparent; background: rgba(255,255,255,.035); text-align: left; }
+.track { display: grid; grid-template-columns: 1.6rem minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 1fr) 4.4rem minmax(0, 14rem);   /* fixed tracks so every row lines up */ gap: .6rem; align-items: center; padding: .45rem .6rem; border-radius: .45rem; border: 1px solid transparent; background: rgba(255,255,255,.035); text-align: left; }
 .track .ico { width: 1rem; height: 1rem; color: var(--dim); }
 .track:hover { border-color: var(--line2); background: rgba(255,255,255,.07); }
 .track.on { border-color: var(--hot); background: rgba(255,61,242,.1); }
@@ -496,6 +496,9 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .cat-meta { font-family: var(--mono); font-size: .76rem; color: var(--faint); }
 .cat-blurb { flex-basis: 100%; color: var(--dim); font-size: .8rem; }
 .tr-energy { color: var(--hot); font-size: .72rem; letter-spacing: .06em; white-space: nowrap; }
+/* what the record says the track was written in the spirit of (blank when it names nothing) */
+.tr-infl { display: flex; flex-direction: column; color: var(--cyan); font-size: .76rem; line-height: 1.25; }
+.tr-infl-label { color: var(--faint); font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; }
 /* the track list's sort chips and, in the energy and beat sorts, each row's category tag */
 .sorts { align-items: center; }
 .sorts .ctl-label, .chips .ctl-label { flex: 0 0 auto; min-width: 0; font-size: .78rem; color: var(--faint); margin-right: .2rem; }
@@ -1062,8 +1065,11 @@ HW.glsl = {
   }
 
   // ================= INTERFACE ===============================================================
+  // (Jon, 2026-10-22: "I don't want the windows disappearing while I'm watching them.") Off at first.
+  bool("ui.autoHide", "Auto-hide the interface", false,
+    "On: the top bar and unpinned windows fade away when the mouse has been still for a while (the time below). Off: they stay up until you hide them yourself with the eye button or key H. Also the Auto-hide button in the top bar.");
   num("ui.barDelay", "Hide the interface after", 10, 2, 60, 1,
-    "Seconds without moving the mouse before the top bar (and unpinned windows) fade away. They stay while the pointer is over them.", { fmt: F.s1 });
+    "With Auto-hide on: seconds without moving the mouse before the top bar (and unpinned windows) fade away. They stay while the pointer is over them.", { fmt: F.s1 });
   bool("ui.hideWins", "Hide windows with the bar", true, "Windows fade away together with the top bar. Pin a window to keep it up anyway.");
   num("ui.opacity", "Window solidity", 0.88, 0.4, 1, 0.01, "How solid the windows are: 100% = fully solid, lower lets more of the visuals show through.", { fmt: F.pct });
   num("ui.scale", "Interface size", 1, 0.75, 1.5, 0.05, "Makes all buttons, text and windows bigger or smaller.", { fmt: F.x });
@@ -8208,6 +8214,37 @@ HW.SHAPE_FIT = {
 
 </script>
 <script>
+// ---- music-influence.js ----
+// What each demo track was written in the spirit of, if anything (Jon, 2026-10-22), shown in the Music window.
+// Filled from the WRITTEN RECORD ONLY, nothing inferred or made up:
+//   - the comment header above each track in src/js/music-tracks-*.js, and
+//   - the research section of verify/music/MUSIC2-PROGRESS.md ("Research notes: the game music").
+// A game or a style is named, never a particular piece, and nothing was borrowed (the melodies are original).
+// A track that is not listed here: the record names no influence for it (its header names only its own genre).
+//
+// The ten tracks of music-tracks-legends.js: that file's header says they are "original music in the spirit of the
+// great game scores", and the research section names the game music studied for this set: Halo, and The Elder
+// Scrolls (Morrowind, Oblivion, Skyrim). The record does not say which song leans on which game, so each of them
+// carries the set's two names.
+"use strict";
+(function () {
+  const GAMES = "Game scores: Halo, The Elder Scrolls";
+  HW.music.influence = {
+    "stone-hall-before-the-storm": GAMES,
+    "cold-moon-infiltration": GAMES,
+    "ring-of-fire-charge": GAMES,
+    "beyond-the-grey-mountains": GAMES,
+    "song-of-the-northern-hall": GAMES,
+    "harp-at-the-crossroads": GAMES,
+    "the-sleeping-town": GAMES,
+    "stars-over-the-long-road": GAMES,
+    "embers-at-the-waystation": GAMES,
+    "ruins-in-the-mist": GAMES,
+  };
+})();
+
+</script>
+<script>
 // ---- modmatrix.js ----
 // The modulation matrix: columns are things in the sound (and two LFOs), rows are things you see.
 // Each row's value = its base setting + the sum of (cell amount x source level).
@@ -9595,8 +9632,20 @@ HW.SHAPE_FIT = {
   const tap = el("button", { type: "button", class: "tap", text: "TAP", "data-tip": "Tap in time with the music (three taps or more) to set the tempo by hand.", on: { pointerdown: (e) => { e.preventDefault(); HW.audio.tap(); led.classList.add("tapped"); setTimeout(() => led.classList.remove("tapped"), 90); } } });
   const fps = el("span", { class: "fps", hidden: true });
   const autoPill = el("button", { type: "button", class: "pill auto", on: { click: () => HW.app.toggleAutopilot() } });
+  // Auto-hide on/off (Jon, 2026-10-22: off at first, so nothing disappears while he is watching it)
+  const hidePill = el("button", { type: "button", class: "pill hide", on: { click: () => {
+    HW.set("ui.autoHide", !cfg["ui.autoHide"], { label: "auto-hide" });
+    HW.toast(cfg["ui.autoHide"] ? "Auto-hide on: the bar and windows fade after " + cfg["ui.barDelay"] + " s without the mouse moving" : "Auto-hide off: the bar and windows stay up (eye button or H hides them)");
+  } } });
+  function refreshHidePill() {
+    const on = !!cfg["ui.autoHide"], tiny = bar.classList.contains("tiny");
+    hidePill.textContent = tiny ? (on ? "Hide on" : "Hide off") : "Auto-hide " + (on ? "on" : "off");
+    hidePill.classList.toggle("on", on);
+    hidePill.dataset.tip = on ? "Auto-hide is on: the bar and unpinned windows fade away " + cfg["ui.barDelay"] + " s after the mouse stops. Click to keep them up." :
+      "Auto-hide is off: the bar and windows stay up while you watch. The eye button (or key H) hides them by hand. Click to let them fade on their own.";
+  }
   const status = el("div", { class: "bar-status" },
-    el("div", { class: "bar-status-row" }, srcPill, autoPill),
+    el("div", { class: "bar-status-row" }, srcPill, autoPill, hidePill),
     el("div", { class: "bar-status-row" }, inMeter, led, bpm, tap, fps));
 
   const act = (icon, tip, fn, cls) => el("button", { type: "button", class: "bar-act " + (cls || ""), "data-tip": tip, html: HW.icon(icon), on: { click: fn } });
@@ -9669,6 +9718,7 @@ HW.SHAPE_FIT = {
         autoPill.dataset.tip = "Autopilot is off: nothing changes by itself. Click to turn on a new shape every so often (its timing is in Settings, Autopilot).";
       }
       autoPill.classList.toggle("on", parts.length > 0);
+      refreshHidePill();
       const r = HW.render.recording();
       recTime.textContent = r >= 0 ? HW.mmss(r) : "";
     },
@@ -9715,9 +9765,10 @@ HW.SHAPE_FIT = {
     if (body.classList.contains("idle")) HW.bar.lastWake = performance.now();
     body.classList.remove("idle");
     clearTimeout(timer);
-    timer = setTimeout(check, cfg["ui.barDelay"] * 1000);
+    if (cfg["ui.autoHide"]) timer = setTimeout(check, cfg["ui.barDelay"] * 1000);   // off: stays up until hidden by hand
   }
   function check() {
+    if (!cfg["ui.autoHide"]) return;
     const a = document.activeElement;
     const typing = a && (a.tagName === "INPUT" || a.tagName === "SELECT" || a.tagName === "TEXTAREA");
     if ((HW.uiBusy || 0) > 0 || overUI || typing) { timer = setTimeout(check, 800); return; }
@@ -9743,6 +9794,7 @@ HW.SHAPE_FIT = {
   document.addEventListener("pointerleave", () => { overUI = false; });
   HW.on("cfg", ({ key }) => {
     if (key === "ui.hideWins") body.classList.toggle("keep-wins", !cfg["ui.hideWins"]);
+    if (key === "ui.autoHide" || key === "ui.barDelay") { refreshHidePill(); if (key === "ui.autoHide") wake(); }
     if (key === "ui.opacity") document.documentElement.style.setProperty("--win-alpha", cfg["ui.opacity"]);
     if (key === "ui.scale") document.documentElement.style.setProperty("--ui", cfg["ui.scale"]);
   });
@@ -10185,6 +10237,8 @@ HW.win.define("source", {
   const cats = () => (Array.isArray(M().categories) ? M().categories : []);
   const catOf = (t) => cats().find((c) => c.id === t.category);
   const energyOf = (x) => Math.max(0, Math.min(5, Math.round(Number(x && x.energy) || 0)));
+  // what the written record says a track was written in the spirit of (music-influence.js); "" when it names nothing
+  const infl = (t) => (HW.music && HW.music.influence && HW.music.influence[t.id]) || "";
   const scoreOf = (t) => (Number.isFinite(t.energyScore) ? t.energyScore : energyOf(t));
   const dots = (n) => (n ? "●".repeat(n) + "○".repeat(5 - n) : "");
   // a range: full dots up to the lowest, half dots up to the highest (2 to 3 = ●●◐○○)
@@ -10397,6 +10451,8 @@ HW.win.define("source", {
           el("span", { class: "ico-wrap", html: HW.icon("play") }),
           el("span", { class: "tr-name", text: t.name }),
           el("span", { class: "tr-genre" }, el("span", { text: t.genre + (t.style ? " • " + t.style : "") }), sort !== "cat" && tc ? el("span", { class: "tr-cat", text: tc.name }) : null),
+          // what the written record says the track was written in the spirit of (music-influence.js); blank if nothing
+          el("span", { class: "tr-infl" }, infl(t) ? [el("span", { class: "tr-infl-label", text: "in the spirit of" }), el("span", { text: infl(t) })] : null),
           el("span", { class: "tr-energy", text: e ? dots(e) : "", title: e ? "Energy " + e + " of 5: " + ENERGY[e].toLowerCase() + (Number.isFinite(t.energyScore) ? " (" + t.energyScore.toFixed(2) + ")" : "") : "" }),
           el("span", { class: "tr-meta", text: beatWords(t) + " • " + HW.mmss(t.length || 0) })));
       }
@@ -11576,7 +11632,7 @@ HW.win.define("settings", {
       el("p", { class: "note", text: "Sound is analyzed only inside this page; nothing is recorded or sent anywhere unless you press Record, which saves a video file on this computer." }));
 
     body.append(
-      ui.section("Interface", "", ["ui.barDelay", "ui.hideWins", "ui.opacity", "ui.scale", "ui.tips", "ui.help", "ui.card", "ui.mini", "ui.fps"]),
+      ui.section("Interface", "", ["ui.autoHide", "ui.barDelay", "ui.hideWins", "ui.opacity", "ui.scale", "ui.tips", "ui.help", "ui.card", "ui.mini", "ui.fps"]),
       ui.section("Performance", "If the picture stutters, lower these first.", ["look.res", "q.fieldRes", "shape.detail", "look.thick"]),
       el("section", { class: "sec" }, el("h3", { text: "MIDI controllers" }), el("div", { class: "grid" }, ui.control("midi.on")), midiInfo, mapList,
         el("div", { class: "row" }, ui.button("Forget all MIDI knobs", "close", () => HW.midiClear(), "Unlink every knob, fader and pad."))),
