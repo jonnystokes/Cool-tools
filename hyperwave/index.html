@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 12:34 PM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 12:52 PM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -519,6 +519,28 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .log-when { font-family: var(--mono); font-size: .72rem; color: var(--faint); }
 .log-text { margin-top: .2rem; white-space: pre-wrap; }
 .log-ctx { margin-top: .2rem; font-size: .74rem; color: var(--dim); }
+
+/* the playlist table (2026-10-22): column heads sort */
+.pl-scroll { overflow-x: auto; }
+.pl-table { width: 100%; border-collapse: separate; border-spacing: 0 2px; font-size: .82rem; }
+.pl-table th { position: sticky; top: 0; z-index: 1; background: var(--panel2, #12162a); text-align: left; padding: 0; }
+.th-sort { width: 100%; text-align: left; padding: .4rem .45rem; border: 0; border-bottom: 1px solid var(--line2); background: none; color: var(--dim); font-weight: 700; font-size: .74rem; white-space: nowrap; cursor: pointer; }
+.th-sort:hover, .th-sort.on { color: var(--cyan); }
+.pl-row { cursor: pointer; background: rgba(255,255,255,.035); }
+.pl-row:hover { background: rgba(255,255,255,.08); }
+.pl-row.on { background: rgba(255,61,242,.13); }
+.pl-row td { padding: .38rem .45rem; vertical-align: middle; }
+.pl-row td:first-child { border-radius: .4rem 0 0 .4rem; }
+.pl-row td:last-child { border-radius: 0 .4rem .4rem 0; }
+.pl-num { font-family: var(--mono); color: var(--faint); text-align: right; width: 2.2rem; }
+.pl-name { font-weight: 700; white-space: nowrap; }
+.pl-name .ico-wrap { vertical-align: middle; margin-right: .35rem; opacity: .6; }
+.pl-name .ico { width: .95rem; height: .95rem; }
+.pl-dim { color: var(--dim); }
+.pl-infl { color: var(--cyan); font-size: .76rem; }
+.pl-energy { color: var(--hot); letter-spacing: .05em; white-space: nowrap; font-size: .72rem; }
+.pl-mono { font-family: var(--mono); color: var(--faint); white-space: nowrap; font-size: .76rem; }
+.pl-group td { padding: .7rem .3rem .2rem; border-bottom: 1px solid var(--line2); }
 
 </style>
 </head>
@@ -10387,7 +10409,7 @@ HW.win.define("source", {
     return out;
   }
   // the play order: the list as it is shown
-  const ordered = () => groups().flatMap((g) => g.tracks);
+  const ordered = () => tableRows(0).flatMap((g) => g.tracks);   // the play order follows the playlist table
 
   // ---- the playlist and the song's sections drive the visuals --------------------------------------
   function nextId(dir) {
@@ -10428,7 +10450,7 @@ HW.win.define("source", {
   HW.on("cfg", ({ key }) => {
     if (key === "music.tempo" && ready() && M().setTempo) M().setTempo(cfg["music.tempo"]);
     if (key === "music.kick") applyKick();
-    if (key === "music.sort") { const w = HW.win.get && HW.win.get("playlist"); if (w && w.parts) buildList(w); }
+    if (key === "music.table") { const w = HW.win.get && HW.win.get("playlist"); if (w && w.parts) buildList(w); }
   });
 
   HW.win.define("music", {
@@ -10531,51 +10553,73 @@ HW.win.define("source", {
     tick(w) {
       if (!w.built) buildList(w);
       const P = w.parts, s = ready() && isMusic() ? M().state() : null;
-      for (const row of P.list.children) row.classList.toggle("on", !!(s && row.dataset.id === s.id));
+      for (const row of P.list.querySelectorAll(".pl-row")) row.classList.toggle("on", !!(s && row.dataset.id === s.id));
     },
   });
 
+  // ---- the playlist as a table (Jon, 2026-10-22: "more like a spreadsheet table with columns ... sort-up/down
+  // buttons above every column ... especially the ID number"). Click a column head to sort by it, again to reverse.
+  // Grouping by category and the energy filter stay as options. The play order (Next / Previous) follows the table.
+  HW.defineSetting.data("music.table", "Playlist table: sort and grouping", { col: "num", dir: 1, group: false });
+  const COLS = [
+    ["num", "#", (t) => numOf(t), "The song's permanent number."],
+    ["name", "Song", (t) => t.name.toLowerCase(), "The song's name."],
+    ["genre", "Genre / style", (t) => (t.genre + " " + (t.style || "")).toLowerCase(), "Its genre and style."],
+    ["cat", "Category", (t) => { const c = catOf(t); return c ? cats().indexOf(c) : 999; }, "The song type it belongs to (sorted in the categories' own order, calm to wild as they are listed)."],
+    ["infl", "In the spirit of", (t) => infl(t).toLowerCase() || "\uffff", "What the written record says it was written in the spirit of; blank when it names nothing."],
+    ["energy", "Energy", (t) => scoreOf(t), "Measured from the music: 1 Sleepy (drones and space) to 5 Wild (hard hits, everything going)."],
+    ["beat", "Beat", (t) => (hasBeat(t) ? t.beatRate : 0), "The felt beat: how fast the steady boom hits, in hits a minute (no steady beat counts as 0)."],
+    ["len", "Length", (t) => t.length || 0, "How long the song is."],
+  ];
+  function tableState() { const s = cfg["music.table"]; return s && typeof s === "object" ? s : { col: "num", dir: 1, group: false }; }
+  function tableRows(filter) {
+    const st = tableState(), col = COLS.find((c) => c[0] === st.col) || COLS[0], key = col[2], dir = st.dir < 0 ? -1 : 1;
+    const cmp = (a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * dir || numOf(a) - numOf(b); };
+    let ts = M().tracks.filter((x) => !filter || energyOf(x) === filter).slice().sort(cmp);
+    if (!st.group) return [{ cat: null, tracks: ts }];
+    return cats().map((c) => ({ cat: c, tracks: ts.filter((x) => x.category === c.id) })).concat([{ cat: { id: "", name: "Other" }, tracks: ts.filter((x) => !catOf(x)) }]).filter((g) => g.tracks.length);
+  }
   function buildList(w) {
     const P = w.parts;
     if (!ready()) { P.missing.hidden = false; return; }
     P.missing.hidden = true;
     w.built = true;
-    const sort = cfg["music.sort"] || "cat";
-    P.sorts.replaceChildren(el("span", { class: "ctl-label", text: "Sort" }), ...SORTS.map(([id, label, tip]) => el("button", { type: "button", class: "chip" + (sort === id ? " on" : ""), text: label, "data-tip": tip,
-      on: { click: () => HW.set("music.sort", id) } })));
-    // grouped; the chips keep only the tracks of one energy level
-    const G = groups();
+    const st = tableState();
+    // tools: grouping and the energy filter
+    P.sorts.replaceChildren(el("button", { type: "button", class: "chip" + (st.group ? " on" : ""), text: "Group by category",
+      "data-tip": "Show the songs under their category headings (each group still sorted by the column you chose).",
+      on: { click: () => HW.set("music.table", Object.assign({}, st, { group: !st.group }), { label: "playlist grouping" }) } }));
     const levels = [...new Set(M().tracks.map(energyOf).filter((n) => n))].sort();
     const chip = (n, label) => el("button", { type: "button", class: "chip" + (P.filter === n ? " on" : ""), text: label,
-      "data-tip": n ? "Only the tracks with energy " + n + " of 5: " + ENERGY[n].toLowerCase() + "." : "Every track.",
+      "data-tip": n ? "Only the songs with energy " + n + " of 5: " + ENERGY[n].toLowerCase() + "." : "Every song.",
       on: { click: () => { P.filter = n; buildList(w); } } });
     P.chips.replaceChildren(...(levels.length ? [el("span", { class: "ctl-label", text: "Energy" }), chip(0, "All")].concat(levels.map((n) => chip(n, dots(n) + "  " + ENERGY[n]))) : []));
     P.energyNote.hidden = !levels.length;
-    const rows = [];
-    for (const g of G) {
-      const ts = g.tracks.filter((t) => !P.filter || energyOf(t) === P.filter);
-      if (!ts.length) continue;
-      const c = g.cat, es = g.tracks.map(energyOf).filter((n) => n);
-      const lo = es.length ? Math.min(...es) : 0, hi = es.length ? Math.max(...es) : 0;
-      rows.push(el("div", { class: "cat-head" },
-        el("span", { class: "cat-name", text: c.name }),
-        hi && sort === "cat" ? el("span", { class: "cat-energy", text: rangeDots(lo, hi) + "  " + rangeWords(lo, hi),
-          "data-tip": "Energy " + (lo === hi ? lo : lo + " to " + hi) + " of 5 across its tracks: 1 = sleepy (drones and space), 5 = wild (hard hits, everything going)." }) : null,
-        el("span", { class: "cat-meta", text: [sort === "beat" ? "" : beatRange(g.tracks), g.tracks.length + (g.tracks.length === 1 ? " track" : " tracks")].filter(Boolean).join("  •  ") }),
-        c.blurb ? el("span", { class: "cat-blurb", text: c.blurb }) : null));
-      for (const t of ts) {
-        const e = energyOf(t), tc = catOf(t);
-        rows.push(el("button", { type: "button", class: "track", "data-id": t.id, "data-tip": (t.blurb || "") + " " + beatTip(t), "data-tip-title": t.name, on: { click: () => HW.musicPlay(t.id) } },
-          el("span", { class: "ico-wrap", html: HW.icon("play") }),
-          el("span", { class: "tr-name" }, numOf(t) ? el("span", { class: "tr-num", text: String(numOf(t)).padStart(2, "0") }) : null, el("span", { text: t.name })),
-          el("span", { class: "tr-genre" }, el("span", { text: t.genre + (t.style ? " • " + t.style : "") }), sort !== "cat" && tc ? el("span", { class: "tr-cat", text: tc.name }) : null),
-          // what the written record says the track was written in the spirit of (music-influence.js); blank if nothing
-          el("span", { class: "tr-infl" }, infl(t) ? [el("span", { class: "tr-infl-label", text: "in the spirit of" }), el("span", { text: infl(t) })] : null),
-          el("span", { class: "tr-energy", text: e ? dots(e) : "", title: e ? "Energy " + e + " of 5: " + ENERGY[e].toLowerCase() + (Number.isFinite(t.energyScore) ? " (" + t.energyScore.toFixed(2) + ")" : "") : "" }),
-          el("span", { class: "tr-meta", text: beatWords(t) + " • " + HW.mmss(t.length || 0) })));
+    // the table: column heads sort
+    const head = el("tr", {}, COLS.map(([id, label, , tip]) => {
+      const on = st.col === id, arrow = on ? (st.dir < 0 ? " \u25BC" : " \u25B2") : "";
+      return el("th", {}, el("button", { type: "button", class: "th-sort" + (on ? " on" : ""), text: label + arrow, "data-col": id,
+        "data-tip": tip + " Click to sort by it" + (on ? "; click again to reverse." : "."),
+        on: { click: () => HW.set("music.table", Object.assign({}, st, { col: id, dir: on ? -(st.dir || 1) : 1 }), { label: "playlist sort" }) } }));
+    }));
+    const body = el("tbody");
+    for (const g of tableRows(P.filter)) {
+      if (g.cat) body.appendChild(el("tr", { class: "pl-group" }, el("td", { colspan: String(COLS.length) },
+        el("span", { class: "cat-name", text: g.cat.name }), g.cat.blurb ? el("span", { class: "cat-blurb", text: "  " + g.cat.blurb }) : null)));
+      for (const x of g.tracks) {
+        const e = energyOf(x), c = catOf(x);
+        body.appendChild(el("tr", { class: "pl-row", "data-id": x.id, "data-tip": (x.blurb || "") + " " + beatTip(x), "data-tip-title": x.name, on: { click: () => HW.musicPlay(x.id) } },
+          el("td", { class: "pl-num", text: String(numOf(x) || "") }),
+          el("td", { class: "pl-name" }, el("span", { class: "ico-wrap", html: HW.icon("play") }), el("span", { text: x.name })),
+          el("td", { class: "pl-dim", text: x.genre + (x.style ? " \u2022 " + x.style : "") }),
+          el("td", { class: "pl-dim", text: c ? c.name : "" }),
+          el("td", { class: "pl-infl", text: infl(x) }),
+          el("td", { class: "pl-energy", text: e ? dots(e) : "", title: e ? "Energy " + e + " of 5: " + ENERGY[e].toLowerCase() + (Number.isFinite(x.energyScore) ? " (" + x.energyScore.toFixed(2) + ")" : "") : "" }),
+          el("td", { class: "pl-mono", text: hasBeat(x) ? Math.round(x.beatRate) + " " + x.beat : "none" }),
+          el("td", { class: "pl-mono", text: HW.mmss(x.length || 0) })));
       }
     }
-    P.list.replaceChildren(...rows);
+    P.list.replaceChildren(el("div", { class: "pl-scroll" }, el("table", { class: "pl-table" }, el("thead", {}, head), body)));
   }
 })();
 
