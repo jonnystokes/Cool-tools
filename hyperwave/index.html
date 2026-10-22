@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 11:56 AM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 12:34 PM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -135,6 +135,7 @@ body.idle #bar, body.gate-open #bar { transform: translateY(-110%); opacity: 0; 
 .bar-btn { position: relative; width: 4.9rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem;
   border-radius: .6rem; border: 1px solid transparent; background: rgba(255,255,255,.03); color: var(--ink); transition: background .15s, border-color .15s, color .15s; }
 .bar-btn .ico { width: 1.75rem; height: 1.75rem; }
+.bar-btn { padding-bottom: .5rem; }   /* the open-window line sits under the label, not on it */
 .bar-label { font-size: .76rem; font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
 .bar-btn:hover { background: var(--panel3); border-color: var(--line2); color: #fff; }
 .bar-btn.open { border-color: rgba(61,252,255,.55); background: rgba(61,252,255,.09); color: var(--cyan); }
@@ -507,6 +508,18 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .tr-genre { display: flex; flex-wrap: wrap; gap: .25rem .5rem; align-items: baseline; }
 .tr-cat { font-size: .7rem; color: var(--cyan); border: 1px solid var(--line2); border-radius: 999px; padding: 0 .45rem; white-space: nowrap; }
 
+/* the issue log */
+.log-input { width: 100%; box-sizing: border-box; margin: .4rem 0; padding: .5rem .6rem; border-radius: .45rem; border: 1px solid var(--line2); background: rgba(0,0,0,.35); color: var(--ink); font: inherit; resize: vertical; }
+.log-list { display: grid; gap: .4rem; }
+.log-row { padding: .45rem .6rem; border-radius: .45rem; background: rgba(255,255,255,.035); border-left: 3px solid var(--cyan); }
+.log-row.k-error { border-left-color: var(--hot); }
+.log-head { display: flex; gap: .6rem; align-items: baseline; }
+.log-kind { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; color: var(--cyan); }
+.log-row.k-error .log-kind { color: var(--hot); }
+.log-when { font-family: var(--mono); font-size: .72rem; color: var(--faint); }
+.log-text { margin-top: .2rem; white-space: pre-wrap; }
+.log-ctx { margin-top: .2rem; font-size: .74rem; color: var(--dim); }
+
 </style>
 </head>
 <body>
@@ -695,6 +708,8 @@ HW.glsl = {
     pause: '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/>',
     stop: '<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/>',
     music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    list: '<path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>',
+    log: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 9h3M9 13h7M9 17h7"/>',
     learn: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/>',
     wave: '<path d="M2 12c2.5-7 5-7 7.5 0s5 7 7.5 0 3.5-5 5-3"/>',
     shuffle: '<path d="M3 7h4l10 10h4M3 17h4l3-3M14 10l3-3h4"/><path d="M19 5l2 2-2 2M19 15l2 2-2 2"/>',
@@ -796,7 +811,7 @@ HW.glsl = {
   choice("music.sort", "Sort the tracks", "cat", [["cat", "By category"], ["calm", "Calm first"], ["wild", "Wild first"], ["beat", "By beat speed"]],
     "How the track list is ordered: by category (genre families), by measured energy from the calmest or the wildest, or by the felt beat (the steady boom's speed, slowest first; tracks without a steady beat come last).");
   bool("music.dropShape", "Autopilot: new shape on every drop", false, "Part of Autopilot. When a demo track hits a drop (or a chorus, in songs without drops), the visuals jump to a new shape from the autopilot playlist. While it is on, the Autopilot button in the top bar is lit; clicking it turns this off.");
-  num("music.dropFlash", "Flash on every drop", 0.6, 0, 1, 0.01, "How bright the whole screen flashes when a demo track hits a drop or chorus. 0 = no flash.", { fmt: F.pct });
+  num("music.dropFlash", "Flash on every drop", 0.15, 0, 1, 0.01, "How bright the whole screen flashes when a demo track hits a drop or chorus. 0 = no flash.", { fmt: F.pct });
   bool("music.sectionPalette", "Autopilot: new colors on new sections", false, "Part of Autopilot. Picks a new random palette each time a demo track moves to a new section (only while colors are Animated). While it is on, the Autopilot button in the top bar is lit; clicking it turns this off.");
   num("src.monitor", "Speaker volume", 0.8, 0, 1, 0.01,
     "How loud the demo music, an audio file or the test beat plays through your speakers. The microphone is never played back, so it can't howl.", { fmt: F.pct });
@@ -841,9 +856,12 @@ HW.glsl = {
   // ================= BANDS ============================================================
   num("band.bass.lo", "Bass band: from", 25, 15, 400, 1, "The lowest frequency counted as bass (kick drum, bass guitar).", { fmt: F.hz, log: true });
   num("band.bass.hi", "Bass band: to", 160, 40, 800, 1, "The highest frequency counted as bass.", { fmt: F.hz, log: true });
-  num("band.mid.lo", "Mids band: from", 300, 100, 3000, 1, "The lowest frequency counted as mids (voices, guitars, synths).", { fmt: F.hz, log: true });
-  num("band.mid.hi", "Mids band: to", 2500, 500, 8000, 1, "The highest frequency counted as mids.", { fmt: F.hz, log: true });
-  num("band.high.lo", "Highs band: from", 3000, 1000, 12000, 1, "The lowest frequency counted as highs (cymbals, hi-hats, sparkle).", { fmt: F.hz, log: true });
+  // (Jon, 2026-10-22: "1,000 Hz should be high, not mid": a 1 kHz melody sounds high to the ear.) Bands now touch:
+  // bass 25-160, mids 160-700 (the body: chords, voices, guitars), highs 700-11k (melodies, leads, hats). The demo's
+  // were 25-160 / 300-2500 / 3000-11000 (verify/math.test.mjs still checks the formulas with those).
+  num("band.mid.lo", "Mids band: from", 160, 60, 3000, 1, "The lowest frequency counted as mids (the body of the sound: chords, voices, guitars).", { fmt: F.hz, log: true });
+  num("band.mid.hi", "Mids band: to", 700, 200, 8000, 1, "The highest frequency counted as mids.", { fmt: F.hz, log: true });
+  num("band.high.lo", "Highs band: from", 700, 200, 12000, 1, "The lowest frequency counted as highs (melodies and leads, up to cymbals, hi-hats and sparkle).", { fmt: F.hz, log: true });
   num("band.high.hi", "Highs band: to", 11000, 3000, 20000, 1, "The highest frequency counted as highs.", { fmt: F.hz, log: true });
   num("band.high.boost", "Highs channel boost", 0.08, 0, 0.3, 0.005,
     "The Highs channel (cymbals, hi-hats) is naturally quiet; this small boost helps it register. 0.08 is the factory value.", { fmt: F.rel(0.08), adv: true });
@@ -965,7 +983,8 @@ HW.glsl = {
     "Where on the palette the colors start. While colors animate this slides by itself; when they're still, set it here.", { fmt: F.pct });
   num("col.drift", "Color drift speed", 0.025, 0, 0.5, 0.001,
     "How fast colors slide along the palette on their own. The highs add more (Mod Matrix: Highs → Color drift).", { fmt: F.cycle, mod: "drift", curve: 2 });
-  num("col.beatJump", "Color jump on beat", 0.05, 0, 0.5, 0.005, "How far the colors hop along the palette on each beat.", { fmt: F.pct });
+  num("col.beatJump", "Color jump on beat", 0, 0, 0.5, 0.005, "How far the colors hop along the palette on each beat. Off at first (Jon: no flashing to different colours); the colors still drift slowly.", { fmt: F.pct });
+  num("col.smooth", "Color smoothing", 1.5, 0, 6, 0.1, "How gently the colors follow the sound: any color shift the music drives (the loudest note, the Mod Matrix) glides over about this many seconds instead of snapping. 0 = instant.", { fmt: F.s1 });
   num("col.trailShift", "Trail color shift", 0.006, 0, 0.1, 0.0005,
     "How much the trails change color as they fade, which paints rainbow tails. 0 = trails keep their color. Beats add more.", { fmt: F.turnsF, mod: "trailShift", curve: 2 });
   num("col.hueOffset", "Color shift", 0, -1, 1, 0.005,
@@ -8361,7 +8380,7 @@ HW.SHAPE_FIT = {
       help: "How much the spectrum bulges the shape." },
     { id: "wobble", name: "4D wobble", base: "shape.wobble", group: "Shape", span: 3, cells: {},
       help: "How much the waveform shakes the shape through the 4th dimension." },
-    { id: "flash", name: "Flash", base: "light.flashBase", group: "Light", span: 2, cells: { beat: 0.5 },
+    { id: "flash", name: "Flash", base: "light.flashBase", group: "Light", span: 2, cells: { beat: 0.2 },   // (was 0.5; Jon: not so hard)
       help: "Extra line brightness (0.5 = half again as bright at the peak of a beat)." },
     { id: "strobe", name: "Screen flash", base: "look.strobe", group: "Light", span: 1, cells: {},
       help: "Washes the whole picture toward white (1 = almost all white). Route Beat here for a strobe on every hit." },
@@ -8831,7 +8850,7 @@ HW.SHAPE_FIT = {
     f1(pr, "uScale", (s.scale == null ? 1 : s.scale) * M.size * cfg["shape." + s.id + ".size"]);
     f1(pr, "uFlow", S.flow);
     f1(pr, "uPetals", S.petals);
-    f1(pr, "uHue", S.hue + M.hueOff);
+    f1(pr, "uHue", S.hue + (S.hueOffS != null ? S.hueOffS : M.hueOff));
     f3(pr, "uPal", S.pal[0], S.pal[1], S.pal[2]);
     f3(pr, "uPalF", S.palF[0], S.palF[1], S.palF[2]);
     i1(pr, "uPalMode", cfg["col.mode"] === "gradient" ? 1 : 0);
@@ -9667,6 +9686,7 @@ HW.SHAPE_FIT = {
   const bar = HW.$("#bar");
   const GROUPS = [
     ["Sound", [
+      ["playlist", "Playlist", "list", "Every demo song, by category, energy and beat: sort, filter and pick one. Each song has a permanent number."],
       ["music", "Music", "music", "Demo music: tracks in many genres, made to show off the visuals. Play, skip, jump to the drop, mute drums or bass, and choose whether the visuals hear the music directly or through your microphone."],
       ["source", "Source", "source", "Where the sound comes from: microphone, PC or tab audio, an audio file or the test beat. Input level and its Auto."],
       ["analyzer", "Analyzer", "analyzer", "See what the studio hears: the spectrum, the waveform and the beat detector, with draggable lines for every range, and a map of what moves what."],
@@ -9681,6 +9701,7 @@ HW.SHAPE_FIT = {
     ["Control", [
       ["matrix", "Mod Matrix", "matrix", "Route anything in the sound (or two LFOs) to anything you see, with an amount for each."],
       ["scenes", "Scenes", "scenes", "16 pads that store complete looks; click one to morph to it. The scene chain plays them in turn."],
+      ["log", "Log", "log", "The issue log: write down what went wrong, and it is stamped with the time, the song (number, section, position), the shape and the sound. Errors the studio hits are logged too; Copy or Download hands it over."],
       ["settings", "Settings", "settings", "Interface, performance, MIDI, keyboard shortcuts, saving and resetting."],
       ["guide", "Guide", "guide", "How to get started, and what all the words mean."],
     ]],
@@ -9818,7 +9839,7 @@ HW.SHAPE_FIT = {
     const W = mini.width, H = mini.height, bars = 48, bw = W / bars;
     ctx.clearRect(0, 0, W, H);
     const live = A.analyser && A.kind !== "none" && A.out.spec;
-    const S = HW.state, hue = S.hue + HW.mod.hueOff, by = cfg["col.byTone"], grad = cfg["col.mode"] === "gradient";
+    const S = HW.state, hue = S.hue + (S.hueOffS != null ? S.hueOffS : HW.mod.hueOff), by = cfg["col.byTone"], grad = cfg["col.mode"] === "gradient";
     const VP = A.vizParams();
     for (let i = 0; i < bars; i++) {
       const u = (i + 0.5) / bars;
@@ -10208,7 +10229,8 @@ HW.win.define("source", {
       el("div", { class: "row" }, ui.button("Open another file…", "folder", () => HW.app.pickFile(), "Pick a different song on this computer.")));
     function fileState() {
       if (!A.el) return;
-      play.innerHTML = HW.icon(A.el.paused ? "play" : "pause");
+      const pi = A.el.paused ? "play" : "pause";      // only on change (see win-music.js)
+      if (play.dataset.icon !== pi) { play.dataset.icon = pi; play.innerHTML = HW.icon(pi); }
       const d = A.el.duration;
       if (isFinite(d) && document.activeElement !== seek) seek.value = String(Math.round((A.el.currentTime / d) * 1000));
       time.textContent = HW.mmss(A.el.currentTime) + " / " + HW.mmss(d);
@@ -10406,7 +10428,7 @@ HW.win.define("source", {
   HW.on("cfg", ({ key }) => {
     if (key === "music.tempo" && ready() && M().setTempo) M().setTempo(cfg["music.tempo"]);
     if (key === "music.kick") applyKick();
-    if (key === "music.sort") { const w = HW.win.get && HW.win.get("music"); if (w && w.parts) buildList(w); }
+    if (key === "music.sort") { const w = HW.win.get && HW.win.get("playlist"); if (w && w.parts) buildList(w); }
   });
 
   HW.win.define("music", {
@@ -10446,26 +10468,18 @@ HW.win.define("source", {
         P.stems[k] = b;
         stemBox.appendChild(b);
       }
-      // track list
-      P.filter = 0;
-      P.sorts = el("div", { class: "chips sorts" });
-      P.chips = el("div", { class: "chips" });
-      P.list = el("div", { class: "tracks" });
-      P.missing = el("p", { class: "note", text: "The demo tracks are not in this build yet." });
-      P.energyNote = el("p", { class: "note", text: "Energy (the dots) is measured from the music: how much is going on, from 1 Sleepy (drones and space) through 2 Calm, 3 Steady and 4 Danceable to 5 Wild (hard hits, everything going). The beat is the felt one: how fast the steady boom hits, not the BPM the track is written in. Click a level to see only those tracks." });
+      // (Jon, 2026-10-22: the player and the playlist are separate windows) the list lives in "playlist"
+      const listBtn = el("button", { type: "button", class: "btn", html: HW.icon("list") + "<span>Playlist</span>", "data-tip": "Open the playlist: every song by category, energy and beat.", on: { click: () => HW.win.open("playlist") } });
       body.append(
         el("section", { class: "sec now" }, el("h3", { text: "Now playing" }), P.name, P.info, P.blurb, transport,
           el("div", { class: "row" }, P.sectionName, P.time), P.timeline,
           el("div", { class: "row" }, el("span", { class: "ctl-label", text: "Mute parts" }), stemBox)),
         ui.section("Playback", "", ["music.mode", "music.tempo", "music.kick", "src.monitor", "src.listen"]),
         ui.section("Visuals follow the song", "The demo tracks tell the visuals where their sections start, so the picture can hit the drops with the music. The two Autopilot switches here are off unless you turn them on; while either is on, the Autopilot button in the top bar is lit, and clicking it turns them off.", ["music.dropShape", "music.dropFlash", "music.sectionPalette"]),
-        el("section", { class: "sec" }, el("h3", { text: "Tracks" }), P.energyNote, P.sorts, P.chips, P.missing, P.list));
-      w.built = false;
+        el("section", { class: "sec" }, listBtn));
       applyKick();
     },
-    onOpen(w) { buildList(w); },
     tick(w) {
-      if (!w.built) buildList(w);
       const P = w.parts;
       if (!ready()) return;
       const s = isMusic() ? M().state() : null;
@@ -10474,7 +10488,8 @@ HW.win.define("source", {
       const te = t ? energyOf(t) : 0, tc = t && catOf(t);
       P.info.textContent = t ? [t.genre, beatWords(t), te ? "energy " + dots(te) + " " + ENERGY[te].toLowerCase() : "", tc ? tc.name : "", t.key, t.mood].filter(Boolean).join("  •  ") : "Pick a track below, or press play.";
       P.blurb.textContent = t ? t.blurb || "" : "";
-      P.playBtn.innerHTML = HW.icon(s && s.playing ? "pause" : "play");
+      const pi = s && s.playing ? "pause" : "play";   // only on change: redrawing it every frame swallowed mouse clicks
+      if (P.playBtn.dataset.icon !== pi) { P.playBtn.dataset.icon = pi; P.playBtn.innerHTML = HW.icon(pi); }
       P.time.textContent = s ? HW.mmss(s.time) + " / " + HW.mmss(s.duration) : "";
       P.sectionName.textContent = s && s.section ? s.section.name + (s.section.kind ? " (" + s.section.kind + ")" : "") : "";
       // timeline of sections
@@ -10495,6 +10510,27 @@ HW.win.define("source", {
       }
       if (s && s.duration) P.marker.style.left = HW.clamp(s.time / s.duration, 0, 1) * 100 + "%";
       for (const b of P.timeline.children) if (b.classList.contains("tl-sec")) b.classList.toggle("on", s && s.section && b.title === s.section.name && [...P.timeline.children].indexOf(b) === s.section.index);
+    },
+  });
+
+  // ---- the PLAYLIST window: every song, grouped by category, sorted and filtered by energy -----------------
+  HW.win.define("playlist", {
+    title: "Playlist", icon: "list", w: 800, h: 760, x: 60, minW: 380,
+    build(body, w) {
+      const P = (w.parts = {});
+      P.filter = 0;
+      P.sorts = el("div", { class: "chips sorts" });
+      P.chips = el("div", { class: "chips" });
+      P.list = el("div", { class: "tracks" });
+      P.missing = el("p", { class: "note", text: "The demo tracks are not in this build yet." });
+      P.energyNote = el("p", { class: "note", text: "Energy (the dots) is measured from the music: how much is going on, from 1 Sleepy (drones and space) through 2 Calm, 3 Steady and 4 Danceable to 5 Wild (hard hits, everything going). The beat is the felt one: how fast the steady boom hits, not the BPM the track is written in. Click a level to see only those tracks. The number before each name is the song's permanent number." });
+      body.append(el("section", { class: "sec" }, P.energyNote, P.sorts, P.chips, P.missing, P.list));
+      w.built = false;
+    },
+    onOpen(w) { buildList(w); },
+    tick(w) {
+      if (!w.built) buildList(w);
+      const P = w.parts, s = ready() && isMusic() ? M().state() : null;
       for (const row of P.list.children) row.classList.toggle("on", !!(s && row.dataset.id === s.id));
     },
   });
@@ -11432,7 +11468,7 @@ HW.win.define("matrix", {
         el("section", { class: "sec" }, el("h3", { text: "Do colors move?" }), el("div", { class: "big-choices" }, anim, still), stillNote, huePos),
         el("section", { class: "sec" }, el("h3", { text: "Palette" }), bar, gallery),
         custom,
-        ui.section("When colors move", "Only used while colors are Animated.", ["col.drift", "col.beatJump", "col.trailShift", "col.autoNew", "col.blend"]),
+        ui.section("When colors move", "Only used while colors are Animated.", ["col.drift", "col.beatJump", "col.smooth", "col.trailShift", "col.autoNew", "col.blend"]),
         ui.section("Colors follow the melody", "Slide this up and the colors move with the pitch of the loudest note: low notes one color, high notes another. It works even when colors are Still, and on every shape. (It is the Pitch → Color shift box of the Mod Matrix.)", [ui.control("mod.hueOff.pitch", { label: "Melody colors" })]),
         ui.section("How colors spread over the shape", "Different parts of a shape take different colors from the palette. These say how far apart.", ["col.byTone", "col.byW", "col.byShape", "col.hueOffset"]),
         ui.section("Intensity and background", "", ["look.sat", "look.bgAmt", "look.bgColor"]));
@@ -11460,7 +11496,7 @@ HW.win.define("matrix", {
       }
       ctx.clearRect(0, 0, W, 8);
       ctx.clearRect(0, 38, W, 8);
-      const h0 = (((S.hue + HW.mod.hueOff) % 1) + 1) % 1;
+      const h0 = (((S.hue + (S.hueOffS != null ? S.hueOffS : HW.mod.hueOff)) % 1) + 1) % 1;
       const reach = cfg["col.byTone"] * cfg["an.ceiling"] + cfg["col.byW"] * 1.5;
       ctx.fillStyle = "rgba(255,255,255,.85)";
       for (let k = 0; k < 2; k++) {
@@ -11772,6 +11808,98 @@ HW.win.define("guide", {
 
 </script>
 <script>
+// ---- win-log.js ----
+// ISSUE LOG (Jon, 2026-10-22: "We should add a system to log issues"): write down what went wrong, and the
+// studio stamps it with the moment (time, song number / name / section / position, shape, sound source, build).
+// Errors the page hits by itself (script errors, failed promises, error toasts) are logged too. Kept in this
+// browser (HW.store "log", the newest 500); Copy and Download hand the whole log over in plain text.
+"use strict";
+(function () {
+  const el = HW.el, MAX = 500;
+  let entries = HW.store.get("log", []);
+  if (!Array.isArray(entries)) entries = [];
+  const save = () => HW.store.set("log", entries.slice(-MAX));
+
+  // what was happening at that moment, in plain words
+  function context() {
+    const out = [], S = HW.state, A = HW.audio, M = HW.music;
+    try {
+      if (A && A.player && A.player.kind === "music" && M && M.state) {
+        const s = M.state(), t = s && M.tracks.find((x) => x.id === s.id);
+        if (t) out.push("song " + (M.numbers && M.numbers[t.id] ? "#" + M.numbers[t.id] + " " : "") + t.name + (s.section ? ", " + s.section.name : "") + " at " + HW.mmss(s.time));
+      } else if (A && A.player) out.push("playing " + (A.player.name || A.player.kind));
+      if (A) out.push("visuals hear: " + (A.kind || "nothing"));
+      const sh = S && HW.SHAPES[S.mode];
+      if (sh) out.push("shape #" + sh.id + " " + sh.name);
+    } catch (e) { out.push("(context unavailable: " + e.message + ")"); }
+    out.push(HW.BUILD || "");
+    return out.filter(Boolean).join(" | ");
+  }
+  const stamp = () => { const d = new Date(); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + HW.time12(d); };
+
+  HW.log = function (kind, text) {
+    const e = { kind: kind || "note", text: String(text || "").slice(0, 4000), when: stamp(), at: Date.now(), ctx: context() };
+    entries.push(e);
+    if (entries.length > MAX) entries.splice(0, entries.length - MAX);
+    save();
+    HW.emit("log", e);
+    return e;
+  };
+  HW.log.all = () => entries.slice();
+  HW.log.text = () => entries.map((e) => e.when + "  [" + e.kind + "]  " + e.text + "\n    " + e.ctx).join("\n\n");
+
+  // errors the page hits by itself
+  let lastErr = "";
+  const auto = (msg) => { if (msg && msg !== lastErr) { lastErr = msg; HW.log("error", msg); } };
+  addEventListener("error", (ev) => auto((ev.message || "error") + (ev.filename ? " (" + ev.filename.split("/").pop() + ":" + ev.lineno + ")" : "")));
+  addEventListener("unhandledrejection", (ev) => auto("unhandled: " + ((ev.reason && (ev.reason.message || ev.reason)) || "promise rejected")));
+  const toast0 = HW.toast;
+  if (toast0) HW.toast = function (msg, kind) { if (kind === "error") auto(String(msg)); return toast0.apply(this, arguments); };
+
+  HW.win.define("log", {
+    title: "Issue log", icon: "log", w: 620, h: 640, x: 120, minW: 360,
+    build(body, w) {
+      const P = (w.parts = {});
+      P.input = el("textarea", { class: "log-input", rows: "3", placeholder: "What went wrong? (Ctrl + Enter logs it)" });
+      const add = () => { const v = P.input.value.trim(); if (!v) return; HW.log("note", v); P.input.value = ""; HW.toast("Logged"); };
+      P.input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); add(); } });
+      const btn = (text, tip, fn) => el("button", { type: "button", class: "btn", text, "data-tip": tip, on: { click: fn } });
+      let armed = 0;
+      const clearBtn = btn("Clear", "Delete every entry (click twice).", () => {
+        if (Date.now() - armed > 3000) { armed = Date.now(); clearBtn.textContent = "Click again to clear"; setTimeout(() => (clearBtn.textContent = "Clear"), 3000); return; }
+        entries = []; save(); render(w); clearBtn.textContent = "Clear"; HW.toast("Log cleared");
+      });
+      P.list = el("div", { class: "log-list" });
+      body.append(
+        el("section", { class: "sec" },
+          el("p", { class: "note", text: "Write down anything that goes wrong. Each entry is stamped with the time, the song (number, name, section, position), the shape and the sound source; errors the studio hits on its own are logged here too." }),
+          P.input,
+          el("div", { class: "row" },
+            el("button", { type: "button", class: "btn primary", text: "Log it", on: { click: add } }),
+            btn("Copy all", "Copy the whole log as text, to paste it to Claude or anywhere.", async () => {
+              try { await navigator.clipboard.writeText(HW.log.text()); HW.toast("Log copied"); }
+              catch (e) { HW.toast("Could not copy: " + e.message + ". Use Download instead.", "error"); }
+            }),
+            btn("Download", "Save the whole log as a text file.", () => HW.download(new Blob([HW.log.text() + "\n"], { type: "text/plain" }), "HYPERWAVE issue log " + HW.stampForFile() + ".txt")),
+            clearBtn)),
+        el("section", { class: "sec" }, P.list));
+      render(w);
+    },
+    onOpen(w) { render(w); setTimeout(() => w.parts.input.focus(), 50); },
+  });
+  function render(w) {
+    if (!w || !w.parts) return;
+    w.parts.list.replaceChildren(...(entries.length ? entries.slice().reverse().map((e) =>
+      el("div", { class: "log-row k-" + e.kind },
+        el("div", { class: "log-head" }, el("span", { class: "log-kind", text: e.kind }), el("span", { class: "log-when", text: e.when })),
+        el("div", { class: "log-text", text: e.text }),
+        el("div", { class: "log-ctx", text: e.ctx }))) : [el("p", { class: "note", text: "Nothing logged yet." })]));
+  }
+  HW.on("log", () => { const w = HW.win.get && HW.win.get("log"); if (w && w.open) render(w); });
+})();
+
+</script>
+<script>
 // ---- app.js ----
 // Boot, the start screen, the frame loop, beat reactions, autopilot, palettes, keyboard and mouse.
 // The frame loop runs in the demo's order: listen, react to beats, move, colour, render.
@@ -11916,6 +12044,8 @@ HW.win.define("guide", {
     const fired = HW.audio.update(dt, S.time);
     if (fired) onBeat(fired);
     HW.modUpdate(dt);
+    { const sm = Number(cfg["col.smooth"]) || 0, M0 = HW.mod;   // the sound-driven color shift glides (col.smooth)
+      S.hueOffS = sm > 0 && S.hueOffS != null ? S.hueOffS + (M0.hueOff - S.hueOffS) * (1 - Math.exp(-dt * 2.3 / sm)) : M0.hueOff; }
     const M = HW.mod;
     if (flashEnv > 0.002) { M.strobe = (M.strobe || 0) + flashEnv; flashEnv *= Math.exp(-dt * 3.5); } else flashEnv = 0;
     if (!cfg["mot.freeze"]) {
@@ -11988,8 +12118,9 @@ HW.win.define("guide", {
       } else if (gesture.mode === "pan") pan(dxp, dyp);
       else {
         const k = cfg["mot.drag"], dx = dxp * k, dy = dyp * k;
-        if (gesture.mode === "turn4") { S.user[2] += dx; S.user[4] += dy; }
-        else { S.user[1] += dx; S.user[3] += dy; }
+        // (Jon, 2026-10-22: left/right reversed) dragging right turns the other way than before
+        if (gesture.mode === "turn4") { S.user[2] -= dx; S.user[4] += dy; }
+        else { S.user[1] -= dx; S.user[3] += dy; }
       }
     });
     const up = (e) => {
