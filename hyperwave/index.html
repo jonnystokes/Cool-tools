@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 11:29 AM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 11:56 AM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -499,6 +499,8 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 /* what the record says the track was written in the spirit of (blank when it names nothing) */
 .tr-infl { display: flex; flex-direction: column; color: var(--cyan); font-size: .76rem; line-height: 1.25; }
 .tr-infl-label { color: var(--faint); font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; }
+/* the track's permanent number, before its name */
+.tr-num { display: inline-block; min-width: 1.7rem; margin-right: .45rem; font-family: var(--mono); font-weight: 600; font-size: .78rem; color: var(--faint); }
 /* the track list's sort chips and, in the energy and beat sorts, each row's category tag */
 .sorts { align-items: center; }
 .sorts .ctl-label, .chips .ctl-label { flex: 0 0 auto; min-width: 0; font-size: .78rem; color: var(--faint); margin-right: .2rem; }
@@ -3924,7 +3926,12 @@ HW.SHAPE_FIT = {
     for (let i = 0; i < len; i++) d[i] *= g;
     b = E.ctx.createBuffer(1, len, sr);
     b.getChannelData(0).set(d);
-    b.ksRate = f / fr;
+    // (2026-10-22 tuning fix) the loop filter w1*y[n-N] + w2*y[n-N-1] delays the loop by a fraction of a sample
+    // more than N, so the string really rings at sr / (N + delay), flat by up to 19 cents on high notes. Its
+    // phase delay at the fundamental, solved by two fixed-point steps, gives the true pitch to correct from.
+    let dl = w2;
+    for (let it = 0; it < 2; it++) { const om = 2 * Math.PI / (N + dl); dl = Math.atan2(w2 * Math.sin(om), w1 + w2 * Math.cos(om)) / om; }
+    b.ksRate = f / (sr / (N + dl));
     if (cache.size > 240) cache.delete(cache.keys().next().value);
     cache.set(key, b);
     return b;
@@ -8245,6 +8252,79 @@ HW.SHAPE_FIT = {
 
 </script>
 <script>
+// ---- music-numbers.js ----
+// Every demo track's permanent number (Jon, 2026-10-22: "all the songs have some kind of ID number so it's easier
+// to reference them"), shown in the Music window. NUMBERS ARE PERMANENT: a new track gets the next number at the
+// end; never renumber or reuse one. 1-18 are the first round (music-tracks.js, in file order), 19-60 the second
+// round (groove, slow, still and legends files, in file order).
+"use strict";
+(function () {
+  HW.music.numbers = {
+    "velvet-basement": 1,               // Velvet Basement
+    "concrete-pulse": 2,                // Concrete Pulse
+    "neon-cathedral": 3,                // Neon Cathedral
+    "fractal-mantis": 4,                // Fractal Mantis
+    "liquid-voltage": 5,                // Liquid Voltage
+    "gravity-wobble": 6,                // Gravity Wobble
+    "chrome-dynasty": 7,                // Chrome Dynasty
+    "rainy-window": 8,                  // Rainy Window Study
+    "midnight-highway": 9,              // Midnight Highway 86
+    "pixel-dragon": 10,                  // Pixel Dragon Quest
+    "glacier-light": 11,                 // Glacier Light
+    "titans-awaken": 12,                 // Titans Awaken
+    "mirrorball-fever": 13,              // Mirrorball Fever
+    "rocket-fuel": 14,                   // Rocket Fuel
+    "lion-echo-dub": 15,                 // Lion Echo Dub
+    "thunderforge": 16,                  // Thunderforge
+    "saturn-lounge": 17,                 // Saturn Lounge
+    "desert-caravan": 18,                // Desert Caravan
+    "copacabana-blue": 19,               // Copacabana Blue
+    "save-point": 20,                    // Save Point
+    "cassette-summer": 21,               // Cassette Summer
+    "lagos-sunrise": 22,                 // Lagos Sunrise
+    "submarine-lights": 23,              // Submarine Lights
+    "cumbia-de-la-luna": 24,             // Cumbia de la Luna
+    "porch-light-shuffle": 25,           // Porch Light Shuffle
+    "honey-on-vinyl": 26,                // Honey on Vinyl
+    "rumba-del-fuego": 27,               // Rumba del Fuego
+    "reel-of-the-green-hill": 28,        // Reel of the Green Hill
+    "bristol-fog": 29,                   // Bristol Fog
+    "velvet-hours": 30,                  // Velvet Hours
+    "halo-static": 31,                   // Halo Static
+    "quiet-storm-radio": 32,             // Quiet Storm Radio
+    "carousel-in-winter": 33,            // Carousel in Winter
+    "moth-light": 34,                    // Moth Light
+    "last-train-home": 35,               // Last Train Home
+    "sunday-morning-light": 36,          // Sunday Morning Light
+    "moon-over-paper-screens": 37,       // Moon Over Paper Screens
+    "still-water-piano": 38,             // Still Water Piano
+    "adagio-in-blue": 39,                // Adagio in Blue
+    "canon-on-the-river": 40,            // Canon on the River
+    "the-long-light": 41,                // The Long Light
+    "last-light-of-the-fleet": 42,       // Last Light of the Fleet
+    "cathedral-of-snow": 43,             // Cathedral of Snow
+    "hollow-earth": 44,                  // Hollow Earth
+    "tide-pools": 45,                    // Tide Pools
+    "first-light-forest": 46,            // First Light Forest
+    "voyager-blue": 47,                  // Voyager Blue
+    "rain-on-the-skylight": 48,          // Rain on the Skylight
+    "seven-bowls": 49,                   // Seven Bowls
+    "beneath-the-ice": 50,               // Beneath the Ice
+    "stone-hall-before-the-storm": 51,   // Stone Hall Before the Storm
+    "cold-moon-infiltration": 52,        // Cold Moon Infiltration
+    "ring-of-fire-charge": 53,           // Ring of Fire Charge
+    "beyond-the-grey-mountains": 54,     // Beyond the Grey Mountains
+    "song-of-the-northern-hall": 55,     // Song of the Northern Hall
+    "harp-at-the-crossroads": 56,        // Harp at the Crossroads
+    "the-sleeping-town": 57,             // The Sleeping Town
+    "stars-over-the-long-road": 58,      // Stars Over the Long Road
+    "embers-at-the-waystation": 59,      // Embers at the Waystation
+    "ruins-in-the-mist": 60,             // Ruins in the Mist
+  };
+})();
+
+</script>
+<script>
 // ---- modmatrix.js ----
 // The modulation matrix: columns are things in the sound (and two LFOs), rows are things you see.
 // Each row's value = its base setting + the sum of (cell amount x source level).
@@ -10239,6 +10319,8 @@ HW.win.define("source", {
   const energyOf = (x) => Math.max(0, Math.min(5, Math.round(Number(x && x.energy) || 0)));
   // what the written record says a track was written in the spirit of (music-influence.js); "" when it names nothing
   const infl = (t) => (HW.music && HW.music.influence && HW.music.influence[t.id]) || "";
+  // each track's permanent number (music-numbers.js), for referring to songs by number
+  const numOf = (t) => (t && HW.music && HW.music.numbers && HW.music.numbers[t.id]) || 0;
   const scoreOf = (t) => (Number.isFinite(t.energyScore) ? t.energyScore : energyOf(t));
   const dots = (n) => (n ? "●".repeat(n) + "○".repeat(5 - n) : "");
   // a range: full dots up to the lowest, half dots up to the highest (2 to 3 = ●●◐○○)
@@ -10388,7 +10470,7 @@ HW.win.define("source", {
       if (!ready()) return;
       const s = isMusic() ? M().state() : null;
       const t = s && M().tracks.find((x) => x.id === s.id);
-      P.name.textContent = t ? t.name : "Nothing playing";
+      P.name.textContent = t ? (numOf(t) ? "#" + numOf(t) + "  " : "") + t.name : "Nothing playing";
       const te = t ? energyOf(t) : 0, tc = t && catOf(t);
       P.info.textContent = t ? [t.genre, beatWords(t), te ? "energy " + dots(te) + " " + ENERGY[te].toLowerCase() : "", tc ? tc.name : "", t.key, t.mood].filter(Boolean).join("  •  ") : "Pick a track below, or press play.";
       P.blurb.textContent = t ? t.blurb || "" : "";
@@ -10449,7 +10531,7 @@ HW.win.define("source", {
         const e = energyOf(t), tc = catOf(t);
         rows.push(el("button", { type: "button", class: "track", "data-id": t.id, "data-tip": (t.blurb || "") + " " + beatTip(t), "data-tip-title": t.name, on: { click: () => HW.musicPlay(t.id) } },
           el("span", { class: "ico-wrap", html: HW.icon("play") }),
-          el("span", { class: "tr-name", text: t.name }),
+          el("span", { class: "tr-name" }, numOf(t) ? el("span", { class: "tr-num", text: String(numOf(t)).padStart(2, "0") }) : null, el("span", { text: t.name })),
           el("span", { class: "tr-genre" }, el("span", { text: t.genre + (t.style ? " • " + t.style : "") }), sort !== "cat" && tc ? el("span", { class: "tr-cat", text: tc.name }) : null),
           // what the written record says the track was written in the spirit of (music-influence.js); blank if nothing
           el("span", { class: "tr-infl" }, infl(t) ? [el("span", { class: "tr-infl-label", text: "in the spirit of" }), el("span", { text: infl(t) })] : null),
