@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.377 and 2026-10-21 11:39 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.380 and 2026-10-21 11:49 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.377</title>
+<title>Book reader V1.0.380</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.377";
-  window.APP_BUILT = "2026-10-21 11:39 PM";
-  window.APP_NOTE = "book shelf: reader/?book=<id> loads a book from cool-tools/books (catalog, zip with progress, open / replace / plain failure); zips of folders get sections; Read across time labelled experimental";
+  window.APP_VERSION = "Book reader V1.0.380";
+  window.APP_BUILT = "2026-10-21 11:49 PM";
+  window.APP_NOTE = "BUGS 41, 42: Markdown tables read as sentences; inline marks stripped from titles";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -1309,16 +1309,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       if (/^\s*```/.test(l)) { fence = !fence; continue; }
       if (fence) continue;
       let m = /^\s*<!-{2}\s*hb-chapter\b([^>]*)-{2}>/.exec(l);
-      if (m) { const a = attrs(m[1]); if (a.title && !out.hb) out.hb = a.title; continue; }
+      if (m) { const a = attrs(m[1]); if (a.title && !out.hb) out.hb = plain(a.title); continue; }
       m = /^\s*<!-{2}\s*hb-time:start\b([^>]*)-{2}>/.exec(l);
       if (m) { time = attrs(m[1]); anyTime = true; continue; }
       m = /^[ \t]{0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(l);
       if (!m) { if (l.trim() && time && !/^\s*<!-{2}/.test(l)) time = null; continue; }
-      const level = m[1].length, t = m[2].trim();
+      const level = m[1].length, t = plain(m[2]);
       if (level === 1 && !out.h1) out.h1 = t;
       out.heads.push({ l: level, t, line: i });
       if (level === 2) {
-        if (time) out.eras.push({ id: time.id || t, o: time.order || "", label: time.label || t, line: i });
+        if (time) out.eras.push({ id: time.id || t, o: time.order || "", label: time.label ? plain(time.label) : t, line: i });
         else if (!anyTime) out.eras.push({ id: t, o: "", label: t, line: i, plain: true });
       }
       time = null;
@@ -1357,12 +1357,72 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // Editor's notes, front matter and HTML comments go; images and links keep their text; heading marks, rules,
   // blockquote marks, bullets, code marks, bold / italic marks and HTML tags are stripped. Nothing
   // else changes, so a "# Chapter 12" heading still cuts a single file at its chapters (split).
+  // A Markdown table read as sentences (BUGS 41): the separator row goes; each body row pairs the header
+  // cells with its own ("Material: concrete; R-value: 0.08."), each row a paragraph of its own; a table
+  // with no header row (two or more lines that start and end with "|") joins its cells with commas.
+  // Cells split at "|" outside backticks and not escaped; ragged rows keep what they have.
+  const SEP = /^[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(?:\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/;
+  const isSep = (l) => l.includes("|") && SEP.test(l) || /^[ \t]*:?-{3,}:?[ \t]*\|[ \t]*:?-{3,}/.test(l);
+  const isPiped = (l) => /^[ \t]*\|.*\|[ \t]*$/.test(l);
+  function cells(line) {
+    let s = line.trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+    const out = [];
+    let cur = "", tick = 0;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (ch === "`") { let n = 0; while (s[i + n] === "`") n++; tick = tick === 0 ? n : tick === n ? 0 : tick; cur += s.slice(i, i + n); i += n - 1; continue; }
+      if (ch === "\\" && s[i + 1] === "|") { cur += "|"; i++; continue; }
+      if (ch === "|" && !tick) { out.push(cur.trim()); cur = ""; continue; }
+      cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  }
+  const stop = (s) => (/[.!?:;]$/.test(s) ? s : s + ".");
+  function rowText(head, row) {
+    if (!head) { const c = row.filter(Boolean); return c.length ? stop(c.join(", ")) : ""; }
+    const parts = [];
+    row.forEach((v, k) => { if (!v) return; const h = (head[k] || "").replace(/[:.]+$/, ""); parts.push(h ? `${h}: ${v}` : v); });
+    return parts.length ? stop(parts.join("; ").replace(/[.]$/, "")) : "";
+  }
+  function tables(text) {
+    const lines = text.split("\n"), out = [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.includes("|") && i + 1 < lines.length && isSep(lines[i + 1]) && !isSep(l)) {
+        const head = cells(l);
+        const rows = [];
+        let j = i + 2;
+        while (j < lines.length && lines[j].includes("|") && lines[j].trim()) { if (!isSep(lines[j])) rows.push(rowText(head, cells(lines[j]))); j++; }
+        if (!rows.length) rows.push(rowText(null, head));
+        out.push("", rows.filter(Boolean).join("\n\n"), "");
+        i = j - 1;
+        continue;
+      }
+      if (isPiped(l) && i + 1 < lines.length && isPiped(lines[i + 1])) {
+        const rows = [];
+        let j = i;
+        while (j < lines.length && isPiped(lines[j])) { if (!isSep(lines[j])) rows.push(rowText(null, cells(lines[j]))); j++; }
+        out.push("", rows.filter(Boolean).join("\n\n"), "");
+        i = j - 1;
+        continue;
+      }
+      if (isSep(l) && l.includes("|")) continue;      // a stray separator row
+      out.push(l);
+    }
+    return out.join("\n");
+  }
+  // One line of Markdown as plain text for a title or a name (BUGS 42): inline marks, links and tags go.
+  const plain = (s) => softenMd(String(s || "")).replace(/\s+/g, " ").trim();
   function softenMd(text) {
     let t = dropNotes(clean(text));
     t = t.replace(/^---\n[\s\S]*?\n---\n/, "");
     t = t.replace(/<!-{2}[\s\S]*?-{2}>/g, "");          // HTML comments (spelled with {2} so the build's comment-opener check passes)
     t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
     t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+    t = tables(t);
     t = t.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "");
     t = t.replace(/^[ \t]*(?:[-*_][ \t]*){3,}$/gm, "");
     t = t.replace(/^[ \t]{0,3}>[ \t]?/gm, "");
@@ -1457,7 +1517,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return { chapters: [{ title: o.title, paras, n: null }], how: `one chapter (${heads.length ? "one" : "no"} heading line${heads.length === 1 ? "" : "s"}, ${words.toLocaleString("en-US")} words)`, numbered: false };
   }
 
-  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, topFolder, pretty, outline, placeHeads, eraSplit, softenMd, looksWrapped, paragraphs, heading, split, countWords,
+  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, topFolder, pretty, outline, placeHeads, eraSplit, softenMd, plain, looksWrapped, paragraphs, heading, split, countWords,
     PART_WORDS, PARTS_FROM, source: "(" + chapterJs.toString() + ")();" };
 })();
 </script>
