@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.341 and 2026-10-21 1:01 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.377 and 2026-10-21 11:39 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.341</title>
+<title>Book reader V1.0.377</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.341";
-  window.APP_BUILT = "2026-10-21 1:01 AM";
-  window.APP_NOTE = "test run";
+  window.APP_VERSION = "Book reader V1.0.377";
+  window.APP_BUILT = "2026-10-21 11:39 PM";
+  window.APP_NOTE = "book shelf: reader/?book=<id> loads a book from cool-tools/books (catalog, zip with progress, open / replace / plain failure); zips of folders get sections; Read across time labelled experimental";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -121,7 +121,6 @@ button:disabled { opacity: 0.4; cursor: default; }
 .top .num { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow: hidden; }
 .top #num { width: 5.5ch; min-height: var(--tap); padding: 0 0.3em; border: 0; background: transparent; text-align: center; }
 .top #num:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
-.top #list { border: 0; border-left: 1px solid var(--line); border-radius: 0; padding: 0 0.45em; min-width: 2.2em; }
 .top .num { border-radius: 8px; }
 .top #prev, .top #next { font-size: 1.3em; min-height: var(--tap); min-width: calc(0.85 * var(--tap)); padding: 0 0.4em; }
 
@@ -196,25 +195,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .libprog .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .libprog .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
 
-/* The chapter list (in a floating window): a filter box that stays at the top, one row per chapter. */
-.chlist { display: flex; flex-direction: column; min-height: 100%; }
-.chlist .filter {
-  position: sticky; top: 0; z-index: 1;
-  width: 100%; padding: 0.5em 0.8em;
-  border: 0; border-bottom: 1px solid var(--line);
-  background: var(--bar);
-}
-.chlist .filter:focus { outline: none; box-shadow: inset 0 -2px 0 var(--accent); }
-.chlist .row {
-  display: flex; align-items: center; gap: 0.6em; width: 100%; min-height: var(--tap);
-  padding: 0.3em 0.8em;
-  border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
-  background: none; text-align: left; cursor: pointer;
-}
-.chlist .row .n { min-width: 4ch; color: var(--muted); }
-.chlist .row:hover { background: var(--bar); }
-.chlist .row.current { background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.chlist .rows.none::after { content: "No chapter matches."; display: block; padding: 1em; color: var(--muted); text-align: center; }
+/* The chapter list lives in the contents panel (contents.css) since 2026-10-21. */
+.libopts { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--bar); font-size: 0.95em; }
+.libadv { align-self: flex-start; min-height: var(--tap); padding: 0 0.8em; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); cursor: pointer; }
+.libadv[aria-expanded="true"] { color: var(--fg); border-color: var(--accent); }
 
 /* The play bar sits at the bottom, above a phone's home bar; its height is whatever its buttons need. */
 .play {
@@ -270,6 +254,74 @@ html.rail-on::-webkit-scrollbar { display: none; width: 0; height: 0; }
   cursor: nwse-resize; touch-action: none;
   background: linear-gradient(135deg, transparent 55%, var(--line) 55%, var(--line) 70%, transparent 70%, transparent 80%, var(--line) 80%);
 }
+</style>
+<style>
+/* contents.css: the contents panel (contents.js): a drawer from the left edge, a search box and ✕ at the
+   top, then the tree (sections → chapters → headings). Rows are --tap tall. On a screen at least 700 px
+   wide it is DOCKED (html.cdock): the page (top bar, text, play bar, message) moves right by --cw and
+   narrows, so the panel can stay open beside the text; under 700 px it slides OVER the page with a
+   dimmed backdrop. Both slides are CSS transitions (the panel's transform, the page's padding), no
+   per-frame script; html.cinstant (a restored panel at load) skips them. The floating windows (z 100+)
+   stay above the panel. */
+:root { --cw: 0px; }
+html.cdock { --cw: min(calc(26 * var(--ui)), 40vw); }
+body { padding-left: var(--cw); transition: padding-left 0.2s ease-out; }
+.play { left: var(--cw); transition: left 0.2s ease-out; }
+.msg { left: calc(50% + var(--cw) / 2); }
+.chfull { left: calc(var(--gutter) + var(--cw)); }
+html.cinstant body, html.cinstant .play, html.cinstant .contents { transition: none; }
+.cback { position: fixed; inset: 0; z-index: 89; background: rgba(0, 0, 0, 0); transition: background 0.2s; }
+.cback.open { background: rgba(0, 0, 0, 0.35); }
+.contents {
+  position: fixed; left: 0; top: 0; bottom: 0; z-index: 90;
+  width: min(88vw, 26em); max-width: 100vw;
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--fg);
+  border-right: 1px solid var(--line); box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+  transform: translateX(-100%); transition: transform 0.2s ease-out;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+html.cdock .contents { width: var(--cw); box-shadow: none; }
+.contents.open { transform: none; }
+.ctop { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px calc(var(--gutter) / 2 + 4px); background: var(--bar); border-bottom: 1px solid var(--line); }
+.ctop input { flex: 1; min-width: 0; min-height: var(--tap); padding: 0 0.7em; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: inherit; }
+.ctop input:focus { outline: none; border-color: var(--accent); }
+.ctop button { min-width: var(--tap); min-height: var(--tap); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); cursor: pointer; font-size: 1.1em; }
+.ctop button:hover { border-color: var(--accent); }
+.chead { padding: 0.4em calc(var(--gutter) / 2 + 4px); color: var(--muted); font-size: 0.9em; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctree { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-bottom: 2em; }
+.ctree.none::after { content: "Nothing matches."; display: block; padding: 1em; color: var(--muted); text-align: center; }
+.cmore { padding: 0.8em 1em; color: var(--muted); text-align: center; }
+.crow {
+  display: flex; align-items: center; gap: 0.5em; width: 100%; min-height: var(--tap);
+  padding: 0.3em 0.5em 0.3em calc(var(--gutter) / 2 + 4px);
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
+  background: none; text-align: left; cursor: pointer; line-height: 1.3;
+}
+.crow:hover { background: var(--bar); }
+.crow .ct { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.crow .cn { min-width: 4ch; color: var(--muted); font-variant-numeric: tabular-nums; }
+.crow .ccount { color: var(--muted); font-size: 0.85em; }
+.csech { font-weight: 600; background: color-mix(in srgb, var(--bar) 60%, transparent); }
+.csec.here > .csech { color: var(--accent); }
+.cbody .crow { padding-left: calc(var(--gutter) / 2 + 1.4em); }
+.citem.current > .cchap { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
+.cfold { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap); min-height: calc(var(--tap) - 0.6em); color: var(--muted); border: 0; background: none; cursor: pointer; font: inherit; }
+.csech .cfold { min-width: 1.2em; }
+.cheads .crow { padding-left: calc(var(--gutter) / 2 + 2.6em + 0.9em * var(--lvl, 0)); font-size: 0.92em; color: var(--muted); border-bottom: 1px dashed var(--line); }
+.cbody .cheads .crow { padding-left: calc(var(--gutter) / 2 + 3.6em + 0.9em * var(--lvl, 0)); }
+.cheads .crow.current { color: var(--fg); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.csecname { color: var(--muted); font-size: 0.85em; white-space: nowrap; }
+/* A tap that moves the reading place: the row flashes once, then stays marked; "Now at: …" fades in at
+   the bottom of the panel for a few seconds (and a short buzz where the phone supports it, contents.js). */
+.crow.flash { animation: cflash 0.6s ease-out; }
+@keyframes cflash { from { background: color-mix(in srgb, var(--accent) 55%, transparent); } to { background: transparent; } }
+.cnow { flex: none; min-height: 1.6em; padding: 0.35em calc(var(--gutter) / 2 + 4px); border-top: 1px solid var(--line); background: var(--bar); color: var(--accent); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity 0.3s; }
+.cnow.show { opacity: 1; }
+/* Read marks: a fixed-width slot; ✓ once read, a small bar part-filled on the chapter being read. */
+.cmark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 1.6em; height: 1.1em; color: var(--accent); font-size: 0.95em; }
+.cmark.part { border: 1px solid var(--muted); border-radius: 3px; height: 0.7em; overflow: hidden; justify-content: flex-start; }
+.cmark.part i { display: block; height: 100%; background: var(--accent); }
 </style>
 <style>
 /* play.css: the play bar's buttons and status line, the lock button in that bar, and the
@@ -687,13 +739,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 </head>
 <body>
 <header class="top" id="top">
+  <button class="icon" id="toc" type="button" title="Contents: sections, chapters and headings" aria-label="Contents">&#9776;</button>
   <button id="open" type="button" title="Open: your books; add files, a zip or a folder" aria-label="Open a book">Open</button>
   <span class="chname" id="chname" role="button" tabindex="0" title="Tap to show the full chapter name"></span>
   <nav class="nav" aria-label="Chapters">
     <button id="prev" type="button" title="Previous chapter" aria-label="Previous chapter">&#8249;</button>
     <span class="num">
       <input id="num" type="text" inputmode="numeric" autocomplete="off" aria-label="Chapter number">
-      <button id="list" type="button" title="Chapter list" aria-label="Chapter list">&#9662;</button>
     </span>
     <button id="go" type="button">Go</button>
     <button id="next" type="button" title="Next chapter" aria-label="Next chapter">&#8250;</button>
@@ -702,6 +754,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   <button class="icon" id="gear" type="button" title="Settings" aria-label="Settings">&#9881;</button>
 </header>
 <div class="chfull" id="chfull" hidden></div>
+<div class="cback" id="cback" hidden></div>
+<aside class="contents" id="contents" aria-label="Contents" aria-hidden="true" hidden>
+  <div class="ctop">
+    <input type="search" id="csearch" placeholder="Search sections, chapters, headings" aria-label="Search the contents" autocomplete="off">
+    <button id="cclose" type="button" title="Close" aria-label="Close the contents">&#10005;</button>
+  </div>
+  <div class="chead" id="chead">Contents</div>
+  <div class="ctree" id="ctree"></div>
+  <div class="cnow" id="cnow" aria-live="polite"></div>
+</aside>
 <div class="msg" id="msg" role="status" hidden></div>
 <main class="book" id="book" hidden>
   <div class="chno" id="chno"></div>
@@ -1211,12 +1273,92 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     }
   }
 
+  // ---- Names from folder and file names ------------------------------------------------------------
+  // "part1-before-1800" → "Part 1: Before 1800"; "america-world" → "America World"; "_introduction" →
+  // "Introduction"; "how-we-know" → "How We Know". Small words stay small after the first ("1900s and Today").
+  // A dash with spaces around it is prose and stays ("1478 - Improving Talisman Skills").
+  const SMALL = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "of", "on", "or", "the", "to", "vs"]);
+  function pretty(name) {
+    let s = stem(name).replace(/^[_\s]+/, "").replace(/(^|\S)[-_]+(?=\S)/g, "$1 ").replace(/\s+/g, " ").trim();
+    if (!s) return "";
+    let lead = "";
+    const m = /^(part|chapter|ch|book|section|vol|volume)\s*0*(\d+)\b\s*/i.exec(s);
+    if (m) { lead = `${m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()} ${m[2]}`; s = s.slice(m[0].length); if (!s) return lead; lead += ": "; }
+    if (/[A-Z]/.test(s)) return lead + s;          // a name someone capitalised ("3 - The Gate") keeps its case
+    const words = s.split(" ").map((w, i) => (i > 0 && SMALL.has(w) ? w : w[0].toUpperCase() + w.slice(1)));
+    return lead + words.join(" ");
+  }
+
+  // ---- Markdown: the outline (read BEFORE softening, which strips the marks) ----------------------
+  // Editor's notes (the hb-note comment up to the /hb-note comment) are never read: dropped first, here and in
+  // softenMd; an unclosed note runs to the end of the file. The regexes spell the comment opener with
+  // {2} so the build's comment-opener check passes.
+  const NOTE = /<!-{2}\s*hb-note\s*-{2}>[\s\S]*?(?:<!-{2}\s*\/hb-note\s*-{2}>|$)/g;
+  const dropNotes = (t) => t.replace(NOTE, "");
+  const attrs = (s) => { const o = {}; const re = /([\w:-]+)="([^"]*)"/g; let m; while ((m = re.exec(s))) o[m[1]] = m[2]; return o; };
+  // { hb: the hb-chapter title or "", h1: the first "#" heading or "", heads: [{ l (1-6), t, line }],
+  //   eras: [{ id, o (order), label, line (of its "##" heading) }] } from a Markdown file. An era is a
+  //   "##" heading right after an hb-time:start comment (its id / order / label), or, when the file has
+  //   no hb-time comments at all, every "##" heading (id = label; the caller decides whether that is a grid).
+  function outline(text) {
+    const lines = dropNotes(clean(text)).split("\n");
+    const out = { hb: "", h1: "", heads: [], eras: [] };
+    let time = null, anyTime = false, fence = false;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^\s*```/.test(l)) { fence = !fence; continue; }
+      if (fence) continue;
+      let m = /^\s*<!-{2}\s*hb-chapter\b([^>]*)-{2}>/.exec(l);
+      if (m) { const a = attrs(m[1]); if (a.title && !out.hb) out.hb = a.title; continue; }
+      m = /^\s*<!-{2}\s*hb-time:start\b([^>]*)-{2}>/.exec(l);
+      if (m) { time = attrs(m[1]); anyTime = true; continue; }
+      m = /^[ \t]{0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(l);
+      if (!m) { if (l.trim() && time && !/^\s*<!-{2}/.test(l)) time = null; continue; }
+      const level = m[1].length, t = m[2].trim();
+      if (level === 1 && !out.h1) out.h1 = t;
+      out.heads.push({ l: level, t, line: i });
+      if (level === 2) {
+        if (time) out.eras.push({ id: time.id || t, o: time.order || "", label: time.label || t, line: i });
+        else if (!anyTime) out.eras.push({ id: t, o: "", label: t, line: i, plain: true });
+      }
+      time = null;
+    }
+    if (anyTime) out.eras = out.eras.filter((e) => !e.plain);
+    return out;
+  }
+  // Where each heading landed among the paragraphs: heads [{ l, t }] against paras (softened text), each
+  // heading a paragraph of its own. Gives [{ l, t, p }] (a heading not found among the paragraphs is dropped).
+  function placeHeads(heads, paras) {
+    const out = [];
+    let from = 0;
+    for (const h of heads) {
+      const want = softenMd(h.t).trim();
+      const p = paras.indexOf(want, from);
+      if (p < 0) continue;
+      out.push({ l: h.l, t: want, p });
+      from = p + 1;
+    }
+    return out;
+  }
+  // A grid file cut at its era headings: [{ era: { id, o, label } | null, text, from, to (line range) }],
+  // the text before the first era first (when it has anything beyond the "#" chapter heading and comments).
+  function eraSplit(text, ol) {
+    const lines = dropNotes(clean(text)).split("\n");
+    const cuts = ol.eras.map((e) => e.line);
+    const parts = [];
+    const preEnd = cuts.length ? cuts[0] : lines.length;
+    const pre = lines.slice(0, preEnd);
+    if (pre.some((l) => l.trim() && !/^[ \t]{0,3}#[ \t]/.test(l) && !/^\s*<!-{2}/.test(l))) parts.push({ era: null, text: pre.join("\n"), from: 0, to: preEnd });
+    ol.eras.forEach((e, k) => { const end = k + 1 < cuts.length ? cuts[k + 1] : lines.length; parts.push({ era: { id: e.id, o: e.o, label: e.label }, text: lines.slice(e.line, end).join("\n"), from: e.line, to: end }); });
+    return parts;
+  }
+
   // ---- Markdown, softened so it is not read as symbols (.md files, at import) --------------------
-  // Front matter and HTML comments go; images and links keep their text; heading marks, rules,
+  // Editor's notes, front matter and HTML comments go; images and links keep their text; heading marks, rules,
   // blockquote marks, bullets, code marks, bold / italic marks and HTML tags are stripped. Nothing
   // else changes, so a "# Chapter 12" heading still cuts a single file at its chapters (split).
   function softenMd(text) {
-    let t = clean(text);
+    let t = dropNotes(clean(text));
     t = t.replace(/^---\n[\s\S]*?\n---\n/, "");
     t = t.replace(/<!-{2}[\s\S]*?-{2}>/g, "");          // HTML comments (spelled with {2} so the build's comment-opener check passes)
     t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
@@ -1315,7 +1457,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return { chapters: [{ title: o.title, paras, n: null }], how: `one chapter (${heads.length ? "one" : "no"} heading line${heads.length === 1 ? "" : "s"}, ${words.toLocaleString("en-US")} words)`, numbered: false };
   }
 
-  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, topFolder, softenMd, looksWrapped, paragraphs, heading, split, countWords,
+  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, topFolder, pretty, outline, placeHeads, eraSplit, softenMd, looksWrapped, paragraphs, heading, split, countWords,
     PART_WORDS, PARTS_FROM, source: "(" + chapterJs.toString() + ")();" };
 })();
 </script>
@@ -2331,7 +2473,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 </script>
 <script>
 // book.js: the books in this browser (the library, 2026-10-20). IndexedDB br1-book, version 3:
-//   books    one small row per book: { id, title, from, kind, chapters, first, last, bytes, added, updated, gens }
+//   books    one small row per book: { id, title, from, kind, chapters, first, last, bytes, added, updated, gens, grid, across, shelf }
 //   index    per book: { id, list: [{ c, n, title, paras, g }] }   (read when the book is opened)
 //   text     the chapters, keyed [g, c]: { g, c, n, title, text: [paragraphs] }; g = the import that wrote them
 //   imports  { g, book, title, started }: an import still running, or one that never finished
@@ -2436,12 +2578,37 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     keys: () => { const out = []; try { for (let i = 0; i < localStorage.length; i++) out.push(localStorage.key(i)); } catch (e) {} return out; },
   };
 
+  // The index in reading order. A grid book (row.grid: { eras: [{ id, label }] }) with "Read across time"
+  // on (row.across) goes era by era, each era's chapters in their stored order (topic after topic);
+  // chapters with no era (an introduction) come first. Everything else keeps the stored order, so
+  // the player, Next and the positions (by c) need no change.
+  let natural = [];           // the stored order
+  function ordered(row, list) {
+    if (!row || !row.across || !row.grid || !Array.isArray(row.grid.eras)) return list;
+    const rank = new Map(row.grid.eras.map((e, i) => [e.id, i]));
+    return list.map((e, i) => ({ e, i, r: e.era && rank.has(e.era.id) ? rank.get(e.era.id) : -1 })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.e);
+  }
   function use(row, list) {
     current = row;
-    index = list || [];
+    natural = list || [];
+    index = ordered(row, natural);
     byC = new Map(index.map((e, i) => [e.c, i]));
     cache.clear();
     ls.set(CUR_KEY, row ? row.id : null);
+  }
+  // Read across time on or off for a stored book (an Open-window option; never locked, changed any time).
+  // The open book's index is put in the new order; the caller shows the chapter again (READER.reorder).
+  async function setAcross(id, on) {
+    const row = books.find((b) => b.id === id);
+    if (!row) throw new Error(`no stored book has the id ${id}`);
+    if (!row.grid) throw new Error(`"${row.title}" has no eras shared across its sections, so it cannot be read across time`);
+    on = !!on;
+    if (!!row.across === on) return row;
+    row.across = on; row.updated = Date.now();
+    await tx(["books"], "readwrite", (s) => { s.put(row); });
+    if (current && current.id === id) use(row, natural);
+    log("book", `"${row.title}": read across time ${on ? "on: every topic's first era, then every topic's next, …" : "off: topic by topic"} (${row.grid.eras.length} eras)`);
+    return row;
   }
   const sortBooks = () => books.sort((a, b) => a.added - b.added);
   // The books stored, marked in localStorage (D18): with none at the start, the browser cleared them.
@@ -2490,12 +2657,15 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   // The chapter at index position i: { g, c, n, title, text }, or null when its record is missing.
+  // The index names the chapter (the naming pass after an import writes the index, not the text records):
+  // its title and heading flag go over the record's.
   async function chapter(i) {
     const e = index[i];
     if (!e) return null;
     if (cache.has(e.c)) { const r = cache.get(e.c); cache.delete(e.c); cache.set(e.c, r); return r; }
-    const rec = await tx(["text"], "readonly", (t) => t.get([e.g, e.c]));
+    let rec = await tx(["text"], "readonly", (t) => t.get([e.g, e.c]));
     if (!rec) return null;
+    if (e.title && (e.title !== rec.title || (typeof e.heading === "boolean" && e.heading !== rec.heading))) rec = Object.assign({}, rec, { title: e.title, heading: typeof e.heading === "boolean" ? e.heading : rec.heading });
     cache.set(e.c, rec);
     while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
     return rec;
@@ -2570,12 +2740,38 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const seen = new Map(), names = new Map();
     let unreadable = 0, duplicates = 0, size = 0, lastYield = performance.now(), how = "", numbered = job.kind === "numbered";
     const breathe = async () => { if (job.slice && performance.now() - lastYield > job.slice) { await new Promise((r) => setTimeout(r, 0)); lastYield = performance.now(); } };
-    const add = (c, n, title, paras, name, heading) => {
+    // extra: the facts the page's naming pass needs (sections / Markdown books only): { file, sec, h1, hb,
+    // era: { id, o, label } | null, heads: [{ l, t, p }] }; they ride in the index entry.
+    const add = (c, n, title, paras, name, heading, extra) => {
       if (seen.has(c)) { duplicates++; dupNames.push(`"${names.get(c)}" and "${name}" both give chapter ${c}; "${name}" was kept`); }
-      seen.set(c, { c, n, title, paras: paras.length, g: job.g });
+      seen.set(c, Object.assign({ c, n, title, paras: paras.length, g: job.g }, extra || {}));
       names.set(c, name);
       for (const p of paras) size += p.length;
       return { g: job.g, c, n, title, heading: heading !== false, text: paras };   // heading false: a file name or a part label, not read aloud
+    };
+    let nextC = 0;      // a grid book: a chapter per era within a file, numbered as they come
+    // One source of the "files" kind: a plain file is one chapter; a Markdown file also gives its outline
+    // (headings → paragraph places); in a grid book (job.grid) each era of the file is a chapter of its own.
+    const fileChapters = (s, raw, t) => {
+      const stem = CHAPTER.stem(s.name) || `Part ${s.c}`;
+      const title = (s.section ? s.section + " · " : "") + stem;
+      if (!/\.md$/i.test(s.name)) return [add(s.c, null, title, CHAPTER.paragraphs(t, job.join), s.name, false)];
+      const ol = CHAPTER.outline(raw);
+      if (job.grid === "time") ol.eras = ol.eras.filter((e) => !e.plain);   // a file with no hb-time eras (an introduction) stays whole
+      const facts = { file: stem, sec: s.section || "", h1: ol.h1, hb: ol.hb };
+      if (!job.grid) {
+        const paras = CHAPTER.paragraphs(t, job.join);
+        return [add(s.c, null, title, paras, s.name, false, Object.assign({ era: null, heads: CHAPTER.placeHeads(ol.heads, paras) }, facts))];
+      }
+      const out = [];
+      for (const part of CHAPTER.eraSplit(raw, ol)) {
+        const paras = CHAPTER.paragraphs(CHAPTER.softenMd(part.text), job.join);
+        let heads = CHAPTER.placeHeads(ol.heads.filter((h) => h.line >= part.from && h.line < part.to), paras);
+        if (part.era && paras.length && paras[0] === CHAPTER.softenMd(part.era.label).trim()) { paras.shift(); heads = heads.filter((h) => h.p > 0).map((h) => ({ l: h.l, t: h.t, p: h.p - 1 })); }   // the era heading is the chapter's name, not its first line
+        if (!paras.length) continue;
+        out.push(add(++nextC, null, title, paras, s.name, false, Object.assign({ era: part.era, heads }, facts)));
+      }
+      return out;
     };
     try {
       post({ done: 0 });
@@ -2593,7 +2789,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
           const s = slice[k];
           let t = texts[k];
           if (t === null) { unreadable++; continue; }
-          if (/\.md$/i.test(s.name)) t = CHAPTER.softenMd(t);           // Markdown marks are not read aloud
+          const raw = t;
+          if (/\.md$/i.test(s.name)) t = CHAPTER.softenMd(t);           // Markdown marks (and editor's notes) are not read aloud
           if (job.kind === "split") {
             const r = CHAPTER.split(t, { title: job.title, join: job.join, parts: job.parts });
             numbered = r.numbered; how = r.how;
@@ -2604,7 +2801,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
             if (!ch) { unreadable++; bad.push(`"${s.name}" has no chapter number`); continue; }
             recs.push(add(ch.n, ch.n, ch.title, ch.paras, s.name));
           } else {
-            recs.push(add(s.c, null, (s.section ? s.section + " · " : "") + (CHAPTER.stem(s.name) || `Part ${s.c}`), CHAPTER.paragraphs(t, job.join), s.name, false));   // a sections book: "section · file"
+            recs.push(...fileChapters(s, raw, t));   // a sections book: "section · file" until the page's naming pass
           }
           await breathe();
         }
@@ -2706,16 +2903,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const specs = [];
     const inFolder = files.some((x) => x.webkitRelativePath && x.webkitRelativePath.includes("/"));
     const root = files.length === 1 && items.length === 1 ? CHAPTER.stem(items[0].name) : items.length ? CHAPTER.stem(items[0].name) : "Book";
-    const make = (title, list, from) => specs.push({ title: title.trim().slice(0, TITLE_MAX) || "Book", from: from || title, paths: list.map((s) => s.name), sources: list, files: list.length, bytes: 0 });
+    const make = (title, list, from) => specs.push({ title: (CHAPTER.pretty(title) || title).trim().slice(0, TITLE_MAX) || "Book", from: from || title, paths: list.map((s) => s.name), sources: list, files: list.length, bytes: 0 });
     let folders = false, sections = false;      // a folder of folders (sub-folders only, no loose files); sections: made one book
-    const grouped = (list, rootTitle) => {
+    const grouped = (list, rootTitle, fromZip) => {
       const byName = new Map(list.map((s) => [s.name, s]));
       const groups = CHAPTER.group(list.map((s) => s.name), rootTitle);
       // A folder of folders (Jon's manuscript, 2026-10-20): two or more sub-folders and nothing loose.
       // By default ONE book named after the folder: each sub-folder a section, its files the chapters
       // (sections in natural order, each file's title showing its section); opts.sections = false
-      // gives the old one book per sub-folder.
-      if (inFolder && !zips.length && groups.length >= 2 && groups.every((b) => !b.root)) {
+      // gives the old one book per sub-folder. A zip of such a folder (the book shelf, 2026-10-21) the same.
+      if (((inFolder && !zips.length) || fromZip) && groups.length >= 2 && groups.every((b) => !b.root)) {
         folders = true;
         sections = o.sections !== false;
         if (sections) {
@@ -2741,7 +2938,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const found = list.filter((e) => !e.dir && CHAPTER.isText(e.name));
       for (const e of list) if (!e.dir && !CHAPTER.isText(e.name)) ignored.push(e.name.split("/").pop());
       if (!found.length) throw new Error(`"${f(z)}" holds no text files (${list.filter((e) => !e.dir).length} entries). This reader opens plain text: .txt, .text and .md files, loose, in a folder, or in a zip.`);
-      grouped(found.map((e) => ({ name: e.name, kind: "zip", zip: k, entry: e, size: e.size })), CHAPTER.stem(f(z)));
+      grouped(found.map((e) => ({ name: e.name, kind: "zip", zip: k, entry: e, size: e.size })), CHAPTER.stem(f(z)), true);
     }
     if (!specs.length) {
       throw new Error(files.length
@@ -2773,20 +2970,41 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const hit = books.find((b) => same(b.from, s.from)) || books.find((b) => same(b.title, s.title));
       s.existing = hit ? hit.id : null;
       s.existingTitle = hit ? hit.title : "";
-      s.join = false; s.parts = false; s.wrapped = false; s.headings = 0; s.words = 0;
+      s.join = false; s.parts = false; s.wrapped = false; s.headings = 0; s.words = 0; s.grid = ""; s.across = false;
+      // A small read of one file (raw: the outline needs the marks): at most 25 MB, else "".
+      const peek = async (src) => {
+        if (src.size === undefined) src.size = src.kind === "gz" ? src.file.size * 3 : src.file.size;
+        if ((src.size || 0) > 25e6) return "";
+        return ZIP.decode(await (src.kind === "zip" ? ZIP.bytes(zips[src.zip], src.entry) : src.kind === "gz" ? ZIP.gunzipBytes(src.file) : src.file.arrayBuffer())).text;
+      };
       if (!s.numbered) {
         // One small read decides the defaults: hard-wrapped lines → join on; a single file's heading
         // lines and words → whether parts are offered.
         const first = s.sources[0];
-        if (first.size === undefined) first.size = first.kind === "gz" ? first.file.size * 3 : first.file.size;
-        if ((first.size || 0) <= 25e6) {
-          try {
-            let t = ZIP.decode(await (first.kind === "zip" ? ZIP.bytes(zips[first.zip], first.entry) : first.kind === "gz" ? ZIP.gunzipBytes(first.file) : first.file.arrayBuffer())).text;
-            if (/\.md$/i.test(first.name)) t = CHAPTER.softenMd(t);
-            s.wrapped = s.join = CHAPTER.looksWrapped(t);
-            if (s.kind === "split") { const r = CHAPTER.split(t, { title: s.title }); s.headings = r.chapters.length > 1 ? r.chapters.length : 0; s.words = CHAPTER.countWords(t); }
-          } catch (e) { log("book", `could not look at "${first.name}" for the preview: ${e.message}`); }
+        try {
+          let t = await peek(first);
+          if (/\.md$/i.test(first.name)) t = CHAPTER.softenMd(t);
+          s.wrapped = s.join = CHAPTER.looksWrapped(t);
+          if (s.kind === "split") { const r = CHAPTER.split(t, { title: s.title }); s.headings = r.chapters.length > 1 ? r.chapters.length : 0; s.words = CHAPTER.countWords(t); }
+        } catch (e) { log("book", `could not look at "${first.name}" for the preview: ${e.message}`); }
+      }
+      // Does a sections book look like a GRID (topics × eras; Jon's history manuscript)? The first
+      // Markdown file of up to four sections is read: two or more with hb-time eras → "time" (only those
+      // eras count); else two files sharing a "##" heading → "heads" (every "##" heading is an era, the
+      // labels shared by two or more sections make the table). Then "Read across time" is offered.
+      if (s.sections && !s.numbered) {
+        const firsts = [], seenSec = new Set();
+        for (const src of s.sources) if (/\.md$/i.test(src.name) && !seenSec.has(src.section)) { seenSec.add(src.section); firsts.push(src); if (firsts.length >= 4) break; }
+        const outlines = [];
+        for (const src of firsts) { try { outlines.push(CHAPTER.outline(await peek(src))); } catch (e) { log("book", `could not look at "${src.name}" for the grid check: ${e.message}`); } }
+        const timed = outlines.filter((o) => o.eras.length && !o.eras[0].plain).length;
+        if (timed >= 2) s.grid = "time";
+        else {
+          const seenLabel = new Map();
+          for (const o of outlines) for (const l of uniq(o.eras.map((e) => e.label))) seenLabel.set(l, (seenLabel.get(l) || 0) + 1);
+          if (Array.from(seenLabel.values()).some((n) => n >= 2)) s.grid = "heads";
         }
+        if (s.grid) log("book", `"${s.title}" looks like a grid (${s.grid === "time" ? "hb-time eras" : "shared ## headings"} in ${firsts.length} sampled files): a chapter per era, Read across time offered`);
       }
     }
     log("book", `plan: ${specs.map((s) => `"${s.title}" (${s.files} file${s.files === 1 ? "" : "s"}, ${s.kind}${s.existing ? `, replaces "${s.existingTitle}"` : ""})`).join("; ")}${ignored.length ? `; ${ignored.length} other file${ignored.length === 1 ? "" : "s"} ignored` : ""}`);
@@ -2808,15 +3026,20 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     await tx(["imports"], "readwrite", (s) => { s.put({ g: gen, book: id, title, started: Date.now() }); });
     const total = spec.sources.length;
     log("book", `adding "${title}": ${total} file${total === 1 ? "" : "s"} (${spec.kind}${spec.join ? ", wrapped lines joined" : ""}${spec.parts ? ", parts by size" : ""})${replacing ? `, replacing "${replacing.title}"` : ""}`);
-    let r;
+    let r, gridTable = null, acrossOn = false;
     try {
-      r = await runJob({ db: DB_NAME, version: DB_VERSION, g: gen, kind: spec.kind, join: !!spec.join, parts: !!spec.parts, sections: spec.sections || 0, title, batch: BATCH, sources: spec.sources, zips: zips || spec.zips || [], failAt: hooks.failAt },
+      r = await runJob({ db: DB_NAME, version: DB_VERSION, g: gen, kind: spec.kind, join: !!spec.join, parts: !!spec.parts, sections: spec.sections || 0, grid: spec.grid || "", title, batch: BATCH, sources: spec.sources, zips: zips || spec.zips || [], failAt: hooks.failAt },
         (m) => say(m.chapters ? `Adding ${title}: ${m.chapters.toLocaleString("en-US")} chapters found` : `Adding ${title}: ${m.done.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} file${total === 1 ? "" : "s"}`, total ? m.done / total : 0));
       for (const x of r.bad) log("error", `adding "${title}": ${x}`);
       if (!r.list.length) throw new Error("no chapter could be read.");
+      const grid = nameChapters(r.list, spec.grid || "");
+      gridTable = grid; acrossOn = !!(spec.across && grid);
+      r.gridNote = spec.grid && !grid ? `"${title}" looked like a grid, but no era is shared by two of its sections: it reads file by file, and Read across time is not offered` : spec.across && grid ? `"${title}" reads across time: every topic's "${grid.eras[0].label}", then every topic's "${grid.eras[1].label}", …` : "";
+      if (r.gridNote) log("book", r.gridNote);
       const now = Date.now();
       const row = { id, title, from: spec.from || title, kind: r.numbered ? "numbered" : spec.kind === "split" && r.list.length === 1 ? "one" : spec.kind, chapters: r.list.length, first: r.list[0].c, last: r.list[r.list.length - 1].c,
-        bytes: r.bytes, added: replacing ? replacing.added : now, updated: now, gens: [gen] };
+        bytes: r.bytes, added: replacing ? replacing.added : now, updated: now, gens: [gen], grid, across: !!(spec.across && grid),
+        shelf: spec.shelf ? { id: spec.shelf.id, version: spec.shelf.version } : null };   // from the public book shelf (shelf.js): which book and version, so ?book= opens it instead of downloading again
       await tx(["books", "index", "imports", "text"], "readwrite", (b, ix, im, t) => {
         b.put(row); ix.put({ id, list: r.list }); im.delete(gen);
         for (const og of (replacing && replacing.gens) || []) t.delete(genRange(og));
@@ -2834,8 +3057,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     for (const x of r.dupNames) log("book", `adding "${title}": ${x}`);
     for (const x of r.recoded) log("book", `adding "${title}": ${x}`);
     const seconds = (Date.now() - t0) / 1000;
-    const summary = { id, title, chapters: r.list.length, first: r.list[0].c, last: r.list[r.list.length - 1].c, numbered: r.numbered, how: r.how, duplicates: r.duplicates, dupNames: r.dupNames, unreadable: r.unreadable, unreadNames: r.bad, recoded: r.recoded, seconds, where: r.where, replaced: !!replacing, join: !!spec.join };
-    log("book", `added "${title}": ${summary.chapters.toLocaleString("en-US")} chapters (${summary.first}-${summary.last}), ${r.how}${spec.join ? ", wrapped lines joined" : ""}, in ${seconds.toFixed(1)} s ${r.where}${replacing ? " (replaced the stored book; the reading place is kept)" : ""}`, { duplicates: r.duplicates, unreadable: r.unreadable, recoded: r.recoded.length });
+    const summary = { id, title, chapters: r.list.length, first: r.list[0].c, last: r.list[r.list.length - 1].c, numbered: r.numbered, how: r.how, duplicates: r.duplicates, dupNames: r.dupNames, unreadable: r.unreadable, unreadNames: r.bad, recoded: r.recoded, seconds, where: r.where, replaced: !!replacing, join: !!spec.join, gridNote: r.gridNote || "" };
+    log("book", `added "${title}": ${summary.chapters.toLocaleString("en-US")} chapters (${summary.first}-${summary.last}), ${gridTable ? `a chapter per era (${gridTable.eras.length} eras${acrossOn ? ", read across time" : ""})` : r.how}${spec.join ? ", wrapped lines joined" : ""}, in ${seconds.toFixed(1)} s ${r.where}${replacing ? " (replaced the stored book; the reading place is kept)" : ""}`, { duplicates: r.duplicates, unreadable: r.unreadable, recoded: r.recoded.length });
     if (!persistAsked && navigator.storage && navigator.storage.persist) {
       persistAsked = true;
       navigator.storage.persist().then((ok) => log("storage", `persistent storage ${ok ? "granted" : "not granted"}`), (e) => log("storage", "persist() failed", e));
@@ -2843,6 +3066,51 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return summary;
   }
   const stopImport = () => { if (running) running.stop(); };
+
+  // ---- Names, after the import: what the files say, else the folder and file names made readable ----
+  // Entries of Markdown / sections books carry { file, sec (folder), h1, hb (hb-chapter title), era, heads }.
+  // A section's name: the one hb-chapter title its files share, else the one "#" heading they share
+  // (its "Chapter 32:" lead dropped: the section is "Art"), else the folder prettified. A chapter's
+  // short name: its own "#" heading as written when no other file of the section has the same, else the
+  // file name prettified ("part1-before-1800" → "Part 1: Before 1800"); in a grid book the era's label.
+  // Titles: a grid chapter "Art: Before 1500" (read aloud); a sections chapter "Art · Part 1: Before 1800"
+  // (not read aloud, as before); a plain files book the short name. Gives the era table { eras: [{ id,
+  // label }] } (two or more eras; in a "heads" grid only labels shared by two or more sections), or null.
+  const stripNo = (s) => String(s || "").replace(/^\s*(?:chapter|part|ch\.?)\s*\d+[.:\-–—]?\s*/i, "").trim();
+  const uniq = (a) => Array.from(new Set(a));
+  function nameChapters(list, grid) {
+    if (!list.some((e) => e.file !== undefined)) return null;
+    const groups = new Map();
+    for (const e of list) { const k = e.sec || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
+    for (const [folder, es] of groups) {
+      const hbs = uniq(es.map((e) => e.hb).filter(Boolean)), h1s = uniq(es.map((e) => stripNo(e.h1)).filter(Boolean));
+      const secName = !folder ? "" : hbs.length === 1 ? hbs[0] : h1s.length === 1 && es.filter((e) => e.h1).length > 1 ? h1s[0] : CHAPTER.pretty(folder);
+      const count = new Map();
+      for (const e of es) if (e.h1) count.set(e.h1, (count.get(e.h1) || 0) + 1);
+      for (const e of es) {
+        if (e.file === undefined) continue;
+        const own = e.h1 && count.get(e.h1) === 1 ? e.h1 : CHAPTER.pretty(e.file) || e.file;
+        e.sec = secName;
+        if (grid) { e.short = e.era ? e.era.label : own; e.title = secName ? `${secName}: ${e.short}` : e.short; e.heading = !!e.era; }
+        else { e.short = own; e.title = secName ? `${secName} · ${own}` : own; e.heading = false; }
+        delete e.h1; delete e.hb; delete e.file;
+      }
+    }
+    if (!grid) { for (const e of list) delete e.era; return null; }
+    const eras = new Map();
+    list.forEach((e, i) => {
+      if (!e.era) return;
+      const k = e.era.id;
+      if (!eras.has(k)) eras.set(k, { id: k, label: e.era.label, o: e.era.o || "", secs: new Set(), first: i });
+      eras.get(k).secs.add(e.sec);
+    });
+    let table = Array.from(eras.values());
+    if (grid === "heads") table = table.filter((x) => x.secs.size >= 2);
+    table.sort(table.every((x) => x.o) ? (a, b) => CHAPTER.natural(a.o, b.o) || a.first - b.first : (a, b) => a.first - b.first);
+    const ok = new Set(table.map((x) => x.id));
+    for (const e of list) e.era = e.era && ok.has(e.era.id) ? { id: e.era.id, label: e.era.label } : null;
+    return table.length >= 2 ? { eras: table.map(({ id, label }) => ({ id, label })) } : null;
+  }
 
   // ---- Reading places, per book ---------------------------------------------------------------------
   // { c, p: paragraph read, top: paragraph at the top of the screen, at: when, pct: progress 0-100 }.
@@ -2867,10 +3135,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     get books() { return books.slice(); },
     get unfinished() { return unfinished; },
     get migrated() { return migrated; },
-    info: (i) => index[i] || null,                 // { c, n, title, paras, g } from the index, nothing loaded
+    get grid() { return current ? current.grid || null : null; },     // { eras: [{ id, label }] } for a grid book
+    get across() { return !!(current && current.across); },
+    info: (i) => index[i] || null,                 // { c, n, title, paras, g, sec?, short?, era?, heads? } from the index, nothing loaded
     index: () => index,
     indexOf: (c) => (byC.has(c) ? byC.get(c) : -1),
-    label, chapter, warm, load, open: openBook, rename, remove, plan, importBook, stopImport, pos, setPos, posOf, readKey, hooks, kept,
+    label, chapter, warm, load, open: openBook, rename, remove, setAcross, plan, importBook, stopImport, pos, setPos, posOf, readKey, hooks, kept,
     // Settings → Storage deletes everything: let go of the database (so it can be deleted), the books
     // and every per-book key, and the mark (deleted on purpose, so the start says nothing about it).
     forget: () => {
@@ -3006,12 +3276,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 (function () {
   const $ = (id) => document.getElementById(id);
   const book = $("book"), title = $("ctitle"), text = $("text"), chno = $("chno"), msg = $("msg"), chname = $("chname"), chfull = $("chfull");
-  const num = $("num"), prev = $("prev"), next = $("next"), goBtn = $("go"), listBtn = $("list"), empty = $("empty");
+  const num = $("num"), prev = $("prev"), next = $("next"), goBtn = $("go"), empty = $("empty");
   let cur = -1;               // index position of the chapter shown
   let para = 0;               // the paragraph read (tapped, or moved by the player)
   let showing = 0;            // guards against an older chapter arriving after a newer one
   let switching = false;      // between books: no position is saved for the one going away
-  const listeners = [];       // fn(what, value): "chapter" (index), "para" (index), "book" (another book opened, or the open one replaced), "added" (books added)
+  const listeners = [];       // fn(what, value): "chapter" (index), "para" (index), "book" (another book opened, or the open one replaced), "added" (books added), "order" (read across time switched)
   const emit = (what, v) => { for (const fn of listeners) { try { fn(what, v); } catch (e) { log("error", `reader listener (${what})`, e); } } };
   const fmt = (n) => n.toLocaleString("en-US");
 
@@ -3204,74 +3474,50 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   document.addEventListener("keydown", (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
     const t = e.target;
-    if (t instanceof Element && (t.matches("input, textarea, select") || t.isContentEditable || t.closest(".float"))) return;
+    if (t instanceof Element && (t.matches("input, textarea, select") || t.isContentEditable || t.closest(".float, .contents"))) return;
+    if (globalThis.CONTENTS && CONTENTS.isOpen) return;
     if (e.key === "ArrowLeft") { e.preventDefault(); go(cur - 1); }
     else if (e.key === "ArrowRight") { e.preventDefault(); go(cur + 1); }
   });
 
-  // ---- The chapter list window ---------------------------------------------------------------------
-  let listFor = null;         // the index the rows were built from
+  // ---- The contents panel (contents.js) is the chapter list now (the ▾ button and the list window are gone) ----
   function openList() {
     if (!BOOK.count) { say("No book is open. Tap Open to pick one."); return; }
-    const w = FLOAT.open("chapters", { title: `${BOOK.title ? BOOK.title + " · " : ""}${fmt(BOOK.count)} ${numbered() ? "chapters" : "parts"}`, width: 380, height: 520 });
-    if (listFor !== BOOK.index() || !w.body.firstChild) {
-      listFor = BOOK.index();
-      const box = document.createElement("div");
-      box.className = "chlist";
-      const filter = document.createElement("input");
-      filter.type = "search"; filter.className = "filter"; filter.placeholder = "Filter by number or title"; filter.setAttribute("aria-label", "Filter chapters");
-      const rows = document.createElement("div");
-      rows.className = "rows";
-      listFor.forEach((e, i) => {
-        const b = document.createElement("button");
-        b.type = "button"; b.className = "row"; b.dataset.i = i;
-        b.innerHTML = '<span class="n"></span><span class="t"></span>';
-        b.firstChild.textContent = numbered() ? e.c : i + 1; b.lastChild.textContent = e.title;
-        rows.appendChild(b);
-      });
-      rows.addEventListener("click", (e) => {
-        const b = e.target.closest(".row");
-        if (!b) return;
-        go(Number(b.dataset.i));
-        w.close();
-      });
-      filter.addEventListener("input", () => {
-        const q = filter.value.trim().toLowerCase();
-        let shown = 0;
-        for (const b of rows.children) { const hit = !q || b.textContent.toLowerCase().includes(q); b.hidden = !hit; shown += hit; }
-        rows.classList.toggle("none", !shown);
-      });
-      filter.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { const b = rows.querySelector(".row:not([hidden])"); if (b) { go(Number(b.dataset.i)); w.close(); } }
-      });
-      box.append(filter, rows);
-      w.body.replaceChildren(box);
-    }
-    for (const b of w.body.querySelectorAll(".row")) b.classList.toggle("current", Number(b.dataset.i) === cur);
-    const here = w.body.querySelector(".row.current");
-    if (here) here.scrollIntoView({ block: "center" });
-    const filter = w.body.querySelector(".filter");
-    if (matchMedia("(pointer: fine)").matches) filter.focus();
+    CONTENTS.open();
   }
-  listBtn.addEventListener("click", openList);
+  // Read across time switched for the open book (library.js → BOOK.setAcross): the index is in its new
+  // order, so the chapter shown is found again by its id and shown at the same paragraph; a reading in
+  // progress stops (the player keeps chapters by place), said on screen.
+  async function setAcross(id, on) {
+    const here = BOOK.current === id && cur >= 0 ? { c: BOOK.info(cur).c, p: para, top: topPara() } : null;
+    const row = await BOOK.setAcross(id, on);
+    if (!here) return row;
+    if (globalThis.PLAYER && PLAYER.state !== "stopped") { PLAYER.stop(); say("The reading stopped: the chapter order changed. Tap Play to go on."); }
+    switching = true;
+    cur = -1;
+    try { await show(Math.max(0, BOOK.indexOf(here.c)), here); } finally { switching = false; }
+    savePos();
+    emit("order", on);
+    return row;
+  }
 
   // ---- Books: the open one, switching, the empty state --------------------------------------------
   function showEmpty(note) {
-    cur = -1; curRec = null; pieces = []; listFor = null;
+    cur = -1; curRec = null; pieces = [];
     book.hidden = true;
     empty.hidden = false;
     empty.querySelector(".note").textContent = note || "";
     chname.textContent = "";
     chfull.hidden = true;
-    for (const b of [prev, next, goBtn, listBtn, num]) b.disabled = true;
+    for (const b of [prev, next, goBtn, num]) b.disabled = true;
     num.value = "";
     document.title = globalThis.APP_VERSION || "Book reader";
-    FLOAT.close("chapters");
+    if (globalThis.CONTENTS) CONTENTS.close();
   }
   function showBook() {
     empty.hidden = true;
     book.hidden = false;
-    for (const b of [prev, next, goBtn, listBtn, num]) b.disabled = false;
+    for (const b of [prev, next, goBtn, num]) b.disabled = false;
     updateNav();
   }
   // Open a stored book (a switch, or the open book after it was replaced): a reading in progress stops
@@ -3285,7 +3531,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     try { await BOOK.open(id); }
     finally { switching = false; }
     const row = BOOK.row;
-    listFor = null;
     cur = -1;                 // before showBook: its updateNav must not read the old book's place in the new book's index
     showBook();
     emit("book", id);
@@ -3334,7 +3579,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   globalThis.READER = {
-    start, applyLook, say, go, openBook, closeBook, refreshTitle,
+    start, applyLook, say, go, openBook, closeBook, refreshTitle, setAcross,
+    topPara,
     showImport: () => LIBRARY.open(),                              // the old name (Settings → Book, Storage)
     noteAdded: (list) => emit("added", list),
     get chapter() { return cur; },
@@ -3346,6 +3592,327 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     openList,
     onChange: (fn) => { listeners.push(fn); },
     get state() { return cur >= 0 ? "book" : !empty.hidden ? "empty" : "starting"; },
+  };
+})();
+</script>
+<script>
+// contents.js: the contents panel (Jon, 2026-10-21). A drawer that slides out from the left edge from
+// the ☰ button (and the ▾ beside the chapter number): a search box, then the book's tree: sections
+// (the sub-folders, named from inside their files), their chapters, and the headings inside a chapter
+// (the "#" / "##" / "###" lines of a Markdown file, each at its paragraph). A book without sections is
+// its chapter list alone (Jon's 2,406 chapters: one row each, built once per book; a chapter's
+// headings are built when it is opened). A grid book read across time shows eras, then topics. The
+// tree opens to the place being read, highlighted; a tap on a chapter or a heading goes there (the
+// heading's paragraph, not only its chapter) and the panel STAYS open with the new place highlighted
+// (Jon, 2026-10-21); a tap on a section or a ▸ only opens or closes that fold. ☰ again, ✕ or Escape
+// close it. On a screen at least 700 px wide the panel is DOCKED (html.cdock, contents.css): the page
+// moves right and narrows to make room, so it can be left open; open / closed is remembered
+// (br1-contents) and restored at load without a slide. Under 700 px it slides over the page with a
+// dimmed backdrop (a tap on it closes too) and is never restored open. Read marks: ✓ on every chapter
+// before the place being read (in the current order), a part-mark (how far along) on the current one,
+// from the stored place; nothing on the rest. Search filters by section, chapter and heading names as
+// you type (a flat list of hits; headings under their chapter).
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const panel = $("contents"), back = $("cback"), box = $("csearch"), tree = $("ctree"), head = $("chead"), closeBtn = $("cclose");
+  const root = document.documentElement;
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+  const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const MAX_HITS = 400;
+  const KEY = (globalThis.APP_KEY || "br1") + "-contents";
+  const DOCK = matchMedia("(min-width: 700px)");     // docked beside the text from here up; an overlay below
+  const docked = () => DOCK.matches;
+  let builtFor = null;        // the index the tree was built from
+  let model = null;           // { groups: [{ name, items: [i] }] | null, flat: [i] }
+  let open = false;
+  let query = "";
+  let searchTimer = 0;
+  let hideTimer = 0;
+
+  // ---- The model: how the index groups --------------------------------------------------------------
+  const across = () => BOOK.across;
+  const groupOf = (e) => (across() ? (e.era ? e.era.label : e.sec || e.short || e.title) : e.sec || "");
+  const rowName = (e, i) => (across() && e.era ? e.sec || e.short || e.title : e.short || e.title || `Part ${i + 1}`);   // across time: the topic under its era; an era-less chapter its own name
+  function build() {
+    const list = BOOK.index();
+    builtFor = list;
+    const grouped = list.some((e) => e.sec) || across();
+    if (!grouped) { model = { groups: null, flat: list.map((_, i) => i) }; return; }
+    const groups = [], by = new Map();
+    list.forEach((e, i) => {
+      const k = groupOf(e);
+      if (!by.has(k)) { by.set(k, { name: k || "Chapters", items: [] }); groups.push(by.get(k)); }
+      by.get(k).items.push(i);
+    });
+    model = { groups, flat: null };
+  }
+
+  // ---- Marks: ✓ before the place being read, a part-mark on it ----------------------------------------
+  function place() {
+    const p = BOOK.pos();
+    const i = p ? BOOK.indexOf(p.c) : READER.chapter;
+    const e = i >= 0 ? BOOK.info(i) : null;
+    const frac = e && e.paras ? Math.min(1, Math.max(0, ((p ? p.p : READER.para) + 1) / e.paras)) : 0;
+    return { i, frac };
+  }
+  function mark(i, at) {
+    const m = h("span", "cmark");
+    if (i < at.i) { m.classList.add("done"); m.textContent = "✓"; m.title = "Read"; }
+    else if (i === at.i) { m.classList.add("part"); const f = h("i"); f.style.width = Math.round(at.frac * 100) + "%"; m.appendChild(f); m.title = `${Math.round(at.frac * 100)} % read`; }
+    return m;
+  }
+  function groupMark(items, at) {
+    const m = h("span", "cmark");
+    const last = items[items.length - 1];
+    if (last < at.i) { m.classList.add("done"); m.textContent = "✓"; m.title = "Read"; }
+    else if (items.includes(at.i)) { m.classList.add("part"); const k = items.indexOf(at.i); const f = h("i"); f.style.width = Math.round(100 * (k + at.frac) / items.length) + "%"; m.appendChild(f); m.title = "Being read"; }
+    return m;
+  }
+
+  // ---- Rows --------------------------------------------------------------------------------------------
+  // A chapter row: [mark] [number] name [▸ when it has headings]; its headings in a box under it, built
+  // when opened (the current chapter's opened at once, the heading reached highlighted).
+  function chapterRow(i, at, cur) {
+    const e = BOOK.info(i);
+    const wrap = h("div", "citem" + (i === cur ? " current" : ""));
+    wrap.dataset.i = i;
+    const b = h("button", "crow cchap"); b.type = "button"; b.dataset.i = i;
+    b.append(mark(i, at));
+    if (BOOK.numbered) b.append(h("span", "cn", e.c));
+    b.append(h("span", "ct", rowName(e, i)));
+    wrap.appendChild(b);
+    const heads = e.heads || [];
+    if (heads.length) {
+      const t = h("button", "cfold", "▸"); t.type = "button"; t.title = `${heads.length} heading${heads.length === 1 ? "" : "s"}`; t.setAttribute("aria-label", t.title); t.setAttribute("aria-expanded", "false");
+      t.dataset.i = i;
+      b.appendChild(t);
+    }
+    return wrap;
+  }
+  function headRows(i) {
+    const e = BOOK.info(i), para = i === READER.chapter ? READER.para : -1;
+    const box = h("div", "cheads");
+    const heads = e.heads || [];
+    let reached = -1;
+    heads.forEach((hd, k) => { if (hd.p <= para) reached = k; });
+    heads.forEach((hd, k) => {
+      const b = h("button", "crow chead" + (k === reached ? " current" : "")); b.type = "button";
+      b.dataset.i = i; b.dataset.p = hd.p;
+      b.style.setProperty("--lvl", Math.max(0, hd.l - 1));
+      b.append(h("span", "ct", hd.t));
+      box.appendChild(b);
+    });
+    return box;
+  }
+  function toggleHeads(item, on) {
+    const fold = item.querySelector(".cfold"), has = item.querySelector(".cheads");
+    const want = on === undefined ? !has : on;
+    if (want && !has) item.appendChild(headRows(Number(item.dataset.i)));
+    else if (!want && has) has.remove();
+    if (fold) { fold.textContent = want ? "▾" : "▸"; fold.setAttribute("aria-expanded", String(want)); }
+  }
+  function groupRow(g, at, cur) {
+    const sec = h("div", "csec" + (g.items.includes(cur) ? " here" : ""));
+    const b = h("button", "crow csech"); b.type = "button"; b.setAttribute("aria-expanded", "false");
+    b.append(groupMark(g.items, at), h("span", "cfold", "▸"), h("span", "ct", g.name), h("span", "ccount", fmt(g.items.length)));
+    sec.appendChild(b);
+    sec._items = g.items;
+    return sec;
+  }
+  function toggleGroup(sec, on) {
+    const has = sec.querySelector(".cbody"), b = sec.firstChild;
+    const want = on === undefined ? !has : on;
+    if (want && !has) {
+      const at = place(), cur = READER.chapter;
+      const body = h("div", "cbody");
+      for (const i of sec._items) body.appendChild(chapterRow(i, at, cur));
+      sec.appendChild(body);
+    } else if (!want && has) has.remove();
+    b.querySelector(".cfold").textContent = want ? "▾" : "▸";
+    b.setAttribute("aria-expanded", String(want));
+  }
+
+  // ---- The tree, and the search list -------------------------------------------------------------------
+  // The folds the user opened stay open across a rebuild (the panel stays open while reading: a tap on
+  // a chapter must not fold everything else away).
+  function renderTree() {
+    const at = place(), cur = READER.chapter;
+    const openGroups = new Set(Array.from(tree.querySelectorAll(".csec")).filter((s) => s.querySelector(".cbody")).map((s) => s.querySelector(".ct").textContent));
+    const openHeads = new Set(Array.from(tree.querySelectorAll(".citem")).filter((it) => it.querySelector(".cheads")).map((it) => it.dataset.i));
+    const frag = document.createDocumentFragment();
+    if (!model.groups) {
+      for (const i of model.flat) frag.appendChild(chapterRow(i, at, cur));
+    } else {
+      for (const g of model.groups) frag.appendChild(groupRow(g, at, cur));
+    }
+    tree.replaceChildren(frag);
+    tree.classList.remove("none");
+    for (const sec of tree.children) if (sec._items && openGroups.has(sec.querySelector(".ct").textContent)) toggleGroup(sec, true);
+    for (const i of openHeads) { const it = tree.querySelector(`.citem[data-i="${i}"]`); if (it) toggleHeads(it, true); }
+  }
+  // A paragraph change while open: the part-marks and the heading reached move; nothing is rebuilt or
+  // scrolled (the user may be browsing the tree while the reading goes on).
+  function refreshPlace() {
+    const at = place(), cur = READER.chapter;
+    const item = tree.querySelector(`.citem[data-i="${cur}"]`);
+    if (!item) return;
+    const old = item.querySelector(".cchap .cmark");
+    if (old) old.replaceWith(mark(cur, at));
+    const sec = item.closest(".csec");
+    if (sec) sec.querySelector(".csech .cmark").replaceWith(groupMark(sec._items, at));
+    const heads = item.querySelector(".cheads");
+    if (heads) heads.replaceWith(headRows(cur));
+  }
+  // Every chapter whose section, name or headings hold the words (each word must appear somewhere in the
+  // row's text): a flat list, the matching headings under their chapter.
+  function renderSearch(q) {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const at = place(), cur = READER.chapter, list = BOOK.index();
+    const frag = document.createDocumentFragment();
+    let hits = 0, more = 0;
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      const name = `${e.sec || ""} ${e.short || e.title || ""} ${BOOK.numbered ? e.c : ""}`.toLowerCase();
+      const heads = (e.heads || []).filter((hd) => words.every((w) => hd.t.toLowerCase().includes(w)));
+      const own = words.every((w) => name.includes(w));
+      if (!own && !heads.length) continue;
+      if (++hits > MAX_HITS) { more++; continue; }
+      const item = chapterRow(i, at, cur);
+      if (e.sec && !across()) item.firstChild.insertBefore(h("span", "csecname", e.sec + " › "), item.firstChild.querySelector(".ct"));
+      if (heads.length && !own) {
+        const box = h("div", "cheads");
+        for (const hd of heads) { const b = h("button", "crow chead"); b.type = "button"; b.dataset.i = i; b.dataset.p = hd.p; b.style.setProperty("--lvl", Math.max(0, hd.l - 1)); b.append(h("span", "ct", hd.t)); box.appendChild(b); }
+        item.appendChild(box);
+        const fold = item.querySelector(".cfold"); if (fold) { fold.textContent = "▾"; fold.setAttribute("aria-expanded", "true"); }
+      }
+      frag.appendChild(item);
+    }
+    if (more) frag.appendChild(h("div", "cmore", `${fmt(more)} more; type more of the name`));
+    tree.replaceChildren(frag);
+    tree.classList.toggle("none", !hits);
+  }
+  function render() {
+    if (!BOOK.count) { tree.replaceChildren(h("div", "cmore", "No book is open. Tap Open to pick one.")); head.textContent = "Contents"; return; }
+    if (builtFor !== BOOK.index() || !model) build();
+    head.textContent = `${BOOK.title} · ${fmt(BOOK.count)} chapters${across() ? " · across time" : ""}`;
+    if (query) { renderSearch(query); return; }
+    renderTree();
+    revealCurrent();
+  }
+  // The tree opened to the chapter being read: its section opened, its headings shown, scrolled into view.
+  function revealCurrent() {
+    const cur = READER.chapter;
+    if (cur < 0) return;
+    if (model.groups) { for (const sec of tree.children) if (sec._items && sec._items.includes(cur)) toggleGroup(sec, true); }
+    const item = tree.querySelector(`.citem[data-i="${cur}"]`);
+    if (!item) return;
+    toggleHeads(item, true);
+    const row = item.querySelector(".chead.current") || item.firstChild;
+    requestAnimationFrame(() => {      // scrolled to the middle only when it is out of view (a tapped row stays where it was)
+      const r = row.getBoundingClientRect(), t = tree.getBoundingClientRect();
+      if (r.top < t.top || r.bottom > t.bottom) { try { row.scrollIntoView({ block: "center" }); } catch (e) {} }
+    });
+  }
+
+  // ---- Open, close ---------------------------------------------------------------------------------------
+  // Docked (wide): html.cdock pushes the page over, no backdrop. Overlay (narrow): the backdrop dims the
+  // page. Applied on open and again when the window crosses the 700 px line while open. The slide ends
+  // with a resize event, so the top bar's name fit (reader.js) and the windows (float.js) re-measure.
+  function layout() {
+    const dock = open && docked();
+    root.classList.toggle("cdock", dock);
+    back.hidden = !(open && !dock);
+    back.classList.toggle("open", open && !dock);
+  }
+  function remember() { try { localStorage.setItem(KEY, JSON.stringify({ open })); } catch (e) {} }
+  function saved() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
+  const settled = () => dispatchEvent(new Event("resize"));
+  function show({ instant = false } = {}) {
+    clearTimeout(hideTimer);
+    open = true;
+    panel.hidden = false;
+    if (instant) root.classList.add("cinstant");
+    layout();
+    if (instant) { panel.classList.add("open"); requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("cinstant"))); }
+    else { requestAnimationFrame(() => panel.classList.add("open")); setTimeout(settled, 250); }
+    panel.setAttribute("aria-hidden", "false");
+    render();
+    if (!instant && matchMedia("(pointer: fine)").matches) box.focus();
+    remember();
+    log("page", `the contents panel ${docked() ? "beside" : "over"} the text (${BOOK.count ? `${fmt(BOOK.count)} chapters${model && model.groups ? `, ${model.groups.length} ${across() ? "eras" : "sections"}` : ""}` : "no book"})`);
+  }
+  function close() {
+    if (!open) return;
+    open = false;
+    panel.classList.remove("open");
+    layout();
+    panel.setAttribute("aria-hidden", "true");
+    hideTimer = setTimeout(() => { if (!open) { panel.hidden = true; settled(); } }, 250);
+    remember();
+  }
+  const toggle = () => (open ? close() : show());
+  DOCK.addEventListener("change", () => { if (open) layout(); });
+
+  tree.addEventListener("click", (e) => {
+    const fold = e.target.closest(".cfold");
+    if (fold && fold.closest(".cchap")) { e.stopPropagation(); toggleHeads(fold.closest(".citem")); return; }
+    const sech = e.target.closest(".csech");
+    if (sech) { toggleGroup(sech.parentElement); return; }
+    const row = e.target.closest(".crow");
+    if (!row) return;
+    const i = Number(row.dataset.i);
+    const heading = row.classList.contains("chead") ? row.querySelector(".ct").textContent : "";
+    if (heading) { const p = Number(row.dataset.p); READER.go(i, { p, top: p }); }
+    else READER.go(i);
+    confirmJump(row, i, heading);
+  });
+  // The sign that a tap moved the place (the panel covers the page on a phone): a short buzz where the
+  // device has one (none elsewhere: the two other signs still show), the row flashes once (it stays marked
+  // as current: the render / refresh moved the highlight), "Now at: …" at the bottom for a few seconds.
+  const now = $("cnow");
+  let nowTimer = 0, flashSel = "";
+  // The tapped row, or its rebuilt twin once a chapter change has redrawn the tree (the render comes after
+  // the chapter has loaded, so the flash is started again on the new row).
+  function flash(fallback) {
+    const live = (flashSel && tree.querySelector(flashSel)) || fallback;
+    if (!live) return;
+    live.classList.remove("flash"); void live.offsetWidth; live.classList.add("flash");
+    live.addEventListener("animationend", () => live.classList.remove("flash"), { once: true });
+  }
+  function confirmJump(row, i, heading) {
+    try { if (typeof navigator.vibrate === "function") navigator.vibrate(15); } catch (e) {}
+    flashSel = heading ? `.chead[data-i="${i}"][data-p="${row.dataset.p}"]` : `.cchap[data-i="${i}"]`;
+    flash(row);
+    if (i === READER.chapter) flashSel = "";       // the same chapter: no redraw is coming
+    const e = BOOK.info(i);
+    now.textContent = `Now at: ${e ? (BOOK.numbered ? `${e.c} · ` : "") + (e.title || "") : ""}${heading ? ` · ${heading}` : ""}`;
+    now.classList.add("show");
+    clearTimeout(nowTimer);
+    nowTimer = setTimeout(() => now.classList.remove("show"), 4000);
+  }
+  box.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { query = box.value.trim(); if (open) render(); }, 80);
+  });
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { const b = tree.querySelector(".crow.cchap, .crow.chead"); if (b) b.click(); }
+  });
+  closeBtn.addEventListener("click", close);
+  back.addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open && !e.defaultPrevented) { e.preventDefault(); close(); } }, true);
+  $("toc").addEventListener("click", toggle);
+  READER.onChange((what) => {
+    if (what === "book" || what === "order") { builtFor = null; model = null; if (open) render(); }
+    else if (what === "chapter" && open && !query) { render(); if (flashSel) { flash(); flashSel = ""; } }
+    else if (what === "para" && open && !query) refreshPlace();
+  });
+  if (saved().open && docked()) show({ instant: true });     // left open last time on a wide screen: open again, no slide
+
+  globalThis.CONTENTS = {
+    open: show, close, toggle, render,
+    get isOpen() { return open; },
+    get query() { return query; },
+    set query(q) { query = String(q || ""); box.value = query; if (open) render(); },
   };
 })();
 </script>
@@ -3368,7 +3935,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 (function () {
   const $ = (id) => document.getElementById(id);
   const inputs = { files: $("file-files"), folder: $("file-folder") };
-  const st = { win: null, mode: "list", plan: null, prog: null, busy: false, armed: "", armedAt: 0, status: "", renaming: "", news: new Set(), need: 0, free: null };
+  const st = { win: null, mode: "list", plan: null, prog: null, busy: false, armed: "", armedAt: 0, status: "", renaming: "", options: "", news: new Set(), need: 0, free: null };
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const MB = (n) => (n < 1e6 ? `${Math.max(1, Math.round(n / 1e3))} KB` : MODELS.MB(n));
   const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -3435,17 +4002,40 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       return r;
     }
     head.append(h("span", "libtitle", b.title), cur ? h("span", "libnow", "open now") : st.news.has(b.id) ? h("span", "libnow", "new") : "");
-    const kind = b.kind === "numbered" ? "numbered" : b.kind === "one" ? "one file" : b.kind === "split" ? "one file, split" : "a chapter per file";
+    const kind = b.kind === "numbered" ? "numbered" : b.kind === "one" ? "one file" : b.kind === "split" ? "one file, split" : b.grid ? `a chapter per era (${b.grid.eras.length} eras${b.across ? ", across time" : ""})` : "a chapter per file";
     const sub1 = h("div", "libsub", `${fmt(b.chapters)} chapter${b.chapters === 1 ? "" : "s"} · ${MB(b.bytes)} · ${kind}`);
     const p = BOOK.posOf(b.id);
-    const place = p ? `${b.kind === "numbered" ? `Chapter ${p.c}` : `Part ${p.c}`} ¶ ${(p.p || 0) + 1} · ${p.pct || 0} %${p.at ? ` · ${when(p.at)}` : ""}` : "not started";
+    // The place: the chapter's name when this book is open (its index is loaded), else its number / place.
+    const here = p && cur ? BOOK.info(BOOK.indexOf(p.c)) : null;
+    const place = p ? `${b.kind === "numbered" ? `Chapter ${p.c}` : `Part ${here ? BOOK.indexOf(p.c) + 1 : p.c}`}${here ? ` · ${here.title}` : ""} ¶ ${(p.p || 0) + 1} · ${p.pct || 0} %${p.at ? ` · ${when(p.at)}` : ""}` : "not started";
     open.append(head, sub1, h("div", "libsub", place));
     r.appendChild(open);
     const acts = h("div", "libacts");
     const armed = st.armed === b.id && Date.now() - st.armedAt < 8000;
     acts.append(btn("libact", "Rename", () => { st.renaming = b.id; st.armed = ""; render(); }),
       btn("libact libdel" + (armed ? " armed" : ""), armed ? "Delete now?" : "Delete", () => del(b)));
+    // Per-book options, changeable any time (Jon: never locked): a grid book's Read across time. Join /
+    // Split are import-time transforms; they have no row here (add the book again to change them).
+    if (b.grid) {
+      const o = btn("libact", "Options", () => { st.options = st.options === b.id ? "" : b.id; render(); }, "This book's options");
+      o.setAttribute("aria-expanded", String(st.options === b.id));
+      acts.appendChild(o);
+    }
     r.appendChild(acts);
+    if (b.grid && st.options === b.id) {
+      const opts = h("div", "libopts");
+      const l = h("label", "libopt");
+      const c = h("input"); c.type = "checkbox"; c.checked = !!b.across;
+      c.addEventListener("change", async () => {
+        c.disabled = true;
+        try { await READER.setAcross(b.id, c.checked); say(`"${b.title}": read across time ${c.checked ? "on: every topic's first era, then every topic's next, …" : "off: topic by topic"}.`); }
+        catch (e) { say(`Could not change the option: ${e.message}`, true); log("error", "read across time", e); }
+        render();
+      });
+      l.append(c, h("span", null, `Read across time (experimental): every topic's "${b.grid.eras[0].label}", then every topic's "${b.grid.eras[1].label}", … (${b.grid.eras.length} eras)`));
+      opts.appendChild(l);
+      r.appendChild(opts);
+    }
     return r;
   }
   async function openBook(id) {
@@ -3474,20 +4064,33 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   // ---- The preview ------------------------------------------------------------------------------
+  // opts.shelf (shelf.js, a book from the public shelf: { id, version, title, existing }): no preview; the one
+  // planned book takes the catalog's title, carries the shelf mark, replaces the stored copy of the same shelf
+  // book, and is added at once; Read across time stays off. Resolves to add()'s result then.
   async function pick(files, opts) {
     files = Array.from(files || []);
-    if (!files.length || st.busy) return;
+    if (!files.length || st.busy) return null;
     open();
     say("Looking at the files…");
     let plan;
     try { plan = await BOOK.plan(files, opts); }
-    catch (e) { say(e.message, true); log("book", `nothing to add: ${e.message}`); st.mode = "list"; render(); return; }
+    catch (e) { say(e.message, true); log("book", `nothing to add: ${e.message}`); st.mode = "list"; render(); if (opts && opts.shelf) throw e; return null; }
     plan.files = files;
     st.plan = plan;
     st.mode = "preview";
     say("");
-    if (test()) { add(); return; }
+    const shelf = opts && opts.shelf;
+    if (shelf) {
+      const s = plan.books[0];
+      s.title = shelf.title || s.title; s.shelf = { id: shelf.id, version: shelf.version }; s.across = false;
+      s.existing = shelf.existing || null;             // the stored copy of the SAME shelf book, else a new book (never a same-named one)
+      s.existingTitle = s.existing ? (BOOK.books.find((b) => b.id === s.existing) || {}).title || "" : "";
+      for (const other of plan.books.slice(1)) other.skip = true;
+      return add();
+    }
+    if (test()) { add(); return null; }
     render();
+    return null;
   }
   async function replan(opts) {
     try { const p = await BOOK.plan(st.plan.files, opts); p.files = st.plan.files; p.separate = !!opts.separate; st.plan = p; }
@@ -3528,22 +4131,32 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       r.appendChild(top);
       const what = s.numbered ? `${fmt(s.files)} chapter files numbered ${CHAPTER.number(s.paths[0])}-${CHAPTER.number(s.paths[s.paths.length - 1])}`
         : s.kind === "split" ? (s.headings ? `1 file: split at its ${fmt(s.headings)} heading lines` : `1 file: one chapter (${fmt(s.words)} words)`)
+        : s.grid ? `${fmt(s.files)} files in ${fmt(s.sections)} sections (topics × eras: a chapter per era), in folder order`
         : s.sections ? `${fmt(s.files)} files in ${fmt(s.sections)} sections, a chapter each, in folder order` : `${fmt(s.files)} files, a chapter each, in name order`;
       r.appendChild(h("div", "libsub", what));
       if (s.existing) r.appendChild(h("div", "libsub librepl", `Replaces the stored "${s.existingTitle}" (your place in it is kept).`));
-      if (!s.numbered) {
-        const l = h("label", "libopt");
-        const c = h("input"); c.type = "checkbox"; c.checked = !!s.join;
-        c.addEventListener("change", () => { s.join = c.checked; });
-        l.append(c, h("span", null, `Join wrapped lines${s.wrapped ? " (the file looks hard-wrapped)" : ""}`));
-        r.appendChild(l);
-      }
-      if (s.kind === "split" && !s.headings && s.words > CHAPTER.PARTS_FROM) {
-        const l = h("label", "libopt");
-        const c = h("input"); c.type = "checkbox"; c.checked = !!s.parts;
-        c.addEventListener("change", () => { s.parts = c.checked; });
-        l.append(c, h("span", null, `Split into parts of about ${fmt(CHAPTER.PART_WORDS)} words (${fmt(Math.ceil(s.words / CHAPTER.PART_WORDS))} parts)`));
-        r.appendChild(l);
+      // Advanced (Jon, 2026-10-21): the extra switches for this book behind one button, the preview
+      // itself staying plain. Join wrapped lines (plain documents), Split into parts (a long single file
+      // with no headings), Read across time (a grid book). A numbered book has none, so no button.
+      const advanced = [];
+      if (!s.numbered) advanced.push(["join", `Join wrapped lines${s.wrapped ? " (the file looks hard-wrapped)" : ""}`]);
+      if (s.kind === "split" && !s.headings && s.words > CHAPTER.PARTS_FROM) advanced.push(["parts", `Split into parts of about ${fmt(CHAPTER.PART_WORDS)} words (${fmt(Math.ceil(s.words / CHAPTER.PART_WORDS))} parts)`]);
+      if (s.grid) advanced.push(["across", "Read across time (experimental): every topic's first era, then every topic's next, … (can be changed later from this book's Options)"]);
+      if (advanced.length) {
+        const a = btn("libadv", s.adv ? "Advanced ▾" : "Advanced ▸", () => { s.adv = !s.adv; render(); }, "More choices for this book");
+        a.setAttribute("aria-expanded", String(!!s.adv));
+        r.appendChild(a);
+        if (s.adv) {
+          const box = h("div", "libopts");
+          for (const [key, text] of advanced) {
+            const l = h("label", "libopt");
+            const c = h("input"); c.type = "checkbox"; c.checked = !!s[key];
+            c.addEventListener("change", () => { s[key] = c.checked; });
+            l.append(c, h("span", null, text));
+            box.appendChild(l);
+          }
+          r.appendChild(box);
+        }
       }
       list.appendChild(r);
     });
@@ -3578,11 +4191,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   // ---- Adding --------------------------------------------------------------------------------------
+  // Resolves to { added: [summaries], failed: [messages] } (shelf.js reads it).
   async function add() {
     const p = st.plan;
-    if (!p || st.busy) return;
+    if (!p || st.busy) return null;
     const chosen = p.books.filter((s) => !s.skip);
-    if (!chosen.length) { say("Nothing ticked.", true); return; }
+    if (!chosen.length) { say("Nothing ticked.", true); return null; }
     st.busy = true;
     st.mode = "progress";
     st.prog = { book: 0, of: chosen.length, text: "Starting…", frac: 0 };
@@ -3604,6 +4218,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         if (s.kind === "split") notes.push(`"${r.title}": ${r.how}`);
         if (r.join) notes.push(`"${r.title}": wrapped lines joined`);
         if (r.replaced) notes.push(`"${r.title}" replaced the stored book; your place in it is kept`);
+        if (r.gridNote) notes.push(r.gridNote);
         if (BOOK.current && BOOK.current === r.id) await READER.openBook(r.id, { quiet: true });   // the open book's chapters changed: show them again
       } catch (e) {
         failed.push(e.message);
@@ -3628,6 +4243,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     }
     render();
     if (globalThis.STORED) STORED.stale();
+    return { added, failed };
+  }
+  // The shelf's download (shelf.js): the window shows the progress view with this text and fraction;
+  // text null puts the list back. Only while nothing else is being added.
+  function download(text, frac) {
+    if (st.busy) return;
+    if (text === null) { if (st.mode === "progress") { st.mode = "list"; render(); } return; }
+    open();
+    st.mode = "progress";
+    st.prog = { book: 1, of: 1, text, frac: frac || 0 };
+    render();
   }
   function progress() {
     const el = st.win && st.win.body.querySelector(".libprog");
@@ -3663,16 +4289,126 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   for (const inp of Object.values(inputs)) inp.addEventListener("change", () => { if (inp.files.length) { const list = Array.from(inp.files); inp.value = ""; pick(list); } });
   $("open").addEventListener("click", () => { if (st.win && st.mode === "list") st.win.close(); else open(); });
-  READER.onChange((what) => { if ((what === "book" || what === "chapter") && st.win && st.mode === "list") render(); });
+  READER.onChange((what) => { if ((what === "book" || what === "chapter" || what === "order") && st.win && st.mode === "list") render(); });
 
   globalThis.LIBRARY = {
-    open, pick, add, render,
+    open, pick, add, render, download,
     get isOpen() { return !!st.win; },
     get mode() { return st.mode; },
     get status() { return st.status; },
     get plan() { return st.plan; },
     say,
   };
+})();
+</script>
+<script>
+// shelf.js: the public book shelf (2026-10-21). The page opened as reader/?book=<id> reads the catalog
+// ../books/books.json beside it (the Cool-tools site: cool-tools/books/, made by make_books.py), finds the
+// book, and: already stored at the catalog's version → opens it; stored at another version → downloads
+// the zip with progress in the Open window and REPLACES it through the library's import (the reading
+// place is kept, book.js); not stored → downloads and adds it, with the catalog's title and import
+// options (only `sections` is honoured; Read across time is never set from the catalog). No preview;
+// the first-run window still comes after the first book. reader/?zip=<path> takes a zip by its address
+// relative to the page instead (title from its name, no options). A failed fetch (offline, a 404, no
+// such id, a bad catalog) is said in plain words on the page, in the Open window and in the log, and
+// nothing else happens: no fallback. Without ?book= / ?zip= the page is as before. SHELF.state /
+// SHELF.message for the tests: "idle", "catalog", "downloading", "adding", "opened", "added", "failed".
+(function () {
+  const st = { state: "idle", message: "", entry: null, bytes: 0 };
+  const MB = (n) => (n < 1e6 ? `${Math.max(1, Math.round(n / 1e3))} KB` : `${(n / 1e6).toFixed(1)} MB`);
+  const q = new URLSearchParams(location.search);
+  const wanted = q.get("book") || "", zipPath = q.get("zip") || "";
+
+  function fail(text, e) {
+    st.state = "failed"; st.message = text;
+    log("error", `book shelf: ${text}`, e);
+    LIBRARY.download(null);
+    if (LIBRARY.isOpen) LIBRARY.say(text, true);      // the Open window when it is up (no book yet, or the download had begun)
+    READER.say(text, 30000);
+  }
+  function note(text) { st.message = text; log("book", `book shelf: ${text}`); }
+
+  // The catalog entry for ?book=, or an entry made from ?zip=.
+  async function entry() {
+    if (zipPath) {
+      const url = new URL(zipPath, location.href);
+      const name = decodeURIComponent(url.pathname.split("/").pop() || "book.zip");
+      return { id: "zip:" + url.pathname, title: CHAPTER.pretty(name) || name, zip: name, url: url.href, version: "", size: 0, options: {} };
+    }
+    const url = new URL("../books/books.json", location.href);
+    let r;
+    try { r = await fetch(url, { cache: "no-cache" }); }
+    catch (e) { throw new Error(`the catalog ${url.href} could not be fetched: ${e.message}${navigator.onLine ? "" : " (this device is offline)"}`); }
+    if (!r.ok) throw new Error(`the catalog ${url.href} answered ${r.status} ${r.statusText}`);
+    let cat;
+    try { cat = await r.json(); } catch (e) { throw new Error(`the catalog ${url.href} is not valid JSON: ${e.message}`); }
+    const books = Array.isArray(cat.books) ? cat.books : [];
+    const b = books.find((x) => x && x.id === wanted);
+    if (!b) throw new Error(`the catalog has no book "${wanted}" (it lists: ${books.map((x) => x.id).join(", ") || "nothing"})`);
+    if (!b.zip || !b.title) throw new Error(`the catalog's entry "${wanted}" has no zip or no title`);
+    return { id: b.id, title: String(b.title), zip: String(b.zip), url: new URL(b.zip, url).href, version: String(b.version || ""), size: Number(b.size) || 0, options: b.options && typeof b.options === "object" ? b.options : {} };
+  }
+
+  // The zip, with progress in the Open window ("Downloading American History: 2.1 of 5.4 MB").
+  async function download(en) {
+    let r;
+    try { r = await fetch(en.url, { cache: "no-cache" }); }
+    catch (e) { throw new Error(`${en.url} could not be fetched: ${e.message}${navigator.onLine ? "" : " (this device is offline)"}`); }
+    if (!r.ok) throw new Error(`${en.url} answered ${r.status} ${r.statusText}`);
+    const total = Number(r.headers.get("content-length")) || en.size || 0;
+    const parts = [];
+    let got = 0;
+    const show = () => LIBRARY.download(`Downloading ${en.title}: ${MB(got)}${total ? ` of ${MB(total)}` : ""}`, total ? got / total : 0);
+    show();
+    if (r.body && r.body.getReader) {
+      const reader = r.body.getReader();
+      let last = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value); got += value.length;
+        if (performance.now() - last > 100) { last = performance.now(); show(); }
+      }
+    } else { const buf = new Uint8Array(await r.arrayBuffer()); parts.push(buf); got = buf.length; }
+    show();
+    st.bytes = got;
+    return new File(parts, en.zip.split("/").pop() || "book.zip", { type: "application/zip" });
+  }
+
+  async function autoload() {
+    if (!wanted && !zipPath) return;
+    st.state = "catalog";
+    log("book", `book shelf: the page asks for ${wanted ? `book "${wanted}"` : `zip "${zipPath}"`}`);
+    let en;
+    try { en = await entry(); } catch (e) { fail(`"${wanted || zipPath}" could not be loaded from the book shelf: ${e.message}`, e); return; }
+    st.entry = en;
+    if (en.options.across) log("book", `book shelf: "${en.title}" asks for Read across time; ignored (never set from the catalog; it is an option in the book's row)`);
+    const have = BOOK.books.find((b) => b.shelf && b.shelf.id === en.id) || null;
+    if (have && have.shelf.version === en.version) {
+      try {
+        if (BOOK.current !== have.id) await READER.openBook(have.id);
+        if (LIBRARY.isOpen && LIBRARY.mode === "list") FLOAT.close("library");
+        st.state = "opened";
+        note(`"${have.title}" is already stored at the shelf's version${en.version ? ` ${en.version}` : ""}: opened, nothing downloaded`);
+      } catch (e) { fail(`"${have.title}" is stored but could not be opened: ${e.message}`, e); }
+      return;
+    }
+    st.state = "downloading";
+    note(have ? `"${have.title}" is stored at version ${have.shelf.version || "?"}; the shelf has ${en.version || "another"}: downloading ${en.url} to replace it (the place is kept)` : `"${en.title}" is not stored: downloading ${en.url}`);
+    let file;
+    try { file = await download(en); }
+    catch (e) { fail(`"${en.title}" could not be downloaded from the book shelf: ${e.message}`, e); return; }
+    log("book", `book shelf: ${MB(st.bytes)} downloaded`);
+    st.state = "adding";
+    let r;
+    try { r = await LIBRARY.pick([file], { sections: en.options.sections !== false, shelf: { id: en.id, version: en.version, title: en.title, existing: have ? have.id : null } }); }
+    catch (e) { fail(`"${en.title}" could not be added: ${e.message}`, e); return; }
+    if (!r || !r.added.length) { fail(`"${en.title}" could not be added: ${(r && r.failed.join(" ")) || "nothing came in"}`); return; }
+    st.state = "added";
+    note(`"${r.added[0].title}" ${have ? "replaced" : "added"} from the shelf (${r.added[0].chapters.toLocaleString("en-US")} chapters, version ${en.version || "none"}) and opened`);
+  }
+
+  globalThis.SHELF = { autoload, get state() { return st.state; }, get message() { return st.message; }, get entry() { return st.entry; }, get wanted() { return wanted || zipPath; } };
 })();
 </script>
 <script>
@@ -9183,7 +9919,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const list = lists.get(v);
       if (list) HIGHLIGHT.refresh(list, madeState);
       if (playhead && playhead.ch === v) show();
-    } else if (what === "book") { stop(); reset(); last = null; readSaved = ""; }     // another book (or the open one replaced): its own saved reading spot stays, for its Play
+    } else if (what === "book" || what === "order") { stop(); reset(); last = null; readSaved = ""; }     // another book (or the open one replaced; or its chapter order changed): its own saved reading spot stays, for its Play
   });
   // Chrome on Android does not speak for a hidden page (the screen off, another app in front): the
   // reading pauses, says why, and goes on by itself when the page is back.
@@ -11837,6 +12573,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     MEDIA.update();
     window.APP = { version: APP_VERSION, built: APP_BUILT, ready: true };
     log("app", `ready (${READER.state})`);
+    SHELF.autoload().catch((e) => log("error", "book shelf failed", e));   // reader/?book=<id>: a book from the public shelf (shelf.js); nothing without it
   });
 })();
 </script>
