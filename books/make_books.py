@@ -1,22 +1,22 @@
-"""Rebuild the book shelf's zips and catalog from Jon's manuscript folders.
+"""Rebuild the two shelf books from Jon's manuscript folders (the drop-in layout of 2026-10-22).
 
-    python make_books.py            # writes <id>.zip for every book below and books.json, prints what went in
+    python make_books.py            # writes books/<id>/book.zip and books/<id>/book.json for every book below, then index.json
 
-Writes ONLY into this folder (cool-tools/books/). The source folders are read, never changed. The reader
-(reader/?book=<id>) reads books.json, fetches the zip and imports it with the title and options given here.
-A book's version is a short hash of the zip's content (names and text), so a rebuild with no change keeps
-the version and the reader opens its stored copy without downloading again.
+Writes ONLY into this folder (cool-tools/books/). The source folders are read, never changed. Each book is a
+folder `books/<id>/` with its zip and a small book.json (title, description, author, options); make_index.py
+(run here at the end, and by the Books index workflow on every push) lists every such folder in index.json.
+A book's version is a hash of the zip's entries, so a rebuild with no change keeps the version.
 
 Each book: id, title, description, author, source folder, how the zip is laid out, and rules for what is
-left out (said at the end). Only Jon's own work goes here.
+left out (said at the end). Only Jon's own work goes here. A book that is not rebuilt from a manuscript needs
+no entry here: drop its folder in (README.md, "How to add a book").
 """
 
-import hashlib
 import json
 import re
 import sys
+import subprocess
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -77,34 +77,23 @@ def collect(book):
 
 
 def main():
-    catalog = []
     for book in BOOKS:
         files, left = collect(book)
-        h = hashlib.sha1()
-        for name, data in files:
-            h.update(name.encode("utf-8")); h.update(b"\0"); h.update(data); h.update(b"\0")
-        version = h.hexdigest()[:10]
-        zpath = HERE / f"{book['id']}.zip"
+        folder = HERE / book["id"]
+        folder.mkdir(exist_ok=True)
+        zpath = folder / "book.zip"
         with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             for name, data in files:
                 info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))   # a fixed stamp: the same text gives the same zip
                 info.compress_type = zipfile.ZIP_DEFLATED
                 z.writestr(info, data)
-        size = zpath.stat().st_size
-        if size > 50_000_000:
-            sys.exit(f"error: {zpath.name} is {size / 1e6:.1f} MB; GitHub Pages files must stay under 50 MB")
-        words = sum(len(d.decode('utf-8').split()) for _, d in files)
-        catalog.append({"id": book["id"], "title": book["title"], "description": book["description"], "author": book["author"],
-                        "zip": f"{book['id']}.zip", "version": version, "updated": datetime.now().strftime("%Y-%m-%d"),
-                        "size": size, "files": len(files), "words": words, "options": book["options"]})
-        print(f"{book['id']}.zip: {len(files)} files, {words:,} words, {size / 1e6:.1f} MB, version {version}")
+        meta = {"title": book["title"], "description": book["description"], "author": book["author"], "options": book["options"]}
+        (folder / "book.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8", newline="\n")
+        words = sum(len(d.decode("utf-8").split()) for _, d in files)
+        print(f"{book['id']}/book.zip: {len(files)} files, {words:,} words, {zpath.stat().st_size / 1e6:.1f} MB")
         for rel, why in left:
             print(f"  left out: {rel}: {why}")
-    # The version of the catalog as a whole is in each book; `made` says when the file was written (12-hour time).
-    now = datetime.now()
-    made = f"{now:%Y-%m-%d} {int(now.strftime('%I'))}:{now:%M} {now:%p}"
-    (HERE / "books.json").write_text(json.dumps({"format": "cool-tools-books", "made": made, "books": catalog}, indent=1) + "\n", encoding="utf-8", newline="\n")
-    print(f"books.json: {len(catalog)} books, made {made}")
+    subprocess.run([sys.executable, str(HERE / "make_index.py")], check=True)
 
 
 if __name__ == "__main__":

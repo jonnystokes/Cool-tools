@@ -32,7 +32,7 @@
   <p class="lead">Books by Jon Stokes, read aloud by the Book reader with AI voices that run in your browser. Open one: it downloads once (a few MB) and stays on your device with your place in it.</p>
   <div id="list"><div class="msg">Loading the list…</div></div>
   <a class="empty" href="../reader/"><b>Open the empty reader</b><span>No book chosen: add your own folder, files or zip of text, as before.</span></a>
-  <p class="foot">The list is <a href="books.json">books.json</a>; each book is a zip of Markdown files, made from Jon's manuscripts by <code>make_books.py</code>. <a href="../">All the tools</a>.</p>
+  <p class="foot">The list is <a href="index.json">index.json</a>, made from the book folders by the site's Books index workflow; each book is a folder with one zip of text files (<a href="README.md">how to add one</a>). <a href="../">All the tools</a>.</p>
 </main>
 <script>
   const list = document.getElementById("list");
@@ -41,26 +41,26 @@
   (async () => {
     let cat;
     try {
-      const r = await fetch("books.json", { cache: "no-cache" });
-      if (!r.ok) throw new Error(`books.json answered ${r.status} ${r.statusText}`);
+      const r = await fetch("index.json", { cache: "no-cache" });
+      if (!r.ok) throw new Error(`index.json answered ${r.status} ${r.statusText}${r.status === 404 ? " (the Books index workflow has not made it yet; see README.md)" : ""}`);
       cat = await r.json();
     } catch (e) {
       list.replaceChildren(h("div", "msg bad", `The list of books could not be loaded: ${e.message}${navigator.onLine ? "" : " (this device is offline)"}`));
       return;
     }
     const books = Array.isArray(cat.books) ? cat.books : [];
-    if (!books.length) { list.replaceChildren(h("div", "msg", "No books are listed yet.")); return; }
-    list.replaceChildren(...books.map((b) => {
+    const problems = Array.isArray(cat.problems) ? cat.problems : [];
+    list.replaceChildren(...(books.length ? [] : [h("div", "msg", "No books are listed yet.")]), ...books.map((b) => {
       const row = h("div", "book");
       row.dataset.id = b.id;
       const about = h("div", "about");
       about.append(h("b", null, b.title), h("span", null, b.description || ""), h("small", null, `${b.author ? b.author + " · " : ""}${MB(b.size || 0)}${b.updated ? " · updated " + b.updated : ""}`));
       const open = h("a", "open", "Open");
-      open.href = `../reader/?book=${encodeURIComponent(b.id)}`;
+      open.href = `../reader/?book=${encodeURIComponent(b.id)}`;   // the reader downloads b.zip (relative to this folder) once
       open.title = `Open "${b.title}" in the Book reader`;
       row.append(about, open);
       return row;
-    }));
+    }), ...problems.map((p) => h("div", "msg bad", `The folder "${p.id}" could not be listed: ${p.problem}`)));
   })();
 </script>
 </body>

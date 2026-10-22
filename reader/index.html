@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.380 and 2026-10-21 11:49 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.391 and 2026-10-22 12:36 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.380</title>
+<title>Book reader V1.0.391</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.380";
-  window.APP_BUILT = "2026-10-21 11:49 PM";
-  window.APP_NOTE = "BUGS 41, 42: Markdown tables read as sentences; inline marks stripped from titles";
+  window.APP_VERSION = "Book reader V1.0.391";
+  window.APP_BUILT = "2026-10-22 12:36 AM";
+  window.APP_NOTE = "drop-in book folders on the shelf (books/<id>/ + index.json by a workflow) and the Open window's Online library";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -194,6 +194,12 @@ button:disabled { opacity: 0.4; cursor: default; }
 .libspechead input[type="checkbox"] { width: 1.4em; height: 1.4em; flex: none; }
 .libprog .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .libprog .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+
+/* The Online library section (library.js online(), 2026-10-22): the site's shelf under the stored books. */
+.libonline { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.libon { padding: 0.6em 0.8em; }
+.librow.update { border-color: var(--accent); }
+.libact.libget { border-color: var(--accent); font-weight: 600; }
 
 /* The chapter list lives in the contents panel (contents.css) since 2026-10-21. */
 .libopts { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--bar); font-size: 0.95em; }
@@ -4040,7 +4046,48 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const foot = h("div", "libfoot", "");
     box.appendChild(foot);
     if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then((e) => { foot.textContent = `Browser storage: ${MB(e.usage || 0)} used of ${MB(e.quota || 0)}.`; }, () => {});
+    box.appendChild(online());
     body.replaceChildren(box);
+  }
+  // The Online library (2026-10-22): the site's shelf (shelf.js: ../books/index.json, read once per page), a
+  // row per book with its standing here and ONE button: Add (not stored), Open (stored at the shelf's
+  // version), Update (the shelf has another version: replaces the copy, the place kept). Cannot be listed
+  // (offline, a local file:// page, a 404): one plain line with the reason and the fix. The list arrives after
+  // the window is drawn, so the section fills itself in (no re-render of the rows above).
+  function online() {
+    const sec = h("div", "libonline");
+    sec.appendChild(h("div", "libh", "Online library"));
+    const body = h("div", "libsub", "Looking at the shelf…");
+    sec.appendChild(body);
+    if (!globalThis.SHELF) { body.textContent = "No shelf in this build."; return sec; }
+    SHELF.list().then((l) => {
+      if (!sec.isConnected) return;
+      const rows = h("div", "liblist");
+      for (const { entry: en, stored, status } of l.books) {
+        const r = h("div", "librow libonrow" + (status === "update" ? " update" : ""));
+        r.dataset.id = en.id; r.dataset.status = status;
+        const inner = h("div", "libon");
+        const head = h("div", "libhead");
+        head.append(h("span", "libtitle", en.title), h("span", "libnow", status === "stored" ? "stored" : status === "update" ? "update available" : ""));
+        inner.appendChild(head);
+        if (en.description) inner.appendChild(h("div", "libsub", en.description));
+        inner.appendChild(h("div", "libsub", `${en.author ? en.author + " · " : ""}${MB(en.size)}${en.files ? ` · ${fmt(en.files)} files` : ""}${status === "update" ? ` · stored: version ${stored.shelf.version || "?"}, online: ${en.version || "?"}` : ""}`));
+        r.appendChild(inner);
+        const acts = h("div", "libacts");
+        const text = status === "stored" ? "Open" : status === "update" ? "Update" : "Add";
+        const tip = status === "stored" ? `Open the stored "${en.title}"` : status === "update" ? `Download the new version and replace the stored "${en.title}" (your place is kept)` : `Download "${en.title}" (${MB(en.size)}) and add it`;
+        acts.appendChild(btn("libact" + (status === "stored" ? "" : " libget"), text, () => SHELF.load(en).then(() => { if (st.win && st.mode === "list") render(); }), tip));
+        r.appendChild(acts);
+        rows.appendChild(r);
+      }
+      for (const p of l.problems) rows.appendChild(h("div", "libmsg bad", `The shelf's folder "${p.id}" could not be listed: ${p.problem}`));
+      body.replaceWith(l.books.length || l.problems.length ? rows : h("div", "libsub", "The shelf lists no books yet."));
+    }, (e) => {
+      if (!sec.isConnected) return;
+      body.replaceWith(h("div", "libmsg bad", `The online library cannot be listed: ${e.message}.`));
+      log("book", `book shelf: the online library could not be listed: ${e.message}`);
+    });
+    return sec;
   }
   function row(b) {
     const cur = BOOK.current === b.id;
@@ -4362,22 +4409,29 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 })();
 </script>
 <script>
-// shelf.js: the public book shelf (2026-10-21). The page opened as reader/?book=<id> reads the catalog
-// ../books/books.json beside it (the Cool-tools site: cool-tools/books/, made by make_books.py), finds the
-// book, and: already stored at the catalog's version → opens it; stored at another version → downloads
-// the zip with progress in the Open window and REPLACES it through the library's import (the reading
-// place is kept, book.js); not stored → downloads and adds it, with the catalog's title and import
-// options (only `sections` is honoured; Read across time is never set from the catalog). No preview;
-// the first-run window still comes after the first book. reader/?zip=<path> takes a zip by its address
-// relative to the page instead (title from its name, no options). A failed fetch (offline, a 404, no
-// such id, a bad catalog) is said in plain words on the page, in the Open window and in the log, and
-// nothing else happens: no fallback. Without ?book= / ?zip= the page is as before. SHELF.state /
-// SHELF.message for the tests: "idle", "catalog", "downloading", "adding", "opened", "added", "failed".
+// shelf.js: the public book shelf (2026-10-21; drop-in folders 2026-10-22). The site's shelf is
+// cool-tools/books/: a folder per book holding one zip and a book.json, listed by the generated
+// ../books/index.json (made by the Books index workflow on every push, since GitHub Pages cannot list
+// folders; a book's version is a hash of its zip's entries, so it changes only with the text). This file
+// reads that index ONCE per page (catalog(); a failure is not kept, so the next look asks again) and:
+//   - reader/?book=<id> (autoload): finds the book and load()s it;
+//   - the Open window's "Online library" section (library.js) lists every book with its standing here
+//     (list(): new / stored / update available) and load()s the one tapped.
+// load(en): already stored at the index's version → opens it; stored at another version → downloads the
+// zip with progress in the Open window and REPLACES it through the library's import (the reading place is
+// kept, book.js); not stored → downloads and adds it, with the index's title and import options (only
+// `sections` is honoured; Read across time is never set from the shelf). No preview; the first-run window
+// still comes after the first book. reader/?zip=<path> takes a zip by its address relative to the page
+// instead (title from its name, no options). A failed fetch (offline, a 404, no such id, a bad index, the
+// local file:// page) is said in plain words on the page, in the Open window and in the log, and nothing
+// else happens: no fallback. Without ?book= / ?zip= the page is as before. SHELF.state / SHELF.message for
+// the tests: "idle", "catalog", "downloading", "adding", "opened", "added", "failed".
 (function () {
-  const st = { state: "idle", message: "", entry: null, bytes: 0 };
+  const st = { state: "idle", message: "", entry: null, bytes: 0, catalog: null };
   const MB = (n) => (n < 1e6 ? `${Math.max(1, Math.round(n / 1e3))} KB` : `${(n / 1e6).toFixed(1)} MB`);
   const q = new URLSearchParams(location.search);
   const wanted = q.get("book") || "", zipPath = q.get("zip") || "";
+  const SITE = "https://jonnystokes.github.io/Cool-tools/reader/";
 
   function fail(text, e) {
     st.state = "failed"; st.message = text;
@@ -4387,33 +4441,60 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     READER.say(text, 30000);
   }
   function note(text) { st.message = text; log("book", `book shelf: ${text}`); }
+  const offline = () => (navigator.onLine ? "" : " (this device is offline)");
 
-  // The catalog entry for ?book=, or an entry made from ?zip=.
+  // The index, fetched once per page: { url, books: [entries], problems: [{ id, problem }] }. Throws with the
+  // plain reason (and the fix when there is one); a failed fetch is not kept.
+  function catalog() {
+    if (st.catalog) return st.catalog;
+    const p = (async () => {
+      if (location.protocol === "file:") throw new Error(`this page is a local file, so there is no shelf beside it; open the reader from the web site (${SITE}) to see the online library`);
+      const url = new URL("../books/index.json", location.href);
+      let r;
+      try { r = await fetch(url, { cache: "no-cache" }); }
+      catch (e) { throw new Error(`the shelf's list ${url.href} could not be fetched: ${e.message}${offline() || "; check the connection and open this window again"}`); }
+      if (!r.ok) throw new Error(`the shelf's list ${url.href} answered ${r.status} ${r.statusText}${r.status === 404 ? " (the site's Books index workflow has not made it yet)" : ""}`);
+      let cat;
+      try { cat = await r.json(); } catch (e) { throw new Error(`the shelf's list ${url.href} is not valid JSON: ${e.message}`); }
+      const books = (Array.isArray(cat.books) ? cat.books : []).filter((b) => b && b.id && b.zip && b.title)
+        .map((b) => ({ id: String(b.id), title: String(b.title), description: String(b.description || ""), author: String(b.author || ""), zip: String(b.zip), url: new URL(b.zip, url).href,
+          version: String(b.version || ""), size: Number(b.size) || 0, files: Number(b.files) || 0, options: b.options && typeof b.options === "object" ? b.options : {} }));
+      const problems = (Array.isArray(cat.problems) ? cat.problems : []).filter((p) => p && p.id).map((p) => ({ id: String(p.id), problem: String(p.problem || "") }));
+      log("book", `book shelf: the list has ${books.length} book${books.length === 1 ? "" : "s"}${problems.length ? `, ${problems.length} folder${problems.length === 1 ? "" : "s"} not listed (${problems.map((p) => p.id).join(", ")})` : ""}`);
+      return { url: url.href, books, problems };
+    })();
+    st.catalog = p;
+    p.catch(() => { if (st.catalog === p) st.catalog = null; });
+    return p;
+  }
+  const stored = (en) => BOOK.books.find((b) => b.shelf && b.shelf.id === en.id) || null;
+  // For the Open window: every book with its standing here. Throws like catalog().
+  async function list() {
+    const cat = await catalog();
+    return { url: cat.url, problems: cat.problems, books: cat.books.map((en) => { const have = stored(en); return { entry: en, stored: have, status: !have ? "new" : have.shelf.version === en.version ? "stored" : "update" }; }) };
+  }
+
+  // The index entry for ?book=, or an entry made from ?zip=.
   async function entry() {
     if (zipPath) {
       const url = new URL(zipPath, location.href);
       const name = decodeURIComponent(url.pathname.split("/").pop() || "book.zip");
       return { id: "zip:" + url.pathname, title: CHAPTER.pretty(name) || name, zip: name, url: url.href, version: "", size: 0, options: {} };
     }
-    const url = new URL("../books/books.json", location.href);
-    let r;
-    try { r = await fetch(url, { cache: "no-cache" }); }
-    catch (e) { throw new Error(`the catalog ${url.href} could not be fetched: ${e.message}${navigator.onLine ? "" : " (this device is offline)"}`); }
-    if (!r.ok) throw new Error(`the catalog ${url.href} answered ${r.status} ${r.statusText}`);
-    let cat;
-    try { cat = await r.json(); } catch (e) { throw new Error(`the catalog ${url.href} is not valid JSON: ${e.message}`); }
-    const books = Array.isArray(cat.books) ? cat.books : [];
-    const b = books.find((x) => x && x.id === wanted);
-    if (!b) throw new Error(`the catalog has no book "${wanted}" (it lists: ${books.map((x) => x.id).join(", ") || "nothing"})`);
-    if (!b.zip || !b.title) throw new Error(`the catalog's entry "${wanted}" has no zip or no title`);
-    return { id: b.id, title: String(b.title), zip: String(b.zip), url: new URL(b.zip, url).href, version: String(b.version || ""), size: Number(b.size) || 0, options: b.options && typeof b.options === "object" ? b.options : {} };
+    const cat = await catalog();
+    const b = cat.books.find((x) => x.id === wanted);
+    if (!b) {
+      const p = cat.problems.find((x) => x.id === wanted);
+      throw new Error(p ? `the shelf's folder "${wanted}" could not be listed: ${p.problem}` : `the shelf has no book "${wanted}" (it lists: ${cat.books.map((x) => x.id).join(", ") || "nothing"})`);
+    }
+    return b;
   }
 
   // The zip, with progress in the Open window ("Downloading American History: 2.1 of 5.4 MB").
   async function download(en) {
     let r;
     try { r = await fetch(en.url, { cache: "no-cache" }); }
-    catch (e) { throw new Error(`${en.url} could not be fetched: ${e.message}${navigator.onLine ? "" : " (this device is offline)"}`); }
+    catch (e) { throw new Error(`${en.url} could not be fetched: ${e.message}${offline()}`); }
     if (!r.ok) throw new Error(`${en.url} answered ${r.status} ${r.statusText}`);
     const total = Number(r.headers.get("content-length")) || en.size || 0;
     const parts = [];
@@ -4435,15 +4516,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return new File(parts, en.zip.split("/").pop() || "book.zip", { type: "application/zip" });
   }
 
-  async function autoload() {
-    if (!wanted && !zipPath) return;
-    st.state = "catalog";
-    log("book", `book shelf: the page asks for ${wanted ? `book "${wanted}"` : `zip "${zipPath}"`}`);
-    let en;
-    try { en = await entry(); } catch (e) { fail(`"${wanted || zipPath}" could not be loaded from the book shelf: ${e.message}`, e); return; }
+  // Open the book if it is stored at this version, else download it and add / replace it. Never throws.
+  async function load(en) {
+    if (st.state === "downloading" || st.state === "adding") { READER.say(`Still loading "${st.entry.title}"; wait for it`, 5000); return; }
     st.entry = en;
-    if (en.options.across) log("book", `book shelf: "${en.title}" asks for Read across time; ignored (never set from the catalog; it is an option in the book's row)`);
-    const have = BOOK.books.find((b) => b.shelf && b.shelf.id === en.id) || null;
+    if (en.options.across) log("book", `book shelf: "${en.title}" asks for Read across time; ignored (never set from the shelf; it is an option in the book's row)`);
+    const have = stored(en);
     if (have && have.shelf.version === en.version) {
       try {
         if (BOOK.current !== have.id) await READER.openBook(have.id);
@@ -4468,7 +4546,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     note(`"${r.added[0].title}" ${have ? "replaced" : "added"} from the shelf (${r.added[0].chapters.toLocaleString("en-US")} chapters, version ${en.version || "none"}) and opened`);
   }
 
-  globalThis.SHELF = { autoload, get state() { return st.state; }, get message() { return st.message; }, get entry() { return st.entry; }, get wanted() { return wanted || zipPath; } };
+  async function autoload() {
+    if (!wanted && !zipPath) return;
+    st.state = "catalog";
+    log("book", `book shelf: the page asks for ${wanted ? `book "${wanted}"` : `zip "${zipPath}"`}`);
+    let en;
+    try { en = await entry(); } catch (e) { fail(`"${wanted || zipPath}" could not be loaded from the book shelf: ${e.message}`, e); return; }
+    await load(en);
+  }
+
+  globalThis.SHELF = { autoload, load, list, catalog, get state() { return st.state; }, get message() { return st.message; }, get entry() { return st.entry; }, get wanted() { return wanted || zipPath; } };
 })();
 </script>
 <script>
