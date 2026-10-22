@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 12:54 AM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 1:26 AM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -480,7 +480,7 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .chip { padding: .2rem .6rem; border-radius: 999px; border: 1px solid var(--line2); background: none; font-size: .78rem; color: var(--dim); }
 .chip.on, .chip:hover { border-color: var(--cyan); color: var(--cyan); }
 .tracks { display: grid; gap: 3px; }
-.track { display: grid; grid-template-columns: 1.6rem 1.4fr 1.2fr auto; gap: .6rem; align-items: center; padding: .45rem .6rem; border-radius: .45rem; border: 1px solid transparent; background: rgba(255,255,255,.035); text-align: left; }
+.track { display: grid; grid-template-columns: 1.6rem 1.4fr 1.2fr auto auto; gap: .6rem; align-items: center; padding: .45rem .6rem; border-radius: .45rem; border: 1px solid transparent; background: rgba(255,255,255,.035); text-align: left; }
 .track .ico { width: 1rem; height: 1rem; color: var(--dim); }
 .track:hover { border-color: var(--line2); background: rgba(255,255,255,.07); }
 .track.on { border-color: var(--hot); background: rgba(255,61,242,.1); }
@@ -495,6 +495,7 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .cat-energy { color: var(--hot); letter-spacing: .08em; font-size: .8rem; }
 .cat-meta { font-family: var(--mono); font-size: .76rem; color: var(--faint); }
 .cat-blurb { flex-basis: 100%; color: var(--dim); font-size: .8rem; }
+.tr-energy { color: var(--hot); font-size: .72rem; letter-spacing: .06em; white-space: nowrap; }
 
 </style>
 </head>
@@ -5496,6 +5497,9 @@ HW.SHAPE_FIT = {
 })();
 
 </script>
+
+
+
 <script>
 // ---- modmatrix.js ----
 // The modulation matrix: columns are things in the sound (and two LFOs), rows are things you see.
@@ -7462,22 +7466,46 @@ HW.win.define("source", {
   const BIG = ["drop", "chorus"];
 
   // ---- categories (music-tracks.js: HW.music.categories, each { id, name, energy 1-5, bpm: [lo, hi],
-  // blurb }; every track has category and energy). Without them the list falls back to one group per genre.
-  const ENERGY = ["", "Very calm", "Calm", "Medium", "High", "Intense"];
+  // blurb }; every track has category and its own measured energy 1-5). Energy is "will it make you dance
+  // or fall asleep" (Jon): how dense the instrument action is, from drones alone (1) to hard hits with
+  // everything going (5). A category shows the range of its tracks' energies.
+  const ENERGY = ["", "Sleepy", "Calm", "Steady", "Danceable", "Wild"];
+  // STOPGAP until the second round of demo music lands (it defines HW.music.categories and measured
+  // energies; then this is ignored and can be deleted): the 18 first-round tracks in its nine categories
+  const STOPGAP_CATS = [
+    { id: "hard", name: "Hard & fast", energy: 5, bpm: [140, 175], blurb: "Full throttle: hardstyle, psytrance, drum & bass and earth-shaking dubstep." },
+    { id: "club", name: "Club floor", energy: 4, bpm: [118, 140], blurb: "Peak-time dance music: house, techno, trance, disco, big beat and trap." },
+    { id: "epic", name: "Epic & cinematic", energy: 3, bpm: [52, 100], blurb: "Orchestras, choirs and walls of sound: slow-building grandeur." },
+    { id: "retro", name: "Retro & game", energy: 3, bpm: [85, 150], blurb: "Chip tunes, synthwave and dreamy 80s machines, from heroic to hazy." },
+    { id: "groove", name: "Relaxed grooves", energy: 3, bpm: [95, 118], blurb: "Mid-tempo and easy." },
+    { id: "unwind", name: "Laid-back beats", energy: 2, bpm: [64, 90], blurb: "Slow beats to sink into: lo-fi, trip hop, dub." },
+    { id: "drift", name: "Drifting & beatless", energy: 1, bpm: [40, 70], blurb: "Drones and deep space: no beat to speak of." },
+  ];
+  const STOPGAP_TRACKS = {
+    "velvet-basement": ["club", 4], "concrete-pulse": ["club", 4], "neon-cathedral": ["club", 4], "fractal-mantis": ["hard", 5], "liquid-voltage": ["hard", 4],
+    "gravity-wobble": ["hard", 5], "chrome-dynasty": ["club", 4], "rainy-window": ["unwind", 2], "midnight-highway": ["retro", 3], "pixel-dragon": ["retro", 4],
+    "glacier-light": ["drift", 1], "titans-awaken": ["epic", 4], "mirrorball-fever": ["club", 4], "rocket-fuel": ["club", 5], "lion-echo-dub": ["unwind", 2],
+    "thunderforge": ["hard", 5], "saturn-lounge": ["groove", 3], "desert-caravan": ["unwind", 2],
+  };
+  function catalog() {
+    const T = M().tracks;
+    if (Array.isArray(M().categories) && M().categories.length) return { C: M().categories, T };
+    return { C: STOPGAP_CATS, T: T.map((t) => (STOPGAP_TRACKS[t.id] && !t.category ? Object.assign({}, t, { category: STOPGAP_TRACKS[t.id][0], energy: STOPGAP_TRACKS[t.id][1] }) : t)) };
+  }
   function groups() {
-    const T = M().tracks, C = Array.isArray(M().categories) ? M().categories : [];
+    const { C, T } = catalog();
     const out = [];
-    if (C.length) {
-      for (const c of C) { const ts = T.filter((t) => t.category === c.id); if (ts.length) out.push({ cat: c, tracks: ts }); }
-      const rest = T.filter((t) => !C.some((c) => c.id === t.category));
-      if (rest.length) out.push({ cat: { id: "", name: "Other", blurb: "" }, tracks: rest });
-    } else {
-      for (const g of [...new Set(T.map((t) => t.genre))]) out.push({ cat: { id: g, name: g, blurb: "" }, tracks: T.filter((t) => t.genre === g) });
-    }
+    for (const c of C) { const ts = T.filter((t) => t.category === c.id); if (ts.length) out.push({ cat: c, tracks: ts }); }
+    const rest = T.filter((t) => !C.some((c) => c.id === t.category));
+    if (rest.length) out.push({ cat: { id: "", name: "Other", blurb: "" }, tracks: rest });
     return out;
   }
   const energyOf = (x) => Math.max(0, Math.min(5, Math.round(Number(x && x.energy) || 0)));
   const dots = (n) => (n ? "●".repeat(n) + "○".repeat(5 - n) : "");
+  // a range: full dots up to the lowest, half dots up to the highest (2 to 3 = ●●◐○○)
+  const rangeDots = (lo, hi) => (hi ? "●".repeat(lo) + "◐".repeat(hi - lo) + "○".repeat(5 - hi) : "");
+  const rangeWords = (lo, hi) => (lo === hi ? ENERGY[lo] : ENERGY[lo] + " to " + ENERGY[hi].toLowerCase());
+  const infoOf = (id) => catalog().T.find((t) => t.id === id);
   // the play order: the list as it is shown, category by category
   const ordered = () => groups().flatMap((g) => g.tracks);
 
@@ -7559,13 +7587,14 @@ HW.win.define("source", {
       P.chips = el("div", { class: "chips" });
       P.list = el("div", { class: "tracks" });
       P.missing = el("p", { class: "note", text: "The demo tracks are not in this build yet." });
+      P.energyNote = el("p", { class: "note", text: "Energy (the dots) is how much is going on in the music: 1 Sleepy (drones and space) · 2 Calm · 3 Steady · 4 Danceable · 5 Wild (hard hits, everything going). Click a level to see only those tracks." });
       body.append(
         el("section", { class: "sec now" }, el("h3", { text: "Now playing" }), P.name, P.info, P.blurb, transport,
           el("div", { class: "row" }, P.sectionName, P.time), P.timeline,
           el("div", { class: "row" }, el("span", { class: "ctl-label", text: "Mute parts" }), stemBox)),
         ui.section("Playback", "", ["music.mode", "music.tempo", "src.monitor", "src.listen"]),
         ui.section("Visuals follow the song", "The demo tracks tell the visuals where their sections start, so the picture can hit the drops with the music. The two Autopilot switches here are off unless you turn them on; while either is on, the Autopilot button in the top bar is lit, and clicking it turns them off.", ["music.dropShape", "music.dropFlash", "music.sectionPalette"]),
-        el("section", { class: "sec" }, el("h3", { text: "Tracks" }), P.chips, P.missing, P.list));
+        el("section", { class: "sec" }, el("h3", { text: "Tracks" }), P.energyNote, P.chips, P.missing, P.list));
       w.built = false;
     },
     onOpen(w) { buildList(w); },
@@ -7576,7 +7605,8 @@ HW.win.define("source", {
       const s = isMusic() ? M().state() : null;
       const t = s && M().tracks.find((x) => x.id === s.id);
       P.name.textContent = t ? t.name : "Nothing playing";
-      P.info.textContent = t ? t.genre + "  •  " + Math.round(s.bpm || t.bpm) + " BPM" + (t.key ? "  •  " + t.key : "") + (t.mood ? "  •  " + t.mood : "") : "Pick a track below, or press play.";
+      const ti = t && infoOf(t.id), te = energyOf(ti);
+      P.info.textContent = t ? t.genre + "  •  " + Math.round(s.bpm || t.bpm) + " BPM" + (te ? "  •  energy " + dots(te) + " " + ENERGY[te].toLowerCase() : "") + (t.key ? "  •  " + t.key : "") + (t.mood ? "  •  " + t.mood : "") : "Pick a track below, or press play.";
       P.blurb.textContent = t ? t.blurb || "" : "";
       P.playBtn.innerHTML = HW.icon(s && s.playing ? "pause" : "play");
       P.time.textContent = s ? HW.mmss(s.time) + " / " + HW.mmss(s.duration) : "";
@@ -7605,29 +7635,36 @@ HW.win.define("source", {
     if (!ready()) { P.missing.hidden = false; return; }
     P.missing.hidden = true;
     w.built = true;
-    // filter by energy (each category says its own); the list is grouped by category
-    const G = groups(), hasEnergy = G.some((g) => energyOf(g.cat));
+    // grouped by category; the chips keep only the tracks of one energy level
+    const G = groups();
+    const levels = [...new Set(G.flatMap((g) => g.tracks.map(energyOf)).filter((n) => n))].sort();
     const chip = (n, label) => el("button", { type: "button", class: "chip" + (P.filter === n ? " on" : ""), text: label,
-      "data-tip": n ? "Only the categories with energy " + n + " of 5 (" + ENERGY[n].toLowerCase() + ")." : "Every track.",
+      "data-tip": n ? "Only the tracks with energy " + n + " of 5: " + ENERGY[n].toLowerCase() + "." : "Every track.",
       on: { click: () => { P.filter = n; buildList(w); } } });
-    const levels = [...new Set(G.map((g) => energyOf(g.cat)).filter((n) => n))].sort();
-    P.chips.replaceChildren(...(hasEnergy ? [chip(0, "All")].concat(levels.map((n) => chip(n, dots(n) + "  " + ENERGY[n]))) : []));
+    P.chips.replaceChildren(...(levels.length ? [chip(0, "All")].concat(levels.map((n) => chip(n, dots(n) + "  " + ENERGY[n]))) : []));
+    P.energyNote.hidden = !levels.length;
     const rows = [];
     for (const g of G) {
-      const c = g.cat, e = energyOf(c);
-      if (P.filter && e !== P.filter) continue;
+      const ts = g.tracks.filter((t) => !P.filter || energyOf(t) === P.filter);
+      if (!ts.length) continue;
+      const c = g.cat, es = g.tracks.map(energyOf).filter((n) => n);
+      const lo = es.length ? Math.min(...es) : 0, hi = es.length ? Math.max(...es) : 0;
       const speed = Array.isArray(c.bpm) && c.bpm.length === 2 ? Math.round(c.bpm[0]) + "–" + Math.round(c.bpm[1]) + " BPM" : "";
       rows.push(el("div", { class: "cat-head" },
         el("span", { class: "cat-name", text: c.name }),
-        e ? el("span", { class: "cat-energy", text: dots(e), "data-tip": "Energy " + e + " of 5: " + ENERGY[e].toLowerCase() + "." }) : null,
+        hi ? el("span", { class: "cat-energy", text: rangeDots(lo, hi) + "  " + rangeWords(lo, hi),
+          "data-tip": "Energy " + (lo === hi ? lo : lo + " to " + hi) + " of 5 across its tracks: 1 = sleepy (drones and space), 5 = wild (hard hits, everything going)." }) : null,
         el("span", { class: "cat-meta", text: [speed, g.tracks.length + (g.tracks.length === 1 ? " track" : " tracks")].filter(Boolean).join("  •  ") }),
         c.blurb ? el("span", { class: "cat-blurb", text: c.blurb }) : null));
-      for (const t of g.tracks) rows.push(
-        el("button", { type: "button", class: "track", "data-id": t.id, "data-tip": t.blurb || "", "data-tip-title": t.name, on: { click: () => HW.musicPlay(t.id) } },
+      for (const t of ts) {
+        const e = energyOf(t);
+        rows.push(el("button", { type: "button", class: "track", "data-id": t.id, "data-tip": t.blurb || "", "data-tip-title": t.name, on: { click: () => HW.musicPlay(t.id) } },
           el("span", { class: "ico-wrap", html: HW.icon("play") }),
           el("span", { class: "tr-name", text: t.name }),
           el("span", { class: "tr-genre", text: t.genre + (t.style ? " • " + t.style : "") }),
+          el("span", { class: "tr-energy", text: e ? dots(e) : "", title: e ? "Energy " + e + " of 5: " + ENERGY[e].toLowerCase() : "" }),
           el("span", { class: "tr-meta", text: Math.round(t.bpm) + " BPM • " + HW.mmss(t.length || 0) })));
+      }
     }
     P.list.replaceChildren(...rows);
   }
