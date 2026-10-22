@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 12:45 AM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 12:54 AM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -488,6 +488,13 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .tr-name { font-weight: 700; }
 .tr-genre { color: var(--dim); font-size: .82rem; }
 .tr-meta { font-family: var(--mono); font-size: .78rem; color: var(--faint); }
+/* the Music window's category headers: name, energy dots, speed range and count, then a one-line blurb */
+.cat-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .7rem; margin: .9rem .2rem .25rem; padding-bottom: .25rem; border-bottom: 1px solid var(--line2); }
+.cat-head:first-child { margin-top: .2rem; }
+.cat-name { font-weight: 800; font-size: .95rem; color: var(--cyan); }
+.cat-energy { color: var(--hot); letter-spacing: .08em; font-size: .8rem; }
+.cat-meta { font-family: var(--mono); font-size: .76rem; color: var(--faint); }
+.cat-blurb { flex-basis: 100%; color: var(--dim); font-size: .8rem; }
 
 </style>
 </head>
@@ -771,8 +778,8 @@ HW.glsl = {
   data("music.last", "Last demo track", "");
   choice("src.listen", "Visuals react to", "internal", [["internal", "The sound itself"], ["mic", "Microphone"], ["screen", "PC or tab audio"]],
     "What the visuals listen to. The sound itself = what the studio is playing (demo music, an audio file or the test beat), fed straight in, perfectly clean. Microphone = whatever your microphone hears: play music out of your speakers and it reacts to the sound in your room, the real-world test. PC or tab audio = what this computer plays, shared from the screen. Changing it never stops the music.");
-  choice("music.mode", "When a track ends", "all", [["all", "Next track"], ["shuffle", "Shuffle"], ["one", "Repeat it"], ["stop", "Stop"]],
-    "What the demo music does at the end of a track: play the next one in the list, a random one, the same one again, or stop.");
+  choice("music.mode", "When a track ends", "all", [["all", "Next track"], ["cat", "Next in the same category"], ["shuffle", "Shuffle"], ["one", "Repeat it"], ["stop", "Stop"]],
+    "What the demo music does at the end of a track: play the next one in the list, the next one in the same category (so a calm track is followed by another calm one), a random one, the same one again, or stop.");
   num("music.tempo", "Music tempo", 1, 0.8, 1.25, 0.01, "Plays the demo music faster or slower (1.00\u00d7 = as written).", { fmt: (v) => v.toFixed(2) + "\u00d7" });
   bool("music.dropShape", "Autopilot: new shape on every drop", false, "Part of Autopilot. When a demo track hits a drop (or a chorus, in songs without drops), the visuals jump to a new shape from the autopilot playlist. While it is on, the Autopilot button in the top bar is lit; clicking it turns this off.");
   num("music.dropFlash", "Flash on every drop", 0.6, 0, 1, 0.01, "How bright the whole screen flashes when a demo track hits a drop or chorus. 0 = no flash.", { fmt: F.pct });
@@ -7443,7 +7450,7 @@ HW.win.define("source", {
 <script>
 // ---- win-music.js ----
 // MUSIC window: the demo tracks. Now playing (transport, sections you can jump to, tempo, stems),
-// what the visuals hear, how the visuals follow the song, and the track list by genre.
+// what the visuals hear, how the visuals follow the song, and the track list by category (energy and speed).
 "use strict";
 (function () {
   const el = HW.el, cfg = HW.cfg;
@@ -7454,9 +7461,36 @@ HW.win.define("source", {
   // the big moments: dance tracks have drops, song-shaped tracks (trap, funk...) have choruses
   const BIG = ["drop", "chorus"];
 
+  // ---- categories (music-tracks.js: HW.music.categories, each { id, name, energy 1-5, bpm: [lo, hi],
+  // blurb }; every track has category and energy). Without them the list falls back to one group per genre.
+  const ENERGY = ["", "Very calm", "Calm", "Medium", "High", "Intense"];
+  function groups() {
+    const T = M().tracks, C = Array.isArray(M().categories) ? M().categories : [];
+    const out = [];
+    if (C.length) {
+      for (const c of C) { const ts = T.filter((t) => t.category === c.id); if (ts.length) out.push({ cat: c, tracks: ts }); }
+      const rest = T.filter((t) => !C.some((c) => c.id === t.category));
+      if (rest.length) out.push({ cat: { id: "", name: "Other", blurb: "" }, tracks: rest });
+    } else {
+      for (const g of [...new Set(T.map((t) => t.genre))]) out.push({ cat: { id: g, name: g, blurb: "" }, tracks: T.filter((t) => t.genre === g) });
+    }
+    return out;
+  }
+  const energyOf = (x) => Math.max(0, Math.min(5, Math.round(Number(x && x.energy) || 0)));
+  const dots = (n) => (n ? "●".repeat(n) + "○".repeat(5 - n) : "");
+  // the play order: the list as it is shown, category by category
+  const ordered = () => groups().flatMap((g) => g.tracks);
+
   // ---- the playlist and the song's sections drive the visuals --------------------------------------
   function nextId(dir) {
-    const list = M().tracks, cur = list.findIndex((t) => t.id === (M().state() || {}).id);
+    let list = ordered();
+    const curId = (M().state() || {}).id;
+    if (cfg["music.mode"] === "cat") {             // stay in the playing track's category
+      const t = list.find((x) => x.id === curId);
+      const same = t ? list.filter((x) => (t.category ? x.category === t.category : x.genre === t.genre)) : [];
+      if (same.length) list = same;
+    }
+    const cur = list.findIndex((t) => t.id === curId);
     if (cfg["music.mode"] === "shuffle" && dir > 0) {
       if (list.length < 2) return list[0].id;
       let i;
@@ -7503,15 +7537,7 @@ HW.win.define("source", {
       const transport = el("div", { class: "row transport" },
         tb("prev", "Previous track", () => HW.musicStep(-1)), P.playBtn,
         tb("stop", "Stop the music", () => A().stopPlayer()),
-        tb("next", "Next track", () => HW.musicStep(1)),
-        el("button", { type: "button", class: "btn primary", text: "Jump to the drop", "data-tip": "Skip ahead to the next drop (or chorus, in songs without drops): the biggest part of the track.", on: { click: () => {
-          if (!ready() || !isMusic()) return;
-          const s = M().state();
-          const big = (x) => x.kind === "drop" || (!s.sections.some((y) => y.kind === "drop") && x.kind === "chorus");
-          const i = s.sections.findIndex((x, k) => k > s.section.index && big(x));
-          const j = i >= 0 ? i : s.sections.findIndex(big);
-          if (j >= 0) M().jump(j);
-        } } }));
+        tb("next", "Next track", () => HW.musicStep(1)));
       P.time = el("span", { class: "mono" });
       P.sectionName = el("span", { class: "np-section" });
       P.timeline = el("div", { class: "timeline", "data-tip": "The track's sections. Click one to jump to it (on the next bar line). The marker shows where the music is." });
@@ -7579,15 +7605,31 @@ HW.win.define("source", {
     if (!ready()) { P.missing.hidden = false; return; }
     P.missing.hidden = true;
     w.built = true;
-    const genres = [...new Set(M().tracks.map((t) => t.genre))];
-    const chip = (g) => el("button", { type: "button", class: "chip" + (P.filter === g ? " on" : ""), text: g || "All", on: { click: () => { P.filter = g; buildList(w); } } });
-    P.chips.replaceChildren(chip(""), ...genres.map(chip));
-    P.list.replaceChildren(...M().tracks.filter((t) => !P.filter || t.genre === P.filter).map((t) =>
-      el("button", { type: "button", class: "track", "data-id": t.id, "data-tip": t.blurb || "", "data-tip-title": t.name, on: { click: () => HW.musicPlay(t.id) } },
-        el("span", { class: "ico-wrap", html: HW.icon("play") }),
-        el("span", { class: "tr-name", text: t.name }),
-        el("span", { class: "tr-genre", text: t.genre + (t.style ? " • " + t.style : "") }),
-        el("span", { class: "tr-meta", text: Math.round(t.bpm) + " BPM • " + HW.mmss(t.length || 0) }))));
+    // filter by energy (each category says its own); the list is grouped by category
+    const G = groups(), hasEnergy = G.some((g) => energyOf(g.cat));
+    const chip = (n, label) => el("button", { type: "button", class: "chip" + (P.filter === n ? " on" : ""), text: label,
+      "data-tip": n ? "Only the categories with energy " + n + " of 5 (" + ENERGY[n].toLowerCase() + ")." : "Every track.",
+      on: { click: () => { P.filter = n; buildList(w); } } });
+    const levels = [...new Set(G.map((g) => energyOf(g.cat)).filter((n) => n))].sort();
+    P.chips.replaceChildren(...(hasEnergy ? [chip(0, "All")].concat(levels.map((n) => chip(n, dots(n) + "  " + ENERGY[n]))) : []));
+    const rows = [];
+    for (const g of G) {
+      const c = g.cat, e = energyOf(c);
+      if (P.filter && e !== P.filter) continue;
+      const speed = Array.isArray(c.bpm) && c.bpm.length === 2 ? Math.round(c.bpm[0]) + "–" + Math.round(c.bpm[1]) + " BPM" : "";
+      rows.push(el("div", { class: "cat-head" },
+        el("span", { class: "cat-name", text: c.name }),
+        e ? el("span", { class: "cat-energy", text: dots(e), "data-tip": "Energy " + e + " of 5: " + ENERGY[e].toLowerCase() + "." }) : null,
+        el("span", { class: "cat-meta", text: [speed, g.tracks.length + (g.tracks.length === 1 ? " track" : " tracks")].filter(Boolean).join("  •  ") }),
+        c.blurb ? el("span", { class: "cat-blurb", text: c.blurb }) : null));
+      for (const t of g.tracks) rows.push(
+        el("button", { type: "button", class: "track", "data-id": t.id, "data-tip": t.blurb || "", "data-tip-title": t.name, on: { click: () => HW.musicPlay(t.id) } },
+          el("span", { class: "ico-wrap", html: HW.icon("play") }),
+          el("span", { class: "tr-name", text: t.name }),
+          el("span", { class: "tr-genre", text: t.genre + (t.style ? " • " + t.style : "") }),
+          el("span", { class: "tr-meta", text: Math.round(t.bpm) + " BPM • " + HW.mmss(t.length || 0) })));
+    }
+    P.list.replaceChildren(...rows);
   }
 })();
 
