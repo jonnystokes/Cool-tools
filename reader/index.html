@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.514 and 2026-10-23 1:09 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.532 and 2026-10-23 1:42 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.514</title>
+<title>Book reader V1.0.532</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.514";
-  window.APP_BUILT = "2026-10-23 1:09 AM";
-  window.APP_NOTE = "Steady tests (BUGS 43, 44)";
+  window.APP_VERSION = "Book reader V1.0.532";
+  window.APP_BUILT = "2026-10-23 1:42 AM";
+  window.APP_NOTE = "Offline package: one Settings page to make (tree, file-manager selection, one file or 1 GB parts) and import (any order, missing parts named, old Voice_data.zip) everything the reader downloads; replaces Export voice data, Import everything and Apply and upload data";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -750,6 +750,28 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 /* The Listener tab and the Voice tab (step 8a): what runs where, and the contention warning (allowed, so amber, not red). */
 .swhere { font-size: 0.92em; line-height: 1.4; }
 .swarn.scontend { color: var(--warn); font-weight: 500; line-height: 1.35; }
+
+/* The Offline package tab (packtab.js): the tree */
+.spkg { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ptree { max-height: 24em; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; outline: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.ptree:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.prow { display: grid; grid-template-columns: 1.1em 1.25em minmax(0, 1fr) auto; grid-template-areas: "tw box lab size" "tw box here here"; column-gap: 8px; align-items: center;
+  min-height: var(--tap); padding: 3px 8px; border-top: 1px solid var(--line); cursor: pointer; font-size: 0.92em; }
+.prow:first-child { border-top: 0; }
+.prow.sel { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.prow.focus { box-shadow: inset 2px 0 0 var(--accent); }
+.prow.anchor { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.ptw { grid-area: tw; color: var(--muted); text-align: center; }
+.pbox { grid-area: box; width: 1.1em; height: 1.1em; border: 2px solid var(--muted); border-radius: 3px; position: relative; }
+.pbox.true { background: var(--accent); border-color: var(--accent); }
+.pbox.true::after { content: ""; position: absolute; left: 0.28em; top: 0.05em; width: 0.3em; height: 0.6em; border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.pbox.mixed { border-color: var(--accent); }
+.pbox.mixed::after { content: ""; position: absolute; left: 0.15em; right: 0.15em; top: calc(50% - 1px); height: 2px; background: var(--accent); }
+.plab { grid-area: lab; overflow-wrap: anywhere; }
+.psize { grid-area: size; color: var(--muted); font-size: 0.9em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.phere { grid-area: here; color: var(--muted); font-size: 0.82em; }
+.phere.yes { color: var(--accent); }
+.ptotal { font-weight: 600; }
 </style>
 
 </head>
@@ -5199,10 +5221,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 <script>
 // models.js: the model file store. Every library and model file a voice or a listener needs is
 // kept in the Cache API, in ONE named cache (br1-models) keyed by its web address; nothing is fetched
-// at page open. TWO SOURCES ONLY (PLAN.md "Voice_data.zip"): the web, or Voice_data.zip (voicedata.js
-// adds that source to MODELS.SOURCES), never both for one file. MODELS.get(url) is the one "get this
+// at page open. ONE SOURCE besides the store: the web (an offline package, package.js, puts files in the
+// store first; the old Voice_data.zip source that served a zip picked this visit went with it, 2026-10-23). MODELS.get(url) is the one "get this
 // file" path: a stored file always serves; otherwise the web when the page is online and Offline mode
-// is off, else the zip; with neither, it fails with the file's name and what to do (`cannot`, so the
+// is off; otherwise it fails with the file's name and what to do (`cannot`, so the
 // player stops with it: no fallbacks). MODELS.offline() / offlineWhy() say which way it goes. A
 // download in flight is shared: a second ask for the same file (Settings' Save, then Play) waits for
 // it and gets the same progress. MODELS.need(owner, files) registers what a voice needs ([{ url,
@@ -5288,7 +5310,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const name = nameOf(file.url);
     const t0 = performance.now();
     let res;
-    try { res = await fetch(file.url, { signal }); } catch (e) { if (e && e.name === "AbortError") throw e; throw new Error(`${name} could not be downloaded: ${e.message}. To copy it from Voice_data.zip instead, switch Offline mode on (Settings → Voice data).`); }
+    try { res = await fetch(file.url, { signal }); } catch (e) { if (e && e.name === "AbortError") throw e; throw new Error(`${name} could not be downloaded: ${e.message}. To bring it from another device instead, import an offline package (Settings → Offline package).`); }
     if (!res.ok) throw new Error(`${name} could not be downloaded (HTTP ${res.status})`);
     // A compressed transfer (the CDN's libraries) says the compressed length: the real count comes
     // from reading, and the stored record is given it afterwards.
@@ -5323,7 +5345,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       try { await put; } catch (e) {}
       try { await c.delete(file.url); } catch (e) {}
       say("error", `${name} came down incomplete (${short}); it was not kept`);
-      throw Object.assign(new Error(`${name} came down incomplete (${short}), so it was not kept. Try again; if it keeps happening, the network is cutting it short: copy it from Voice_data.zip instead (Offline mode, Settings → Voice data).`), { damaged: true });
+      throw Object.assign(new Error(`${name} came down incomplete (${short}), so it was not kept. Try again; if it keeps happening, the network is cutting it short: bring it in an offline package instead (Settings → Offline package).`), { damaged: true });
     }
     try {
       await put;
@@ -5344,7 +5366,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     for (const src of SOURCES) { const r = await src(file, ctx || {}); if (r) return r; }
     const name = nameOf(u), owner = owners.get(u);
     if (offline()) {
-      throw Object.assign(new Error(`${name} is not stored and ${offlineWhy()}${owner ? ` (${owner} needs it${file.size ? `, ${MB(file.size)}` : ""})` : ""}. Copy it from Voice_data.zip: Settings → Voice data.`),
+      throw Object.assign(new Error(`${name} is not stored and ${offlineWhy()}${owner ? ` (${owner} needs it${file.size ? `, ${MB(file.size)}` : ""})` : ""}. Import an offline package that has it: Settings → Offline package.`),
         { offline: true, cannot: true, missing: u });
     }
     throw new Error(`${name} is not available from any source`);
@@ -5502,7 +5524,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     let OFFLINE = ${JSON.stringify(modeOn())}, OFFLINE_WHY = ${JSON.stringify(modeOn() ? "Offline mode is on" : "there is no internet")};
     addEventListener("message", (e) => { const m = e.data; if (m && m.type === "br1-offline") { OFFLINE = !!m.on; OFFLINE_WHY = m.why || OFFLINE_WHY; e.stopImmediatePropagation(); } });
     const offlineNow = () => OFFLINE || navigator.onLine === false;
-    const notStored = (url) => nameOf(url) + " is not stored and " + (OFFLINE ? OFFLINE_WHY : "there is no internet") + " (a library asked for it while loading). Copy it from Voice_data.zip: Settings → Voice data.";
+    const notStored = (url) => nameOf(url) + " is not stored and " + (OFFLINE ? OFFLINE_WHY : "there is no internet") + " (a library asked for it while loading). Import an offline package that has it: Settings → Offline package.";
     const realOpen = caches.open.bind(caches), realFetch = self.fetch.bind(self);
     let storeP = null;
     const store = () => storeP || (storeP = realOpen(MODELS_CACHE));
@@ -5550,7 +5572,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       if ((total && loaded !== total) || html) {
         try { await put; } catch (e) {}
         try { await c.delete(url); } catch (e) {}
-        const why = nameOf(url) + " came down incomplete (" + (html ? "the server sent a web page instead of the file" : loaded + " bytes where the server said " + total) + "), so it was not kept. Try again; if it keeps happening, copy it from Voice_data.zip instead (Offline mode, Settings → Voice data).";
+        const why = nameOf(url) + " came down incomplete (" + (html ? "the server sent a web page instead of the file" : loaded + " bytes where the server said " + total) + "), so it was not kept. Try again; if it keeps happening, bring it in an offline package instead (Settings → Offline package).";
         postMessage({ type: "log", level: "error", msg: why });
         throw new Error(why);
       }
@@ -6886,9 +6908,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 })();
 </script>
 <script>
-// voicedata.js: Voice_data.zip, the one source of model files besides the web (PLAN.md "Voice_data.zip",
-// SETTINGS.md "Voice data"), and what a Save needs from the store. The page cannot keep a picked file
-// between visits, so the zip is picked each time it is needed and held for this page's life.
+// voicedata.js: what a Save needs from the store, the stored list by owner, and reading an old
+// Voice_data.zip (SETTINGS.md "Voice data"; the offline package, package.js, imports them through this).
 //
 // THE FORMAT (tools/VOICE_DATA.md has it in full): a zip, its entries stored (deflated entries are read
 // too; zip64 for one over 4 GB), with manifest.json at its root:
@@ -6905,28 +6926,22 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // Cache.put refused Parakeet's 643 MB file as one body in memory). The peak is about the biggest file
 // (the buffer and the digest's copy while it is checked), freed before it is stored.
 //
-// VOICEDATA.pick() opens the file picker (call it straight from a click) and gives the File or null;
-// open(file) reads the index and the manifest; lacking(zip, files) names the files the zip cannot give;
-// take(zip, files, progress) takes them; everything(zip) lists what the zip holds that is not stored.
-// needed(values) is the files a set of settings needs (the voice's files(), its libraries included, plus
-// the MP3 encoder that every model voice's stream uses, plus the listener's files when it is on: step 8a); plan(before, after) is what a Save would
-// need: the files, the missing ones, the old voice's files Slim mode deletes, the fit check (storage
-// with what Slim frees, and memory: MODELS.fitMemory of the voice's peak, times its copies on the
-// processor) and whether it goes to the web or the zip. ownerOf(url) names what a stored file belongs
-// to (the engines' catalog(), the shared runtime's one owner, the retired files' "no longer used"
-// owner (MODELS.RUNTIME / RETIRED, EFF-15), else what loaded it this visit, else "other files"); stored() is the
-// store's list with owners; removeOwner(owner) is Delete per voice (Jon's button only). The zip is also
-// a source of MODELS.get (offline only, from the zip picked this visit), so a Play offline takes a file
-// the Save did not from it, or fails naming the file. EXPORT (Export voice data, the only maker of the
-// zip): exportTo(target, urls, progress, { settings, about }) writes the chosen stored files, their
-// manifest (with `contents`: voices, precisions, size, settings yes / no, the device and the time it was
-// made) and, when asked, settings.json (mySettings(): the changed settings, never the per-device broken
-// precisions), stored, one entry at a time (zipwrite.js), into the file the save picker gave
-// (savePicker(), asked in the click) or, where there is none, as a Blob download; exportZip /
-// exportBlob are its parts. Never chapter files: the book is its own import (a folder is far faster).
-// A zip's settings.json is read by open() (zip.settings) and validSettings() keeps what this reader
-// knows; describe(zip) is the one line shown before an import takes anything. busy / stop() for
-// a long Import everything or export.
+// open(file) reads a Voice_data.zip's index and manifest (package.js reads old zips through it);
+// lacking(zip, files) names the files a zip cannot give; take(zip, files, progress) takes them, each
+// checked (package.js imports every file through it, with its own one-file zip record); everything(zip)
+// lists what a zip holds that is not stored. needed(values) is the files a set of settings needs (the
+// voice's files(), its libraries included, plus the MP3 encoder that every model voice's stream uses,
+// plus the listener's files when it is on: step 8a); plan(before, after) is what a Save would need: the
+// files, the missing ones, the old voice's files Slim mode deletes, the fit check (storage with what Slim
+// frees, and memory: MODELS.fitMemory of the voice's peak, times its copies on the processor) and whether
+// it is offline. ownerOf(url) names what a stored file belongs to (the engines' catalog(), the shared
+// runtime's one owner, the retired files' "no longer used" owner (MODELS.RUNTIME / RETIRED, EFF-15), else
+// what loaded it this visit, else "other files"); stored() is the store's list with owners;
+// removeOwner(owner) is Delete per voice (Jon's button only). mySettings() (the changed settings, never
+// the per-device broken precisions), validSettings() / droppedSettings(), DEVICE_TUNED, contentsOf() and
+// describe() serve the offline package's settings.json and manifest. 2026-10-23: Export voice data, the
+// picker, and the zip as a source of MODELS.get went; the offline package (package.js) replaced them.
+// busy / setBusy / stop(): an import under way (package.js sets it, so storeBusy() and Stop see it).
 (function () {
   const g = globalThis;
   const FORMAT = "br1-voice-data";
@@ -7007,28 +7022,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   // ---- The zip ------------------------------------------------------------------------------------
-  let inp = null;
-  function input() {
-    if (inp) return inp;
-    inp = document.createElement("input");
-    inp.type = "file"; inp.id = "voicedata-file"; inp.accept = ".zip,application/zip"; inp.hidden = true;
-    document.body.appendChild(inp);
-    return inp;
-  }
-  // The picker; resolves with the File, or null when it is closed without one.
-  function pick() {
-    const el = input();
-    el.value = "";
-    const p = new Promise((res) => {
-      const done = (f) => { el.removeEventListener("change", onPick); el.removeEventListener("cancel", onCancel); res(f); };
-      const onPick = () => done((el.files && el.files[0]) || null);
-      const onCancel = () => done(null);
-      el.addEventListener("change", onPick);
-      el.addEventListener("cancel", onCancel);
-    });
-    el.click();
-    return p;
-  }
   async function open(file) {
     const name = file && file.name ? file.name : "the zip";
     let list;
@@ -7116,17 +7109,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     } finally { if (mine) busy = null; }
     return { files: files.length, bytes };
   }
-  // MODELS.get's zip source: offline only, from the zip picked this visit; a file that zip lacks fails
-  // naming it. Without a zip it gives nothing, and MODELS.get says to pick one.
-  async function source(file, ctx) {
-    if (!MODELS.offline() || !current) return null;
-    const f = { url: file.url, size: file.size, owner: ownerOf(file.url) };
-    await take(current, [f], ctx.progress ? (name, loaded, total) => ctx.progress(name, loaded, total, "zip") : null);
-    const c = await caches.open(MODELS.CACHE);
-    return (await c.match(file.url)) || null;
-  }
-  MODELS.SOURCES.push(source);
-
   // ---- The stored list and Delete per voice ----------------------------------------------------------
   const stored = async () => (await MODELS.stored()).map((f) => Object.assign(f, { owner: ownerOf(f.url) }));
   async function removeOwner(owner) {
@@ -7194,90 +7176,417 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (c && (c.device || c.made)) parts.push(`made${c.device ? ` on ${c.device}` : ""}${c.made ? ` at ${c.made}` : ""}${c.by ? ` (${c.by})` : ""}`);
     return parts.join(" · ");
   }
-  const slug = (s) => String(s || "other").toLowerCase().replace(/[^a-z0-9@._-]+/g, "-").replace(/^-+|-+$/g, "") || "other";
-  // opts: settings (the values for settings.json, or none), about (added to the manifest's contents:
-  // choice, for), zip64 (force the zip64 fields: the tests).
-  async function exportZip(urls, write, progress, opts = {}) {
-    if (!(g.crypto && crypto.subtle)) throw new Error("This browser cannot hash files here (no crypto.subtle), so no zip can be made.");
-    const c = await caches.open(MODELS.CACHE);
-    const zw = ZIPWRITE.writer(write, opts);
-    const files = [], paths = new Set();
-    let bytes = 0, skipped = 0;
-    const mine = !busy;
-    if (mine) busy = { what: "exporting", stop: false };
-    try {
-      for (let k = 0; k < urls.length; k++) {
-        if (busy && busy.stop) throw Object.assign(new Error("stopped"), { stopped: true });
-        const url = MODELS.href(urls[k]), res = await c.match(url);
-        if (!res) { skipped++; continue; }
-        const blob = await res.blob(), owner = ownerOf(url), name = MODELS.nameOf(url);
-        const buf = new Uint8Array(await blob.arrayBuffer());
-        const sha256 = hex(await crypto.subtle.digest("SHA-256", buf)), crc = ZIPWRITE.crc32(buf);
-        const base = `${slug(owner)}/${name.replace(/[\\/]+/g, "_")}`;
-        let path = base;
-        for (let i = 2; paths.has(path); i++) path = base.replace(/(\.[^./]*)?$/, (ext) => `-${i}${ext || ""}`);
-        paths.add(path);
-        await zw.add(path, blob, buf.length, crc);
-        files.push({ url, path, size: buf.length, sha256, owner });
-        bytes += buf.length;
-        if (progress) progress(name, buf.length, buf.length, k, urls.length);
-      }
-      const enc = new TextEncoder();
-      if (opts.settings) {
-        const js = enc.encode(JSON.stringify({ format: "br1-settings", version: 1, values: opts.settings, deviceTuned: DEVICE_TUNED.filter((k) => k in opts.settings) }, null, 1));
-        await zw.add("settings.json", js, js.length, ZIPWRITE.crc32(js));
-      }
-      const contents = contentsOf(files, !!opts.settings, opts.about);
-      const man = enc.encode(JSON.stringify({ format: FORMAT, version: 1, made: contents.made, by: contents.by, contents, files }, null, 1));
-      await zw.add("manifest.json", man, man.length, ZIPWRITE.crc32(man));
-      await zw.finish();
-    } finally { if (mine) busy = null; }
-    log("storage", `exported ${files.length} stored file${files.length === 1 ? "" : "s"} (${MB(bytes)}) as Voice_data.zip${skipped ? `; ${skipped} had gone from the store` : ""}`);
-    return { files: files.length, bytes, skipped };
-  }
-  // The zip as one Blob made of parts (the files' Blobs stay where the store keeps them), for a download.
-  async function exportBlob(urls, progress, opts) {
-    const parts = [];
-    const r = await exportZip(urls, (p) => { parts.push(p); }, progress, opts);
-    return Object.assign(r, { blob: new Blob(parts, { type: "application/zip" }) });
-  }
-  // Export to where the person picks: target is the save picker's promise (asked in the click itself),
-  // or null where there is none: then a download of the Blob. Gives { files, bytes, how }.
-  async function exportTo(target, urls, progress, opts) {
-    if (target) {
-      const handle = await target;
-      const w = await handle.createWritable();
-      try { const r = await exportZip(urls, (p) => w.write(p), progress, opts); await w.close(); return Object.assign(r, { how: `saved as ${handle.name || "Voice_data.zip"}` }); }
-      catch (e) { try { await w.abort(); } catch (x) {} throw e; }
-    }
-    const r = await exportBlob(urls, progress, opts);
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(r.blob); a.download = "Voice_data.zip"; a.hidden = true;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 600000);
-    return Object.assign(r, { how: "offered as a download (Voice_data.zip)" });
-  }
-  // The save picker, where the browser has one (Chrome on a computer); call it straight from a click.
-  const savePicker = () => (typeof g.showSaveFilePicker === "function"
-    ? g.showSaveFilePicker({ suggestedName: "Voice_data.zip", types: [{ description: "Voice data zip", accept: { "application/zip": [".zip"] } }] })
-    : null);
-
   g.VOICEDATA = {
-    FORMAT, pick, open, lacking, take, everything, needed, plan, memory, label, ownerOf, stored, removeOwner, persisted, source,
-    exportZip, exportBlob, exportTo, savePicker, mySettings, validSettings, droppedSettings, DEVICE_TUNED, contentsOf, describe, deviceName,
+    FORMAT, open, lacking, take, everything, needed, plan, memory, label, ownerOf, stored, removeOwner, persisted,
+    mySettings, validSettings, droppedSettings, DEVICE_TUNED, contentsOf, describe, deviceName,
     download: (files, progress, signal) => MODELS.ensure(files, progress, signal),
     get current() { return current; },
     forget: () => { current = null; },
     get busy() { return busy; },
     setBusy: (b) => { busy = b; },
     stop: () => { if (busy) busy.stop = true; },
-    // Why the store must not be cleared now (D20): a zip copy / export or a download in flight would
+    // Why the store must not be cleared now (D20): an import, a package being made or a download in flight would
     // land in it afterwards. "" when nothing is under way.
     storeBusy: () => {
-      if (busy) return busy.what === "exporting" ? "a Voice_data.zip is being written" : "files are being copied from a Voice_data.zip";
+      if (busy) return "files are being imported from an offline package";
+      if (g.PACKAGE && PACKAGE.busy) return "an offline package is being made";
       const d = MODELS.downloading();
       return d.length ? `${d.length} file${d.length === 1 ? " is" : "s are"} downloading (${d.slice(0, 2).map((u) => MODELS.nameOf(u)).join(", ")}${d.length > 2 ? ", …" : ""})` : "";
     },
+  };
+})();
+</script>
+<script>
+// package.js: the offline package (Settings → Offline package; packtab.js is its page). One way to carry
+// everything the reader can download to a device without internet, and back: it replaced Export voice
+// data, Import everything and "Apply and upload data" (2026-10-23; BUILD.md "Offline package").
+//
+// WHAT CAN GO IN (tree()): every file of every voice engine (each engine's catalog(): voices, precisions,
+// model files, its own libraries), the listeners, the runtimes and libraries (the shared Transformers.js
+// runtime, the MP3 encoder) and the online library's books (the shelf's index, when it can be read). A
+// file is a leaf keyed by its web address (a book: "book:<id>"); a file in two groups is one key, so it
+// is ticked, counted and packed once.
+//
+// MAKING IT (build()): every file not stored here is first downloaded into a temporary cache of its own
+// (br1-package, deleted at the end, whatever happens), so every zip body is a Blob the browser keeps on
+// disk: research/offline-package/LIMITS.md measured that Blobs built from downloaded bytes held in memory
+// fail to read back past about 400 MB in all, while stored Blobs put together reach 5 GB and more. Each
+// file is read once (one file in memory at a time) for its SHA-256 and the zip checksum. Where the
+// browser has showSaveFilePicker (Chrome on a computer) the package is ONE file streamed straight to disk
+// (zip64 past 4 GB / 65,535 entries); elsewhere it is split into numbered parts ("Reader offline package
+// part 2 of 5.zip") of at most PART_BYTES (1 GB; a file bigger than that gets a part of its own). One
+// part is offered as a download at once; several are HELD (build() gives them back) and the page offers
+// each on its own tap: a browser with its normal UI holds back a page's second download that no tap
+// started ("download multiple files"), which would lose parts silently (LIMITS.md). The temporary cache
+// stays until release() (the parts' bodies live there). Stop (stop()) ends it between pieces; nothing
+// half-made is offered.
+//
+// THE FORMAT: a zip of stored entries; each part holds manifest.json:
+//   { format: "br1-offline-package", version: 1, id, part, parts, made, by, contents,
+//     files: [{ key, kind: "file" | "book", url, path, size, sha256, owner, book? }],   (this part's files)
+//     all:   [{ key, name, part, size }] }                                             (every part's files)
+// and part 1 holds settings.json when "Include my settings" was ticked (the Voice_data.zip settings
+// format: { format: "br1-settings", values, deviceTuned }). A Voice_data.zip (format br1-voice-data,
+// voicedata.js) still imports: it is read as a package of one part.
+//
+// IMPORT (open(files) then take(pkg)): the parts in any order, several packages at once; each file's
+// size and SHA-256 are checked and the file stored straight from the zip's own slice (voicedata.js
+// take(): the BUGS 37 path); a book goes to the library as the shelf's own download would. What came
+// in, what was already here, which parts were not given (with what they hold) and every failure are
+// said plainly; nothing is skipped silently.
+(function () {
+  const g = globalThis;
+  const FORMAT = "br1-offline-package";
+  const TMP = (g.APP_KEY || "br1") + "-package";
+  const PART_BYTES = 1e9;
+  const MB = (n) => MODELS.MB(n);
+  const fail = (msg, extra) => Object.assign(new Error(msg), { cannot: true }, extra || {});
+  const stopped = () => Object.assign(new Error("stopped"), { stopped: true });
+  let busy = null;                      // { what, stop } while a package is made or imported
+  const hex = (buf) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
+  const plural = (n, w) => `${n.toLocaleString("en-US")} ${w}${n === 1 ? "" : "s"}`;
+
+  // ---- The tree ---------------------------------------------------------------------------------------
+  // A node: { id, label, kids } (a group) or { id, label, key, url, size, kind, owner, book? } (a leaf).
+  function leaf(parent, f, owner, label) {
+    const url = MODELS.href(f.url);
+    return { id: parent + "|" + url, key: url, url, size: Number(f.size) || 0, kind: "file", owner, label: label || MODELS.nameOf(url) };
+  }
+  const group = (id, label, kids) => ({ id, label, kids: kids.filter((k) => !k.kids || k.kids.length) });
+  // The files part: synchronous, from the catalogs.
+  function fileTree() {
+    const RUN = MODELS.RUNTIME.owner;
+    const out = [];
+    for (const E of ENGINE.list()) {
+      if (typeof E.catalog !== "function") continue;
+      const id = "e:" + E.id;
+      const kids = E.catalog().filter((o) => o.owner !== RUN).map((o) => group(id + "/" + o.owner, o.owner.replace(/^Piper en_/, "Piper en_"), o.files.map((f) => leaf(id + "/" + o.owner, f, o.owner))));
+      out.push(group(id, E.name, kids));
+    }
+    if (g.LISTENER) {
+      const kids = LISTENER.catalog().filter((o) => o.owner !== RUN).map((o) => group("l/" + o.owner, o.owner, o.files.map((f) => leaf("l/" + o.owner, f, o.owner))));
+      out.push(group("l", "Listeners", kids));
+    }
+    const libs = [group("r/" + RUN, RUN, MODELS.RUNTIME.files.map((f) => leaf("r/" + RUN, f, RUN)))];
+    if (g.MP3 && MP3.FILE) libs.push(leaf("r", MP3.FILE, "MP3 encoder", "MP3 encoder (" + MODELS.nameOf(MP3.FILE.url) + ")"));
+    out.push(group("r", "Runtimes and libraries", libs));
+    return out;
+  }
+  // The books part: the shelf's index when it can be read, else a group that says why (never hidden).
+  async function bookTree() {
+    if (!g.SHELF) return null;
+    try {
+      const l = await SHELF.list();
+      return Object.assign(group("b", "Online library", l.books.map((b) => ({ id: "b|" + b.entry.id, key: "book:" + b.entry.id, url: b.entry.url, size: b.entry.size, kind: "book", owner: "Online library",
+        label: b.entry.title, book: { id: b.entry.id, title: b.entry.title, version: b.entry.version, zip: b.entry.zip, options: b.entry.options }, status: b.status }))), { all: true });
+    } catch (e) { return { id: "b", label: "Online library", kids: [], why: e.message }; }
+  }
+  // Gives { nodes, leaves: Map(key -> leaf) }; books when asked (they need the network).
+  async function tree(opts = {}) {
+    const nodes = fileTree();
+    if (opts.books !== false) { const b = await bookTree(); if (b) nodes.push(b); }
+    const leaves = new Map();
+    const walk = (n) => { if (n.kids) n.kids.forEach(walk); else if (!leaves.has(n.key)) leaves.set(n.key, n); };
+    nodes.forEach(walk);
+    return { nodes, leaves };
+  }
+  // What is here: Set of stored file addresses, and the books' standing (from the leaves).
+  async function storedSet() { return new Set((await MODELS.stored()).map((f) => f.url)); }
+  const isStored = (lf, have) => (lf.kind === "book" ? lf.status === "stored" : have.has(lf.key));
+  // "What my current settings need": the voice's files, its libraries, the MP3 encoder, the listener's.
+  const needs = (values) => (g.VOICEDATA ? VOICEDATA.needed(values || SETTINGS.all()).map((f) => MODELS.href(f.url)) : []);
+
+  // ---- Making a package ---------------------------------------------------------------------------------
+  const slug = (s) => String(s || "other").toLowerCase().replace(/[^a-z0-9@._-]+/g, "-").replace(/^-+|-+$/g, "") || "other";
+  // A file into the temporary cache as it streams (never whole in memory), its length checked.
+  async function fetchInto(cache, lf, progress) {
+    const name = lf.kind === "book" ? lf.label : MODELS.nameOf(lf.url);
+    if (MODELS.offline()) throw fail(`${name} is not stored here and ${MODELS.offlineWhy()}, so it cannot go in the package. Switch Offline mode off (Settings → Voice data) with the internet on, or untick it.`);
+    let res;
+    try { res = await fetch(lf.url, { cache: lf.kind === "book" ? "no-cache" : "default" }); } catch (e) { throw fail(`${name} could not be downloaded: ${e.message}.`); }
+    if (!res.ok || !res.body) throw fail(`${name} could not be downloaded (HTTP ${res.status}).`);
+    const packed = !!res.headers.get("content-encoding"), said = packed ? 0 : Number(res.headers.get("content-length")) || 0;
+    const [a, b] = res.body.tee();
+    const put = cache.put(lf.url, new Response(a, { status: 200, headers: { "content-type": res.headers.get("content-type") || MODELS.typeOf(lf.url) } }));
+    put.catch(() => {});
+    const reader = b.getReader();
+    let got = 0, last = 0;
+    for (;;) {
+      if (busy && busy.stop) { reader.cancel().catch(() => {}); try { await put; } catch (e) {} throw stopped(); }
+      const { done, value } = await reader.read();
+      if (done) break;
+      got += value.length;
+      if (progress && performance.now() - last > 150) { last = performance.now(); progress(name, got, said || lf.size); }
+    }
+    try { await put; } catch (e) { throw fail(`${name} downloaded but could not be kept for the package: ${e.name}: ${e.message}.`); }
+    if (said && got !== said) { await cache.delete(lf.url); throw fail(`${name} came down incomplete (${got} bytes where the server said ${said}); nothing was written.`); }
+    log("download", `package: downloaded ${name} (${MB(got)})`);
+  }
+  // Split into parts: in the given order, a new part when the next file would pass `limit` (a file over
+  // the limit gets a part of its own). Gives [[item, …], …].
+  function split(items, limit) {
+    const parts = [];
+    let cur = [], size = 0;
+    for (const it of items) {
+      if (cur.length && size + it.size > limit) { parts.push(cur); cur = []; size = 0; }
+      cur.push(it); size += it.size;
+    }
+    if (cur.length) parts.push(cur);
+    return parts;
+  }
+  const partName = (n, m) => (m === 1 ? "Reader offline package.zip" : `Reader offline package part ${n} of ${m}.zip`);
+  // The save picker where there is one (a computer's Chrome): call it straight from the click.
+  const savePicker = () => (typeof g.showSaveFilePicker === "function"
+    ? g.showSaveFilePicker({ suggestedName: partName(1, 1), types: [{ description: "Reader offline package", accept: { "application/zip": [".zip"] } }] })
+    : null);
+  function offer(name, blob) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; a.hidden = true;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 600000);
+  }
+
+  // keys: the ticked leaves' keys; leaves: tree().leaves. opts: target (the save picker's promise, or
+  // null: parts as downloads), partBytes (the tests: a tiny size), settings (values for settings.json),
+  // save(name, blob) (the tests: instead of a download), progress(text, frac).
+  async function build(keys, leaves, opts = {}) {
+    if (busy) throw fail("An offline package is already being made or imported.");
+    if (!(g.crypto && crypto.subtle)) throw fail("This browser cannot hash files here (no crypto.subtle), so no package can be made.");
+    const items = keys.map((k) => leaves.get(k)).filter(Boolean);
+    if (!items.length) throw fail("Nothing is ticked.");
+    busy = { what: "making", stop: false };
+    const say = opts.progress || (() => {});
+    let handle = null, cache = null, keep = false;
+    await release();                          // a package made before and never let go
+    const t0 = performance.now();
+    try {
+      handle = opts.target ? await opts.target : null;
+      const have = await storedSet();
+      const store = await caches.open(MODELS.CACHE);
+      const get = items.filter((it) => it.kind === "book" || !have.has(it.key));
+      if (get.length) {
+        const need = get.reduce((n, it) => n + it.size, 0);
+        // The fit check counts every one (a stored file's twin in the temporary cache is new space too).
+        const f = await MODELS.fit(get.map((it, i) => ({ url: `https://package.invalid/${i}`, size: it.size })));
+        if (!f.ok) throw fail(`The ${plural(get.length, "file")} not stored here are downloaded into the browser's storage first (${MB(need)}): ${f.text}. Nothing was written.`);
+        cache = await caches.open(TMP);
+        let done = 0;
+        for (const it of get) {
+          if (busy.stop) throw stopped();
+          if (!(await cache.match(it.url))) await fetchInto(cache, it, (name, got, total) => say(`Downloading ${done + 1} of ${get.length}: ${name} · ${MB(got)}${total ? ` of ${MB(total)}` : ""}`, (done + (total ? got / total : 0)) / get.length));
+          done++;
+        }
+      }
+      // Every body as a Blob on disk, with its exact size.
+      const bodies = [];
+      for (const it of items) {
+        const r = (it.kind !== "book" && have.has(it.key) ? await store.match(it.url) : null) || (cache && (await cache.match(it.url)));
+        if (!r) throw fail(`${it.label} is no longer stored (it was deleted while the package was being made). Nothing was written.`);
+        const blob = await r.blob();
+        bodies.push({ it, blob, size: blob.size });
+      }
+      const limit = handle ? Infinity : Number(opts.partBytes) || PART_BYTES;
+      const parts = split(bodies, limit), M = parts.length;
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const made = g.LOG ? LOG.when(new Date()) : new Date().toISOString();
+      const paths = new Map(), used = new Set();
+      for (const b of bodies) {
+        const base = b.it.kind === "book" ? `books/${slug(b.it.book.id)}.zip` : `${slug(b.it.owner)}/${MODELS.nameOf(b.it.url).replace(/[\\/]+/g, "_")}`;
+        let p = base;
+        for (let i = 2; used.has(p); i++) p = base.replace(/(\.[^./]*)?$/, (ext) => `-${i}${ext || ""}`);
+        used.add(p); paths.set(b, p);
+      }
+      const all = [];
+      parts.forEach((list, k) => list.forEach((b) => all.push({ key: b.it.key, name: b.it.kind === "book" ? b.it.label : MODELS.nameOf(b.it.url), part: k + 1, size: b.size })));
+      const contents = VOICEDATA.contentsOf(bodies.filter((b) => b.it.kind === "file").map((b) => ({ url: b.it.url, owner: b.it.owner, size: b.size })), !!opts.settings,
+        { books: bodies.filter((b) => b.it.kind === "book").map((b) => b.it.label), parts: M });
+      const total = bodies.reduce((n, b) => n + b.size, 0);
+      let written = 0;
+      const enc = new TextEncoder();
+      const w = handle ? await handle.createWritable() : null;
+      const held = [];
+      try {
+        for (let k = 0; k < M; k++) {
+          const chunks = [];
+          const zw = ZIPWRITE.writer(w ? (p) => w.write(p) : (p) => { chunks.push(p); });
+          const files = [];
+          for (const b of parts[k]) {
+            if (busy.stop) throw stopped();
+            const name = b.it.kind === "book" ? b.it.label : MODELS.nameOf(b.it.url);
+            say(`Writing ${M > 1 ? `part ${k + 1} of ${M}: ` : ""}${name} · ${MB(b.size)}`, written / total);
+            const buf = new Uint8Array(await b.blob.arrayBuffer());
+            const sha256 = hex(await crypto.subtle.digest("SHA-256", buf)), crc = ZIPWRITE.crc32(buf);
+            await zw.add(paths.get(b), b.blob, b.size, crc);
+            files.push(Object.assign({ key: b.it.key, kind: b.it.kind, url: b.it.url, path: paths.get(b), size: b.size, sha256, owner: b.it.owner }, b.it.book ? { book: b.it.book } : {}));
+            written += b.size;
+          }
+          if (k === 0 && opts.settings) {
+            const js = enc.encode(JSON.stringify({ format: "br1-settings", version: 1, values: opts.settings, deviceTuned: VOICEDATA.DEVICE_TUNED.filter((x) => x in opts.settings) }, null, 1));
+            await zw.add("settings.json", js, js.length, ZIPWRITE.crc32(js));
+          }
+          const man = enc.encode(JSON.stringify({ format: FORMAT, version: 1, id, part: k + 1, parts: M, made, by: g.APP_VERSION || "", contents, files, all }, null, 1));
+          await zw.add("manifest.json", man, man.length, ZIPWRITE.crc32(man));
+          await zw.finish();
+          if (!w) {
+            const blob = new Blob(chunks, { type: "application/zip" });
+            if (opts.save) await opts.save(partName(k + 1, M), blob);
+            else if (M === 1) offer(partName(1, 1), blob);
+            else held.push({ name: partName(k + 1, M), blob, size: blob.size });
+          }
+        }
+        if (w) await w.close();
+      } catch (e) { if (w) { try { await w.abort(); } catch (x) {} } throw e; }
+      const how = w ? `saved as ${handle.name || partName(1, 1)}` : opts.save ? `handed over as ${M} part${M === 1 ? "" : "s"}` : M === 1 ? `offered as a download (${partName(1, 1)})` : `ready as ${M} parts to save one by one (${partName(1, M)} … ${partName(M, M)})`;
+      log("storage", `offline package made: ${plural(bodies.length, "file")}, ${MB(total)}${opts.settings ? " and the settings" : ""}, ${M} part${M === 1 ? "" : "s"}${get.length ? ` (${get.length} downloaded for it)` : ""}, ${how}, in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+      if (held.length) keep = true;             // the parts' bodies are the temporary cache's own: kept until release()
+      return { files: bodies.length, bytes: total, parts: M, how, downloaded: get.length, held };
+    } finally {
+      busy = null;
+      if (cache && !keep) { try { await caches.delete(TMP); } catch (e) {} }
+    }
+  }
+
+  // ---- Import ----------------------------------------------------------------------------------------
+  let inp = null;
+  // The picker for one or more parts; resolves with the Files (empty when closed without any).
+  function pick() {
+    if (!inp) {
+      inp = document.createElement("input");
+      inp.type = "file"; inp.id = "package-file"; inp.accept = ".zip,application/zip"; inp.multiple = true; inp.hidden = true;
+      document.body.appendChild(inp);
+    }
+    const el = inp;
+    el.value = "";
+    const p = new Promise((res) => {
+      const done = (f) => { el.removeEventListener("change", on); el.removeEventListener("cancel", off); res(f); };
+      const on = () => done(Array.from(el.files || []));
+      const off = () => done([]);
+      el.addEventListener("change", on);
+      el.addEventListener("cancel", off);
+    });
+    el.click();
+    return p;
+  }
+  // The given zips, read (index, manifest, settings): { packages: [pkg], errors: [{ name, why }] }.
+  // pkg: { id, name, made, by, parts, given: Map(part -> { file, name, byPath }), all, files: Map(key -> rec), settings, old }.
+  async function open(files) {
+    const byId = new Map(), errors = [];
+    for (const file of files) {
+      const name = file.name || "a zip";
+      let list;
+      try { list = await ZIP.entries(file); } catch (e) { errors.push({ name, why: `could not be read as a zip: ${e.message}` }); continue; }
+      const byPath = new Map(list.map((e) => [e.name, e]));
+      const m = byPath.get("manifest.json");
+      if (!m) { errors.push({ name, why: "is not an offline package: it has no manifest.json" }); continue; }
+      let man;
+      try { man = JSON.parse(await ZIP.read(file, m)); } catch (e) { errors.push({ name, why: `its manifest.json could not be read (${e.message})` }); continue; }
+      if (man && man.format === VOICEDATA.FORMAT) {               // an old Voice_data.zip: a package of one part
+        let z;
+        try { z = await VOICEDATA.open(file); } catch (e) { errors.push({ name, why: e.message.replace(/^"[^"]*":? ?/, "") }); continue; }
+        const recs = Array.from(z.byUrl.values()).map((r) => ({ key: r.url, kind: "file", url: r.url, path: r.path, size: r.size, sha256: r.sha256, owner: r.owner, entry: r.entry, part: 1 }));
+        byId.set("old:" + name + ":" + byId.size, { id: "old:" + name, name, old: true, made: z.made, by: (z.contents && z.contents.by) || "", parts: 1, contents: z.contents,
+          given: new Map([[1, { file, name }]]), all: recs.map((r) => ({ key: r.key, name: MODELS.nameOf(r.url), part: 1, size: r.size })), files: new Map(recs.map((r) => [r.key, r])), settings: z.settings });
+        continue;
+      }
+      if (!man || man.format !== FORMAT || !Array.isArray(man.files) || !Array.isArray(man.all) || !(man.part >= 1) || !(man.parts >= man.part)) {
+        errors.push({ name, why: `is not an offline package (its manifest.json needs "format": "${FORMAT}", part, parts, files and all)` }); continue;
+      }
+      const pkg = byId.get(man.id) || { id: man.id, name, made: man.made || "", by: man.by || "", parts: man.parts, contents: man.contents || null, given: new Map(), all: man.all, files: new Map(), settings: null };
+      if (pkg.given.has(man.part)) { errors.push({ name, why: `is part ${man.part} of ${man.parts} again (already given as "${pkg.given.get(man.part).name}"); used once` }); continue; }
+      pkg.given.set(man.part, { file, name });
+      for (const f of man.files) {
+        if (!f || !f.key || !f.path || !(Number(f.size) >= 0) || !/^[0-9a-f]{64}$/i.test(String(f.sha256 || ""))) { errors.push({ name, why: `its manifest.json has a bad line (${JSON.stringify(f).slice(0, 100)})` }); continue; }
+        pkg.files.set(f.key, Object.assign({}, f, { size: Number(f.size), sha256: String(f.sha256).toLowerCase(), url: f.kind === "book" ? f.url : MODELS.href(f.url), entry: byPath.get(f.path) || null, file, part: man.part }));
+      }
+      if (byPath.has("settings.json")) {
+        try { const j = JSON.parse(await ZIP.read(file, byPath.get("settings.json"))); pkg.settings = j && j.values && typeof j.values === "object" ? j.values : null; }
+        catch (e) { errors.push({ name, why: `its settings.json could not be read (${e.message}); its files can still be taken` }); }
+      }
+      byId.set(man.id, pkg);
+    }
+    const packages = Array.from(byId.values());
+    for (const p of packages) {
+      p.missing = [];
+      for (let n = 1; n <= p.parts; n++) {
+        if (p.given.has(n)) continue;
+        const holds = p.all.filter((a) => a.part === n);
+        p.missing.push({ part: n, files: holds.length, bytes: holds.reduce((s, a) => s + a.size, 0), names: holds.map((a) => a.name) });
+      }
+    }
+    log("storage", `offline package: ${files.length} zip${files.length === 1 ? "" : "s"} given: ${packages.map((p) => `${p.old ? `${p.name} (an old Voice_data.zip)` : `package ${p.id}, parts ${Array.from(p.given.keys()).sort((a, b) => a - b).join(", ")} of ${p.parts}`}`).join("; ") || "no package"}${errors.length ? `; not used: ${errors.map((e) => `${e.name} ${e.why}`).join("; ")}` : ""}`);
+    return { packages, errors };
+  }
+  // What a package holds and what of it is here: { take: [rec], here: [rec], bytes }.
+  async function plan(pkg) {
+    const have = await storedSet(), books = g.BOOK ? BOOK.books : [];
+    const take = [], here = [];
+    for (const r of pkg.files.values()) {
+      const stored = r.kind === "book" ? books.some((b) => b.shelf && b.shelf.id === r.book.id && b.shelf.version === r.book.version) : have.has(r.url);
+      (stored ? here : take).push(r);
+    }
+    return { take, here, bytes: take.reduce((n, r) => n + r.size, 0) };
+  }
+  // In words: what the package is, which parts are here and which are not (named).
+  function describe(pkg) {
+    const total = pkg.all.reduce((n, a) => n + a.size, 0);
+    const lines = [`${pkg.old ? `${pkg.name} (an old Voice_data.zip)` : `Offline package made ${pkg.made}${pkg.by ? ` (${pkg.by})` : ""}`}: ${plural(pkg.all.length, "file")}, ${MB(total)}${pkg.parts > 1 ? ` in ${pkg.parts} parts` : ""}; settings: ${pkg.settings ? "yes" : "no"}.`];
+    if (pkg.parts > 1) lines.push(`Given: part${pkg.given.size === 1 ? "" : "s"} ${Array.from(pkg.given.keys()).sort((a, b) => a - b).join(", ")} of ${pkg.parts}.`);
+    for (const m of pkg.missing) lines.push(`Part ${m.part} of ${pkg.parts} not given: it holds ${plural(m.files, "file")} (${MB(m.bytes)}: ${m.names.slice(0, 4).join(", ")}${m.names.length > 4 ? ", …" : ""}).`);
+    return lines;
+  }
+  // Take what is not here yet, each file checked; gives { took, bytes, here, failed: [{ name, why }], missing }.
+  async function take(pkg, progress) {
+    if (busy || (g.VOICEDATA && VOICEDATA.busy)) throw fail("Files are already being imported, exported or packed.");
+    const p = await plan(pkg);
+    const models = p.take.filter((r) => r.kind === "file");
+    const f = await MODELS.fit(models.map((r) => ({ url: r.url, size: r.size })));
+    if (!f.ok) throw fail(`${f.text}. Nothing was imported.`);
+    busy = { what: "taking", stop: false };
+    VOICEDATA.setBusy(busy);                 // VOICEDATA.take's own stop check and storeBusy() see it
+    const out = { took: 0, bytes: 0, here: p.here.length, failed: [], missing: pkg.missing };
+    const total = p.bytes || 1;
+    let done = 0;
+    try {
+      for (let k = 0; k < p.take.length; k++) {
+        if (busy.stop) throw stopped();
+        const r = p.take[k], name = r.kind === "book" ? r.book.title : MODELS.nameOf(r.url);
+        const zip = { file: pkg.given.get(r.part).file, name: pkg.given.get(r.part).name, byUrl: new Map([[r.url, r]]) };
+        try {
+          if (r.kind === "book") await takeBook(zip, r);
+          else await VOICEDATA.take(zip, [{ url: r.url, size: r.size, owner: r.owner }], progress ? (n, loaded, size) => progress(`Importing ${k + 1} of ${p.take.length}: ${n} · ${MB(loaded)} of ${MB(size)}`, (done + loaded) / total) : null);
+          out.took++; out.bytes += r.size;
+        } catch (e) {
+          if (e && e.stopped) throw e;
+          out.failed.push({ name, why: String(e.message || e).replace(/\.$/, "") });
+          log("error", `offline package: ${name} not imported: ${e.message}`);
+        }
+        done += r.size;
+      }
+    } finally { busy = null; VOICEDATA.setBusy(null); }
+    log("storage", `offline package imported: ${out.took} file${out.took === 1 ? "" : "s"} (${MB(out.bytes)}), ${out.here} already here${out.failed.length ? `, ${out.failed.length} failed` : ""}${out.missing.length ? `, part${out.missing.length === 1 ? "" : "s"} ${out.missing.map((m) => m.part).join(", ")} of ${pkg.parts} not given` : ""}`);
+    return out;
+  }
+  // A book: its bytes checked, then added (or its older copy replaced) as the shelf's download would be.
+  async function takeBook(zip, r) {
+    if (!r.entry) throw fail(`${zip.name} lists ${r.book.title} as "${r.path}", but holds no such entry`);
+    const buf = await ZIP.bytes(zip.file, r.entry);
+    if (buf.byteLength !== r.size) throw fail(`${r.book.title} in ${zip.name} is damaged (${buf.byteLength} bytes where the manifest says ${r.size}); it was not added`);
+    if (hex(await crypto.subtle.digest("SHA-256", buf)) !== r.sha256) throw fail(`${r.book.title} in ${zip.name} is damaged (its SHA-256 does not match the manifest); it was not added`);
+    const old = BOOK.books.find((b) => b.shelf && b.shelf.id === r.book.id);
+    const file = new File([buf], (r.book.zip || r.book.id + ".zip").split("/").pop(), { type: "application/zip" });
+    const res = await LIBRARY.pick([file], { sections: !(r.book.options && r.book.options.sections === false), shelf: { id: r.book.id, version: r.book.version, title: r.book.title, existing: old ? old.id : null } });
+    if (!res || !res.added || !res.added.length) throw fail(`${r.book.title} could not be added: ${(res && res.failed && res.failed.join(" ")) || "nothing came in"}`);
+  }
+
+  // The temporary cache let go: after the held parts are saved, before the next package, and at page
+  // open (whatever an earlier visit left there).
+  const release = () => (typeof caches === "undefined" ? Promise.resolve(false) : caches.delete(TMP).catch(() => false));
+  if (typeof caches !== "undefined") release();
+
+  g.PACKAGE = {
+    release, FORMAT, TMP, PART_BYTES, tree, fileTree, storedSet, isStored, needs, split, partName, savePicker, build, pick, open, plan, describe, take,
+    get busy() { return busy; },
+    stop: () => { if (busy) busy.stop = true; },
   };
 })();
 </script>
@@ -10680,7 +10989,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // settingswin.js: the Settings window (SETTINGS.md), opened by the gear in the top bar. A floating
 // window (float.js: move, resize, a scroll bar when needed, kept on screen, its size and place
 // remembered) with the tabs in four groups across the top, in SETTINGS.md's order: Reading (Book ·
-// Reading · Text) | Sound (Voice · Word highlight · Listener · Voice data) | System
+// Reading · Text) | Sound (Voice · Word highlight · Listener · Voice data · Offline package) | System
 // (Background · Storage · Debug; Storage is storagetab.js), and the buttons above them.
 // LIVE vs APPLY (Jon, 2026-10-20, job 1): the light settings (LIVE: theme, text size, UI size, speed,
 // volume, title first, continue, word timing, scroll pause, keep-alive ×2, screen awake, debug view, log
@@ -10694,9 +11003,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // open; with a voice or Voice data setting pending it first makes sure the saved settings' files can
 // be had (VOICEDATA.plan): the fit check refuses before anything starts (memory only when the change
 // makes the need bigger; Copies alone gets the memory check too), online the missing files download
-// after the Save with progress here; offline the button reads "Apply and upload data": the click opens
-// the picker for Voice_data.zip, ONLY the files the settings need are taken (checked), then it saves;
-// a file the zip lacks stops the Save naming it, and nothing is switched; Slim mode deletes the old
+// after the Save with progress here; offline with files missing the Save stops, naming them and pointing
+// to Settings → Offline package (import a package that has them, then Apply again: 2026-10-23, the old
+// "Apply and upload data" zip pick is gone), and nothing is switched; Slim mode deletes the old
 // voice's files only after the new ones are in and the Save is written; a write the browser refuses
 // says "Not saved" and keeps the changes pending), Delete downloaded voices (N MB) (was Clear data:
 // deletes only the big re-downloadable files, voice
@@ -10722,17 +11031,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // left-edge diagnostics, highlight.js), the log viewer (logwin.js, embedded, with the Log types fold),
 // the past logs with Clear (two taps), the version and This device; the Log button in the button row
 // opens the same viewer in its own window (UX-09: it left the top bar; the ? button stays there). The
-// Voice data tab is datatab.js and the Storage tab storagetab.js, both added through SETTINGSWIN.addTab
+// Voice data tab is datatab.js, Offline package packtab.js and the Storage tab storagetab.js, added through SETTINGSWIN.addTab
 // with the builders in SETTINGSWIN.ui. A progress bar
 // under the message line shows files being taken or downloaded.
 // SETTINGSWIN.open / close / show(group, tab) / save / clearData / choose / pending / tab, for the tests.
 (function () {
   const S = globalThis.SETTINGS;
-  const GROUPS = [["Reading", ["Book", "Reading", "Text"]], ["Sound", ["Voice", "Word highlight", "Listener", "Voice data"]], ["System", ["Background", "Storage", "Debug"]]];
+  const GROUPS = [["Reading", ["Book", "Reading", "Text"]], ["Sound", ["Voice", "Word highlight", "Listener", "Voice data", "Offline package"]], ["System", ["Background", "Storage", "Debug"]]];
   const OWNS = {
     Book: ["skipWatermarks", "watermarkRules"], Reading: ["speed", "volume", "readTitle", "continueChapters", "theme", "textSize", "uiSize"],
     Text: ["spelling", "capsAsWords", "numbersToWords", "joinShort"], Voice: ["voice", "kokoroEngine", "runOn", "precision", "pace", "steps", "copies", "speaker", "burst"],
-    "Word highlight": ["wordTiming"], Listener: ["listenerOn", "listener", "listenMode", "reroll"], "Voice data": ["offline", "slim"], Background: ["backgroundPlay", "keepAlive", "keepAliveIdle", "holdOnScroll", "screenAwake"],
+    "Word highlight": ["wordTiming"], Listener: ["listenerOn", "listener", "listenMode", "reroll"], "Voice data": ["offline", "slim"], "Offline package": [], Background: ["backgroundPlay", "keepAlive", "keepAliveIdle", "holdOnScroll", "screenAwake"],
     Debug: ["debugView", "detailedMarks", "logTypesOff"],
   };
   const LABELS = {
@@ -10760,7 +11069,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   let armed = 0;                                            // Delete downloaded voices: when the first tap was
   let storedBytes = null;                                   // the size on that button (refreshClear)
   const dragFrom = new Map();                               // a live slider being dragged: name -> the value before the drag
-  let need = null;                                          // { key, missing }: what the pending settings lack in the store (refreshNeed)
   let working = "";                                         // a Save taking or checking files: what it is doing
 
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -11273,25 +11581,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // The same tab again (a choice changed what applies), keeping the scroll place.
   function rerender() { const top = win ? win.body.scrollTop : 0; renderBody(); if (win) win.body.scrollTop = top; }
   const say = (text) => { if (el) el.msg.textContent = text || ""; };
-  // The unsaved marks: the groups, the tabs, the rows, the Apply button (lit; "Apply and upload data"
-  // when offline and a model-voice change may need files).
-  // Offline after the Save (Offline mode, or no internet), a model-file setting pending, and files the
-  // saved settings need not in the store (counted by refreshNeed; until then, any model voice).
-  const needKey = () => JSON.stringify([FILE_KEYS.map((k) => pending.get(k)), navigator.onLine]);
-  function needsUpload() {
-    if (!FILE_KEYS.some((k) => pending.has(k))) return false;
-    const a = after();
-    if (!(a.offline || navigator.onLine === false)) return false;
-    if (need && need.key === needKey()) return need.missing > 0;
-    const E = engineOf(a.voice);
-    return !!(E && typeof E.files === "function");
-  }
-  function refreshNeed() {
-    refreshClear();
-    if (!globalThis.VOICEDATA) return;
-    const key = needKey();
-    VOICEDATA.plan(S.all(), after()).then((p) => { if (needKey() === key) { need = { key, missing: p.missing.length }; marks(); } }, () => {});
-  }
+  // The unsaved marks: the groups, the tabs, the rows, the Apply button (lit while changes wait).
+  // refreshNeed: the store may have changed (a download, an import, a Delete): the Clear button's count.
+  function refreshNeed() { refreshClear(); }
   function marks() {
     if (!el) return;
     for (const b of el.groups.children) b.classList.toggle("dirty", dirtyGroup(b.dataset.g));
@@ -11299,23 +11591,22 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     for (const r of el.body.querySelectorAll(".srow[data-setting]")) r.classList.toggle("pending", pending.has(r.dataset.setting));
     el.save.classList.toggle("hot", pending.size > 0 && !working);
     el.save.disabled = pending.size === 0 || !!working;
-    el.save.textContent = working || (pending.size && needsUpload() ? "Apply and upload data" : "Apply");
+    el.save.textContent = working || "Apply";
   }
 
   // Save: the pending values in one write and one log line, then applied. A word timing the saved
   // voice cannot give (Voice model with Piper) is saved as Estimate, said here, never silently. With a
-  // model-file setting pending, the files come first (see the top of this file); the click is what
-  // opens the picker when the button says "Apply and upload data" (a picker needs the tap itself).
+  // model-file setting pending, the files come first (see the top of this file).
   function saveClick() {
     if (working) { say(`${working} Wait for it to finish.`); return Promise.resolve(); }
-    if (globalThis.VOICEDATA && VOICEDATA.busy) { say("Files are being imported or exported; wait for it to finish (or stop it in Voice data)."); return Promise.resolve(); }
+    if ((globalThis.VOICEDATA && VOICEDATA.busy) || (globalThis.PACKAGE && PACKAGE.busy)) { say("An offline package is being made or imported; wait for it to finish (or stop it in Offline package)."); return Promise.resolve(); }
     if (!pending.size) { say("Nothing to apply."); return Promise.resolve(); }
-    return doSave(needsUpload() ? VOICEDATA.pick() : null);
+    return doSave();
   }
   // opts.fetch false: no download after the Save (Export does its own); opts.only: save just these
   // pending names (a choice made on a button: choose), the rest stay pending; opts.lead: said first.
   // Gives true when it saved.
-  async function doSave(picked, opts = {}) {
+  async function doSave(opts = {}) {
     const changes = Object.fromEntries(Array.from(pending).filter(([k]) => !opts.only || opts.only.includes(k)));
     const notes = [];
     const wt = changes.wordTiming !== undefined ? changes.wordTiming : S.get("wordTiming");
@@ -11346,16 +11637,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const roomNow = p.fit.free === null || p.fit.need <= p.fit.free * 0.95;
       if (p.missing.length && p.drop.length && !roomNow) return stop(`${p.label}: its files fit only once Slim mode deletes the old voice's (${MODELS.MB(p.dropBytes)}), and Slim mode deletes them only after the new files are in. Delete the old voice's files in Settings → Voice data first, then Apply again.`);
       if (p.missing.length && p.offline) {
-        const file = picked ? await picked : null;
-        if (!file) return stop(picked ? "No zip file was chosen." : `${p.label} needs ${count(p.missing.length)} that ${p.missing.length === 1 ? "is" : "are"} not stored (${MODELS.MB(p.missingBytes)}), and ${p.why}: press Apply and upload data to copy ${p.missing.length === 1 ? "it" : "them"} from Voice_data.zip.`);
-        busy("Reading the zip…");
-        const zip = await VOICEDATA.open(file);
-        const bad = VOICEDATA.lacking(zip, p.missing);
-        if (bad.length) return stop(`${bad[0].why}${bad.length > 1 ? `; also missing: ${bad.slice(1).map((b) => MODELS.nameOf(b.file.url)).join(", ")}` : ""}. The voice was not changed.`);
-        busy("Copying files from the zip…");
-        const r = await VOICEDATA.take(zip, p.missing, takeProgress(p.missing));
-        took = `Copied ${count(r.files)} (${MODELS.MB(r.bytes)}) from ${zip.name}, each verified`;
-        notes.push(took);
+        // Offline: the files come only from an offline package imported first (Settings → Offline package).
+        const names = p.missing.map((f) => MODELS.nameOf(f.url));
+        return stop(`${p.label} needs ${count(p.missing.length)} that ${p.missing.length === 1 ? "is" : "are"} not stored (${MODELS.MB(p.missingBytes)}: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""}), and ${p.why}. Import an offline package that has ${p.missing.length === 1 ? "it" : "them"} (Settings → Offline package → Import parts), then Apply again.`);
       }
     } catch (e) { return stop(`${firstLine(e.message)}${p && p.drop.length ? " The old voice's files were not deleted." : ""}`); }
     finally { busy(""); }
@@ -11407,7 +11691,6 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       progress(`${lead ? lead + " " : ""}${verb} ${n ? `${k + 1} of ${n}: ` : ""}${name} · ${MODELS.MB(loaded)}${size ? ` of ${MODELS.MB(size)}` : ""}`, Math.min(1, sum / total));
     };
   }
-  const takeProgress = (files) => overall(files, "Copying");
   // Online: the files the saved settings need download now, with progress here (the player's own load
   // joins the same downloads); the window may close meanwhile.
   function fetchNow(p, saved) {
@@ -11465,7 +11748,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (!armed || Date.now() - armed > 8000) {
       armed = Date.now();
       el.clear.textContent = `Tap again to delete ${MODELS.MB(bytes)}`;
-      say(`${files.length} stored file${files.length === 1 ? "" : "s"}, ${MODELS.MB(bytes)}: ${list}. Tap again to delete them; a voice downloads them again when it needs them (offline: from Voice_data.zip). The book, settings and logs stay.`);
+      say(`${files.length} stored file${files.length === 1 ? "" : "s"}, ${MODELS.MB(bytes)}: ${list}. Tap again to delete them; a voice downloads them again when it needs them (offline: from an offline package). The book, settings and logs stay.`);
       setTimeout(() => { if (el && armed) disarm(); }, 8000);
       return;
     }
@@ -11505,8 +11788,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     log("settings", `chosen${note ? " (" + note + ")" : ""}: ${Object.entries(vals).map(([k, v]) => `${k} ${JSON.stringify(v)}${pending.has(k) ? "" : " (as saved)"}`).join(" · ")}`);
     if (!mine.length) { say(`${note || ""} These are the settings already.`.trim()); return Promise.resolve(true); }
     if (working) { say(`${note || ""} ${working} Wait for it to finish, then press Apply: the chosen settings are marked.`.trim()); return Promise.resolve(false); }
-    const picked = needsUpload() ? VOICEDATA.pick() : null;
-    return doSave(picked, { only: mine, lead: note || "" });
+    return doSave({ only: mine, lead: note || "" });
   }
   // Settings put in as PENDING changes, shown on the Voice tab with the note, for a view that wants a
   // review first (nothing uses it since UX-02; kept for later). Gives the number now pending.
@@ -11524,7 +11806,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     open, show, save: saveClick, clearData, choose, propose, LIVE,
     // For datatab.js (the Voice data tab) and storagetab.js (Storage): register a tab, and the window's builders.
     addTab: (name, fn) => { TABS[name] = fn; delete LATER[name]; },
-    ui: { h, button, row, toggle, warn, value, after, change, pend, say, save: (opts) => (working ? Promise.resolve(false) : doSave(null, opts)), progress, busy, overall, rerender, refreshNeed, refreshClear, count, FILE_KEYS, LIVE, apply, get working() { return working; } },
+    ui: { h, button, row, toggle, warn, value, after, change, pend, say, save: (opts) => (working ? Promise.resolve(false) : doSave(opts)), progress, busy, overall, rerender, refreshNeed, refreshClear, count, FILE_KEYS, LIVE, apply, get working() { return working; } },
     close: () => { if (win) win.close(); },
     get isOpen() { return !!win; },
     get pending() { return new Map(pending); },
@@ -11536,22 +11818,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 <script>
 // datatab.js: the Voice data tab of the Settings window (SETTINGS.md "Voice data"). The work is in
 // voicedata.js; the window's builders come from SETTINGSWIN.ui, so it looks like every other tab. Rows:
-// Offline mode and Slim mode (settings: they wait for Apply like the other heavy ones); the fit check for the voice
-// as it would be saved (files stored / to get and from where, storage, memory, what Slim mode would
-// delete; offline with files missing and nothing pending, a button takes just those from
-// Voice_data.zip); Import everything in the zip (pick, see what is inside and the fit check, then
-// Import; the zip's settings come in only when ticked: the light ones applied at once, the heavy ones pending for Apply; the device-tuned
-// ones (VOICEDATA.DEVICE_TUNED) only with a second tick; names it cannot take are said); Export voice data
-// (what the current settings need, the default: a notice, then Save, the fit check, the download of
-// whatever is missing and the zip, cancellable; everything stored; or voices picked by owner; "Include
-// my settings");
-// the stored files (by owner with Delete per voice, two taps, never automatic; every file, sortable;
-// the one-line note when the browser has not promised to keep them: BUGS 32).
+// Offline mode and Slim mode (settings: they wait for Apply like the other heavy ones); the fit check for
+// the voice as it would be saved (files stored / to get, storage, memory, what Slim mode would delete;
+// offline with files missing, a button opens the Offline package tab to import them); the stored files
+// (by owner with Delete per voice, two taps, never automatic; every file, sortable; the one-line note
+// when the browser has not promised to keep them: BUGS 32). 2026-10-23: Import everything and Export
+// voice data moved to the Offline package tab (packtab.js), which replaced them.
 (function () {
   const W = globalThis.SETTINGSWIN, V = globalThis.VOICEDATA;
   if (!W || !V) return;
   const U = W.ui, h = U.h, MB = (n) => MODELS.MB(n);
-  const st = { sort: "size", dir: -1, armed: "", armedAt: 0, exp: "needs", skip: new Set(), withSettings: false, zip: null, bring: false, bringTuned: false, running: "", notice: false, abort: null, tableOpen: false };
+  const st = { sort: "size", dir: -1, armed: "", armedAt: 0, tableOpen: false };
   const shown = () => W.isOpen && W.tab.tab === "Voice data";
   const redo = () => { if (shown()) U.rerender(); };
   const line = (text, bad) => h("div", "sline" + (bad ? " bad" : ""), text);
@@ -11560,16 +11837,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     Promise.resolve().then(fn).then((nodes) => { if (box.isConnected) box.replaceChildren(...[].concat(nodes || [])); },
       (e) => { if (box.isConnected) box.replaceChildren(line(`Could not be checked: ${e.message}`, true)); });
   }
-  const filePending = () => U.FILE_KEYS.some((k) => W.pending.has(k));
 
   function render(body) {
-    const t = U.toggle("offline", "Offline mode", "Never downloads. Voice files come from a Voice_data.zip that you choose when Apply needs them. Also used automatically when there is no internet.");
+    const t = U.toggle("offline", "Offline mode", "Never downloads. Voice files come only from an offline package you import (Settings → Offline package). Also used automatically when there is no internet.");
     if (navigator.onLine === false) t.querySelector(".slab").appendChild(h("div", "swhy", "No internet right now: offline either way."));
     body.appendChild(t);
     body.appendChild(U.toggle("slim", "Slim mode", "When you switch to another voice or listener and apply, the files of the one you stopped using are deleted. Off: every file ever loaded is kept."));
     body.appendChild(fitRow());
-    body.appendChild(importRow());
-    body.appendChild(exportRow());
     body.appendChild(storedRow());
   }
 
@@ -11580,261 +11854,14 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const p = await V.plan(SETTINGS.all(), U.after());
       if (!p.model) return line(`${p.label}: browser voices need no files.`);
       const all = p.files.reduce((n, f) => n + f.size, 0);
-      const out = [line(`${p.label}: ${U.count(p.files.length)}, ${MB(all)} (libraries and the MP3 encoder included); ${p.missing.length ? `${p.stored} stored, ${MB(p.missingBytes)} to ${p.offline ? `copy from Voice_data.zip (${p.why})` : "download"}` : "all stored"}.`),
+      const out = [line(`${p.label}: ${U.count(p.files.length)}, ${MB(all)} (libraries and the MP3 encoder included); ${p.missing.length ? `${p.stored} stored, ${MB(p.missingBytes)} to ${p.offline ? `import from an offline package (${p.why})` : "download"}` : "all stored"}.`),
         line(`Storage: ${p.fit.text}.`, !p.fit.ok)];
       if (p.mem && p.mem.text) out.push(line(`Memory: ${p.mem.text}.`, p.mem.warn));
       if (p.drop.length) out.push(line(`Slim mode deletes ${U.count(p.drop.length)} of the voice no longer used (${MB(p.dropBytes)}) on Apply.`));
-      if (p.offline && p.missing.length && !filePending()) out.push(U.button("sbtn", "Copy them from Voice_data.zip…", () => takeNeeded(p)));
+      if (p.offline && p.missing.length) out.push(U.button("sbtn", "Import an offline package…", () => W.show("Sound", "Offline package")));
       return out;
     });
     return U.row("Fit check", "Whether the voice as it would be saved fits this device: the files it needs, the storage room, and its working memory.", box, { block: true });
-  }
-  // Offline, nothing pending, the saved voice's files missing: take just those from a zip.
-  function takeNeeded(p) {
-    const picked = V.pick();
-    (async () => {
-      const file = await picked;
-      if (!file) return;
-      try {
-        const zip = await V.open(file);
-        const bad = V.lacking(zip, p.missing);
-        if (bad.length) { U.say(`${bad[0].why}. Nothing was copied.`); return; }
-        const r = await V.take(zip, p.missing, U.overall(p.missing, "Copying"));
-        U.say(`Copied ${U.count(r.files)} (${MB(r.bytes)}) from ${zip.name}, each verified: ${p.label} is ready.`);
-      } catch (e) { U.say(e.message); }
-      finally { U.progress(""); U.refreshNeed(); redo(); }
-    })();
-  }
-
-  // ---- Import everything ----------------------------------------------------------------------------
-  function importRow() {
-    const box = h("div", "simp");
-    if (st.running === "import") box.appendChild(U.button("sbtn", "Stop importing", () => { V.stop(); U.say("Stopping after the current file…"); }));
-    else if (!st.zip) box.appendChild(U.button("sbtn", "Import everything…", importPick));
-    else {
-      const z = st.zip;
-      box.appendChild(line(V.describe(z)));
-      const fit = h("div", "sfit", "Checking…");
-      box.appendChild(fit);
-      let list = null, ok = false;
-      const go = U.button("sbtn hot", "Import", () => importNow(list));
-      go.disabled = true;
-      later(fit, async () => {
-        list = await V.everything(z);
-        const f = await MODELS.fit(list);
-        ok = f.ok;
-        go.disabled = !ok && list.length > 0;
-        go.textContent = list.length ? `Import ${U.count(list.length)} (${MB(f.need)})` : (st.bring ? "Bring in the settings" : "Nothing to import");
-        if (!list.length && !st.bring) go.disabled = true;
-        return [line(list.length ? `${U.count(z.byUrl.size - list.length)} of it already stored; ${U.count(list.length)} to copy.` : "Everything in it is already stored."),
-          line(`Storage: ${f.text}.`, !f.ok), line("Memory is checked per voice when it is saved (the fit check above).")];
-      });
-      if (z.settings) {
-        // The device-tuned ones (run on, precision, copies, sizes…) have their own tick, off by default (D21).
-        const vals = Object.keys(V.validSettings(z.settings)), tuned = vals.filter((k) => V.DEVICE_TUNED.includes(k));
-        const tick = h("label", "stick");
-        const inp = h("input");
-        inp.type = "checkbox"; inp.checked = st.bring;
-        inp.addEventListener("change", () => { st.bring = inp.checked; redo(); });
-        tick.append(inp, h("span", null, `Also bring in the zip's settings (${vals.length - tuned.length}): the light ones apply at once, the others wait for Apply`));
-        box.appendChild(tick);
-        if (st.bring && tuned.length) {
-          const t2 = h("label", "stick");
-          const i2 = h("input");
-          i2.type = "checkbox"; i2.checked = st.bringTuned;
-          i2.addEventListener("change", () => { st.bringTuned = i2.checked; redo(); });
-          t2.append(i2, h("span", null, `…and the ones tuned to the device the zip was made on (${tuned.join(", ")})`));
-          box.appendChild(t2);
-        }
-      }
-      const btns = h("div", "sbtnrow");
-      btns.append(go, U.button("sbtn", "Cancel", () => { st.zip = null; st.bring = false; st.bringTuned = false; redo(); }));
-      box.appendChild(btns);
-    }
-    return U.row("Import everything in the zip", "Copies every voice and listener file in a Voice_data.zip that is not stored here yet. The zip's contents and the fit check are shown before anything is copied.", box, { block: !!st.zip || st.running === "import" });
-  }
-  function importPick() {
-    const picked = V.pick();
-    (async () => {
-      const file = await picked;
-      if (!file) return;
-      try { st.zip = await V.open(file); st.bring = false; st.bringTuned = false; U.say(""); } catch (e) { st.zip = null; U.say(e.message); }
-      redo();
-    })();
-  }
-  async function importNow(list) {
-    const z = st.zip;
-    if (!z) return;
-    const bring = st.bring && z.settings;
-    st.running = "import"; redo();
-    let said = "";
-    try {
-      if (list && list.length) {
-        const f = await MODELS.fit(list);
-        if (!f.ok) { said = `${z.name}: ${f.text}. Nothing was imported.`; return; }
-        const r = await V.take(z, list, U.overall(list, "Copying"));
-        said = `Imported ${U.count(r.files)} (${MB(r.bytes)}) from ${z.name}, each verified.`;
-      } else said = `Everything in ${z.name} was already stored.`;
-      if (bring) {
-        const vals = V.validSettings(z.settings), dropped = V.droppedSettings(z.settings);
-        const left = st.bringTuned ? [] : Object.keys(vals).filter((k) => V.DEVICE_TUNED.includes(k) && JSON.stringify(vals[k]) !== JSON.stringify(SETTINGS.get(k)));
-        const names = Object.keys(vals).filter((k) => !left.includes(k) && JSON.stringify(vals[k]) !== JSON.stringify(SETTINGS.get(k)));
-        // The light ones are saved and applied at once (like any light setting); the heavy ones wait for Apply.
-        const now = names.filter((k) => U.LIVE.includes(k)), wait = names.filter((k) => !U.LIVE.includes(k));
-        for (const k of names) U.change(k, vals[k]);
-        log("settings", `brought in from ${z.name}: ${names.length ? `applied now: ${now.join(", ") || "none"} · waiting for Apply: ${wait.join(", ") || "none"}` : "none differ"}${left.length ? ` · left out (tuned to the other device): ${left.join(", ")}` : ""}${dropped.length ? ` · not taken (unknown here or of the wrong kind): ${dropped.join(", ")}` : ""}`);
-        said += names.length ? `${now.length ? ` Applied now from the zip's settings: ${now.join(", ")}.` : ""}${wait.length ? ` Waiting for Apply (review them first): ${wait.join(", ")}.` : ""}` : " Its settings are the same as these.";
-        if (left.length) said += ` Left out, as tuned to the device the zip was made on: ${left.join(", ")}.`;
-        if (dropped.length) said += ` Not taken (this reader does not know them, or they are of the wrong kind): ${dropped.join(", ")}.`;
-      }
-      st.zip = null; st.bring = false; st.bringTuned = false;
-    } catch (e) { said = e.stopped ? "Import stopped. The files copied so far are kept (each was verified)." : e.message; }
-    finally { st.running = ""; U.progress(""); U.say(said); U.refreshNeed(); redo(); }
-  }
-
-  // ---- Export voice data ------------------------------------------------------------------------------
-  // "What the current settings need" (the default) makes sure the setup is complete first: Export shows
-  // a notice in the window (Save first when changes are pending, then the download, then the zip) with
-  // Continue / Cancel; Continue asks where to save (the picker needs that tap), saves through the normal
-  // Save, runs the fit check, downloads what is missing (fetched and stored only: no voice is loaded)
-  // and writes the zip; Cancel, before or during, leaves everything as it was and writes nothing.
-  // Offline with files missing: a plain message naming them, nothing written.
-  function exportRow() {
-    const box = h("div", "sexp");
-    if (st.running === "export") {
-      box.appendChild(line("Exporting: the progress shows above."));
-      box.appendChild(U.button("sbtn", "Cancel", cancelExport));
-      return U.row("Export voice data", "", box, { block: true });
-    }
-    if (st.notice) {
-      box.appendChild(line(W.pending.size ? "Your changes will be applied first, then anything this setup needs is downloaded, then the zip is written." : "Anything this setup needs is downloaded, then the zip is written."));
-      const btns = h("div", "sbtnrow");
-      btns.append(U.button("sbtn hot", "Continue", continueExport), U.button("sbtn", "Cancel", () => { st.notice = false; U.say("Export cancelled: nothing was changed or written."); redo(); }));
-      box.appendChild(btns);
-      return U.row("Export voice data", "", box, { block: true });
-    }
-    const opts = h("div", "sopts");
-    for (const [id, label, help] of [["needs", "What the current settings need", "The files for the voice and listener as set here, with their libraries and the MP3 encoder (anything missing is downloaded first). Another device can import the zip and play with these settings offline."],
-      ["all", "Everything stored", "Every voice, listener and library file stored in this browser."], ["pick", "Voices I choose", "Tick them below."]]) {
-      const l = h("label", "sopt" + (st.exp === id ? " on" : ""));
-      const inp = h("input");
-      inp.type = "radio"; inp.name = "s-export"; inp.value = id; inp.checked = st.exp === id;
-      inp.addEventListener("change", () => { if (inp.checked) { st.exp = id; redo(); } });
-      l.append(inp, h("span", "olab", label), h("span", "ohelp", help));
-      opts.appendChild(l);
-    }
-    box.appendChild(opts);
-    const tick = h("label", "stick");
-    const inp = h("input");
-    inp.type = "checkbox"; inp.checked = st.withSettings;
-    inp.addEventListener("change", () => { st.withSettings = inp.checked; });
-    tick.append(inp, h("span", null, "Include my settings (every setting changed from its default; not this device's record of broken precisions)"));
-    box.appendChild(tick);
-    const rest = h("div", "sfit", "Checking…");
-    box.appendChild(rest);
-    later(rest, async () => {
-      const files = await V.stored();
-      const out = [];
-      if (st.exp === "needs") {
-        const v = U.after(), need = V.needed(v), have = new Set(files.map((f) => f.url));
-        if (!need.length) return line(`${V.label(v)}: browser voices need no files, so there is nothing to export.`);
-        const missing = need.filter((f) => !have.has(f.url)), bytes = need.reduce((n, f) => n + f.size, 0);
-        out.push(line(`${V.label(v)}${W.pending.size ? " (with your changes not applied yet)" : ""}: ${U.count(need.length)}, ${MB(bytes)}${missing.length ? `; ${missing.length} not stored yet (${MB(missing.reduce((n, f) => n + f.size, 0))}), downloaded first` : ", all stored"}.`));
-        const b = U.button("sbtn hot", `Export ${U.count(need.length)} (${MB(bytes)})…`, () => { st.notice = true; U.say(""); redo(); });
-        b.disabled = !!(st.running || V.busy);
-        out.push(b);
-        return out;
-      }
-      const owners = new Map();
-      for (const f of files) { const o = owners.get(f.owner) || { bytes: 0 }; o.bytes += f.size; owners.set(f.owner, o); }
-      if (st.exp === "pick") {
-        const ticks = h("div", "sticks");
-        for (const [owner, o] of Array.from(owners).sort((a, b) => b[1].bytes - a[1].bytes)) {
-          const l = h("label", "stick");
-          const c = h("input");
-          c.type = "checkbox"; c.checked = !st.skip.has(owner); c.value = owner;
-          c.addEventListener("change", () => { if (c.checked) st.skip.delete(owner); else st.skip.add(owner); redo(); });
-          l.append(c, h("span", null, `${owner} · ${MB(o.bytes)}`));
-          ticks.appendChild(l);
-        }
-        out.push(ticks);
-      }
-      const chosen = files.filter((f) => st.exp === "all" || !st.skip.has(f.owner));
-      if (!chosen.length) { out.push(line("Nothing chosen.")); return out; }
-      const bytes = chosen.reduce((n, f) => n + f.size, 0);
-      const b = U.button("sbtn hot", `Export ${U.count(chosen.length)} (${MB(bytes)})…`, () => exportStored(chosen.map((f) => f.url), { choice: st.exp === "all" ? "everything stored" : "picked voices" }));
-      b.disabled = !!(st.running || V.busy);
-      out.push(b);
-      return out;
-    });
-    return U.row("Export voice data", "Writes stored voice files to a Voice_data.zip for a device without internet. The zip lists each file's web address, size, checksum and owner; the book is never included.", box, { block: true });
-  }
-  const cancelled = (e) => !!(e && (e.name === "AbortError" || e.stopped));
-  function cancelExport() {
-    if (st.abort) st.abort.abort();
-    V.stop();
-    U.say("Cancelling…");
-  }
-  // Continue: the save picker first (it needs this tap), then Save, the fit check, the download, the zip.
-  function continueExport() {
-    let target = null;
-    try { target = V.savePicker(); } catch (e) { target = null; }
-    st.notice = false;
-    st.running = "export";
-    st.abort = new AbortController();
-    const signal = st.abort.signal;
-    redo();
-    (async () => {
-      let said = "";
-      try {
-        const handle = target ? await target : null;
-        const v = U.after(), need = V.needed(v);
-        if (!need.length) { said = `${V.label(v)}: browser voices need no files, so there is nothing to export.`; return; }
-        const have = new Set((await V.stored()).map((f) => f.url));
-        const missing = need.filter((f) => !have.has(f.url));
-        const off = !!v.offline || navigator.onLine === false;
-        if (missing.length && off) {
-          said = `${v.offline ? "Offline mode is on" : "There is no internet"}, and ${missing.map((f) => MODELS.nameOf(f.url)).join(", ")} ${missing.length === 1 ? "is" : "are"} not stored: nothing was written.`;
-          return;
-        }
-        if (missing.length) {
-          const f = await MODELS.fit(missing);
-          if (!f.ok) { said = `${V.label(v)}: ${f.text}. Nothing was saved, downloaded or written.`; return; }
-        }
-        if (W.pending.size) {
-          U.progress("Applying your changes…", 0);
-          if (!(await U.save({ fetch: false }))) return;          // the Save said why on the message line
-        }
-        if (signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
-        if (missing.length) await V.download(missing, U.overall(missing, "Downloading"), signal);
-        if (signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
-        const r = await V.exportTo(handle, need.map((f) => f.url), U.overall(need, "Writing the zip:"), { settings: st.withSettings ? V.mySettings() : null, about: { choice: "what the settings need", for: V.label(SETTINGS.all()) } });
-        said = `Exported ${U.count(r.files)} (${MB(r.bytes)})${st.withSettings ? " and your settings" : ""} for ${V.label(SETTINGS.all())}: ${r.how}.`;
-      } catch (e) {
-        said = cancelled(e) ? "Export cancelled: no zip was written." : `Export failed: ${e.message}`;
-      } finally {
-        st.running = ""; st.abort = null; U.progress("");
-        if (said) U.say(said);
-        U.refreshNeed(); redo();
-      }
-    })();
-  }
-  // Everything stored / picked voices: straight to the zip (nothing to download or save).
-  function exportStored(urls, about) {
-    if (V.busy || st.running) { U.say("Files are already being imported or exported."); return; }
-    let target = null;
-    try { target = V.savePicker(); } catch (e) { target = null; }
-    st.running = "export";
-    redo();
-    (async () => {
-      try {
-        const files = (await V.stored()).filter((f) => urls.includes(f.url));
-        const r = await V.exportTo(target, urls, U.overall(files, "Writing the zip:"), { settings: st.withSettings ? V.mySettings() : null, about });
-        U.say(`Exported ${U.count(r.files)} (${MB(r.bytes)})${st.withSettings ? " and your settings" : ""}: ${r.how}.`);
-      } catch (e) {
-        U.say(cancelled(e) ? "Export cancelled: no zip was written." : `Export failed: ${e.message}`);
-      } finally { st.running = ""; U.progress(""); redo(); }
-    })();
   }
 
   // ---- The stored files -----------------------------------------------------------------------------
@@ -11842,7 +11869,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const box = h("div", "sstored", "Reading the store…");
     later(box, async () => {
       const files = await V.stored();
-      if (!files.length) return line("No files are stored yet. A voice downloads its files at its first Play, or copies them from Voice_data.zip.");
+      if (!files.length) return line("No files are stored yet. A voice downloads its files at its first Play, or they come from an imported offline package.");
       const total = files.reduce((n, f) => n + f.size, 0);
       const owners = new Map();
       for (const f of files) { const o = owners.get(f.owner) || { n: 0, bytes: 0 }; o.n++; o.bytes += f.size; owners.set(f.owner, o); }
@@ -11888,7 +11915,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (st.armed !== owner || Date.now() - st.armedAt > 8000) {
       st.armed = owner; st.armedAt = Date.now();
       // EFF-15: the shared runtime serves three things at once; the retired files serve nothing.
-      const why = owner === MODELS.RUNTIME.owner ? " The Kokoro newer engine, Supertonic and the listeners all use these; whichever runs next downloads them again (or copies them from Voice_data.zip)." : MODELS.RETIRED.some((r) => r.owner === owner) ? " This reader no longer uses them: nothing needs them again." : " They can be downloaded or copied from Voice_data.zip again later.";
+      const why = owner === MODELS.RUNTIME.owner ? " The Kokoro newer engine, Supertonic and the listeners all use these; whichever runs next downloads them again (or they come from an offline package)." : MODELS.RETIRED.some((r) => r.owner === owner) ? " This reader no longer uses them: nothing needs them again." : " They can be downloaded, or imported from an offline package, again later.";
       U.say(`${owner}: ${U.count(o.n)}, ${MB(o.bytes)}. Tap Delete again to confirm.${why}`);
       redo();
       setTimeout(() => { if (st.armed === owner && Date.now() - st.armedAt >= 8000) { st.armed = ""; redo(); } }, 8100);
@@ -11902,6 +11929,391 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   W.addTab("Voice data", render);
+})();
+</script>
+<script>
+// packtab.js: the Offline package tab of the Settings window (SETTINGS.md "Offline package"; the work is
+// package.js). Two rows:
+//   MAKE A PACKAGE: a tree of everything the reader can download (engines → their voices, precisions and
+//   files; listeners; runtimes and libraries; the online library's books), grouped and collapsible, each
+//   row with its size and whether it is stored here, a tri-state tick (a group ticks all it holds; a file
+//   in two groups is one tick, counted once) and the running total. Presets: what my current settings
+//   need, everything stored here, none. Selection as in a file manager: click selects, Shift+click a
+//   range, Ctrl/Cmd+click adds or removes one, Space ticks or unticks every selected row, Up/Down move,
+//   Shift+Up/Down extend, Left/Right collapse / expand (or go to the parent / first child), Home/End,
+//   Ctrl+A selects every shown row; a click on a row's box ticks it. Touch: a tap ticks, a long press
+//   starts a range (the next tap ticks or unticks every row from there to it). role tree / treeitem with
+//   aria-level, aria-expanded, aria-selected and aria-checked (true / false / mixed). Then Include my
+//   settings and Make the package (Stop while it runs).
+//   IMPORT A PACKAGE: pick one or more parts (any order, several packages at once, an old Voice_data.zip
+//   too); what each holds, which parts are missing and the fit check are shown first; the zip's settings
+//   come in only when ticked (light ones at once, heavy ones pending for Apply, the device-tuned ones only
+//   with a second tick); Import (Stop while it runs) and the report stays on the page.
+(function () {
+  const W = globalThis.SETTINGSWIN, P = globalThis.PACKAGE, V = globalThis.VOICEDATA;
+  if (!W || !P || !V) return;
+  const U = W.ui, h = U.h, MB = (n) => MODELS.MB(n);
+  const LONG_MS = 500;
+  const st = { tree: null, loading: false, have: new Set(), expanded: new Set(), selected: new Set(), focus: "", anchor: "", ticked: new Set(),
+    touchAnchor: "", withSettings: false, running: "", pkgs: null, bring: false, bringTuned: false, report: null };
+  const shown = () => W.isOpen && W.tab.tab === "Offline package";
+  const redo = () => { if (shown()) U.rerender(); };
+  const line = (text, bad) => h("div", "sline" + (bad ? " bad" : ""), text);
+  const plural = (n, w) => `${n.toLocaleString("en-US")} ${w}${n === 1 ? "" : "s"}`;
+
+  function render(body) {
+    body.appendChild(makeRow());
+    body.appendChild(importRow());
+  }
+
+  // ---- The tree's data ----------------------------------------------------------------------------
+  function load() {
+    if (st.loading) return;
+    st.loading = true;
+    Promise.all([P.tree(), P.storedSet()]).then(([t, have]) => { st.tree = t; st.have = have; }, (e) => { st.tree = { nodes: [], leaves: new Map(), why: e.message }; })
+      .finally(() => { st.loading = false; redo(); });
+  }
+  const keysOf = (n) => n._keys || (n._keys = n.kids ? Array.from(new Set(n.kids.flatMap(keysOf))) : [n.key]);
+  const sizeOf = (keys) => keys.reduce((s, k) => s + ((st.tree.leaves.get(k) || {}).size || 0), 0);
+  const isHere = (k) => P.isStored(st.tree.leaves.get(k), st.have);
+  function tickState(n) {
+    const keys = keysOf(n), on = keys.filter((k) => st.ticked.has(k)).length;
+    return on === 0 ? "false" : on === keys.length ? "true" : "mixed";
+  }
+  // The rows shown: [{ n, level, parent }] in order, under the expanded groups only.
+  function visible() {
+    const out = [];
+    const walk = (list, level, parent) => { for (const n of list) { out.push({ n, level, parent }); if (n.kids && st.expanded.has(n.id)) walk(n.kids, level + 1, n.id); } };
+    walk(st.tree.nodes, 1, "");
+    return out;
+  }
+  // Tick (or untick, when every one is ticked already) all the keys under these rows.
+  function tick(ids) {
+    const rows = visible().filter((r) => ids.includes(r.n.id));
+    const keys = Array.from(new Set(rows.flatMap((r) => keysOf(r.n))));
+    if (!keys.length) return;
+    const off = keys.every((k) => st.ticked.has(k));
+    for (const k of keys) if (off) st.ticked.delete(k); else st.ticked.add(k);
+  }
+  function setTicks(ids, on) {
+    for (const r of visible().filter((x) => ids.includes(x.n.id))) for (const k of keysOf(r.n)) if (on) st.ticked.add(k); else st.ticked.delete(k);
+  }
+  const between = (a, b) => { const v = visible().map((r) => r.n.id); let i = v.indexOf(a), j = v.indexOf(b); if (i < 0) i = j; if (i > j) [i, j] = [j, i]; return v.slice(i, j + 1); };
+
+  // ---- Make a package -----------------------------------------------------------------------------
+  let treeEl = null, totalEl = null, goEl = null;
+  function makeRow() {
+    const box = h("div", "spkg");
+    if (!st.tree) { load(); box.appendChild(line("Reading what can go in…")); return U.row("Make a package", "", box, { block: true }); }
+    if (st.tree.why) { box.appendChild(line(`The list could not be made: ${st.tree.why}`, true)); return U.row("Make a package", "", box, { block: true }); }
+    const pre = h("div", "sbtnrow");
+    pre.append(U.button("sbtn", "What my current settings need", () => preset("needs")), U.button("sbtn", "Everything stored here", () => preset("stored")), U.button("sbtn", "None", () => preset("none")));
+    box.appendChild(pre);
+    treeEl = h("div", "ptree");
+    treeEl.tabIndex = 0;
+    treeEl.setAttribute("role", "tree");
+    treeEl.setAttribute("aria-label", "What can go in the offline package");
+    treeEl.setAttribute("aria-multiselectable", "true");
+    wire(treeEl);
+    box.appendChild(treeEl);
+    totalEl = h("div", "sline ptotal");
+    box.appendChild(totalEl);
+    const t = h("label", "stick");
+    const inp = h("input");
+    inp.type = "checkbox"; inp.checked = st.withSettings;
+    inp.addEventListener("change", () => { st.withSettings = inp.checked; });
+    t.append(inp, h("span", null, "Include my settings (every setting changed from its default; not this device's record of broken precisions)"));
+    box.appendChild(t);
+    if (st.made) {
+      // The parts, each saved on its own tap (a browser holds back a second download no tap started).
+      const m = st.made;
+      box.appendChild(line(`The package is ready in ${m.parts.length} parts. Save each one (a tap each); keep them together and import them all on the other device.`));
+      const list = h("div", "sbtnrow");
+      m.parts.forEach((p, i) => list.appendChild(U.button("sbtn" + (m.saved.has(i) ? "" : " hot"), `${m.saved.has(i) ? "✓ " : ""}Save part ${i + 1} of ${m.parts.length} (${MB(p.size)})`, () => savePart(i))));
+      box.appendChild(list);
+      box.appendChild(U.button("sbtn", m.saved.size === m.parts.length ? "Done" : "Done (the parts not saved are let go)", () => { st.made = null; P.release(); U.say(""); redo(); }));
+    }
+    const btns = h("div", "sbtnrow");
+    if (st.running === "make") btns.appendChild(U.button("sbtn", "Stop", () => { P.stop(); U.say("Stopping…"); }));
+    else { goEl = U.button("sbtn hot", "Make the package…", makeNow); btns.appendChild(goEl); }
+    box.appendChild(btns);
+    drawTree();
+    // What is stored may have changed since (a download, an import, a Delete): the marks follow.
+    const el = treeEl;
+    P.storedSet().then((have) => { st.have = have; if (treeEl === el && el.isConnected) drawTree(); }, () => {});
+    return U.row("Make a package", `Everything the reader can download, to carry to a device without internet. Ticked files stored here are copied from the store; the others are downloaded first. ${typeof showSaveFilePicker === "function" ? "This browser saves it as one file where you choose." : `This browser gets it as downloads in parts of at most ${MB(P.PART_BYTES)}.`}`, box, { block: true });
+  }
+  function drawTree() {
+    if (!treeEl || !st.tree) return;
+    const rows = visible();
+    const ids = rows.map((r) => r.n.id);
+    if (!ids.includes(st.focus)) st.focus = ids[0] || "";
+    const out = [];
+    rows.forEach((r, i) => {
+      const n = r.n, keys = keysOf(n), state = tickState(n), size = sizeOf(keys), here = keys.filter(isHere).length;
+      const el = h("div", "prow" + (st.selected.has(n.id) ? " sel" : "") + (st.focus === n.id ? " focus" : "") + (st.touchAnchor === n.id ? " anchor" : ""));
+      el.id = "pkr-" + i;
+      el.dataset.id = n.id;
+      el.setAttribute("role", "treeitem");
+      el.setAttribute("aria-level", String(r.level));
+      el.setAttribute("aria-checked", state);
+      el.setAttribute("aria-selected", st.selected.has(n.id) ? "true" : "false");
+      if (n.kids) el.setAttribute("aria-expanded", st.expanded.has(n.id) ? "true" : "false");
+      el.style.paddingLeft = `${(r.level - 1) * 1.2 + 0.3}em`;
+      const tw = h("span", "ptw", n.kids ? (st.expanded.has(n.id) ? "▾" : "▸") : "");
+      const bx = h("span", "pbox " + state);
+      const what = n.why ? `can't be read: ${n.why}` : n.kids ? `${plural(keys.length, n.kind === "book" || n.id === "b" ? "book" : "file")}, ${MB(size)}` : MB(size);
+      const stored = n.why ? "" : n.kind === "book" ? { stored: "stored here", update: "update available", new: "not here" }[n.status] || ""
+        : here === keys.length ? (n.kids ? "all stored" : "stored") : here ? `${here} of ${keys.length} stored` : "not stored";
+      el.append(tw, bx, h("span", "plab", n.label), h("span", "psize", what), h("span", "phere" + (here === keys.length && keys.length ? " yes" : ""), stored));
+      out.push(el);
+    });
+    treeEl.replaceChildren(...out);
+    const fi = ids.indexOf(st.focus);
+    if (fi >= 0) treeEl.setAttribute("aria-activedescendant", "pkr-" + fi); else treeEl.removeAttribute("aria-activedescendant");
+    const f = treeEl.children[fi];
+    if (f && document.activeElement === treeEl && f.scrollIntoView) f.scrollIntoView({ block: "nearest" });
+    drawTotal();
+  }
+  function drawTotal() {
+    if (!totalEl) return;
+    const keys = Array.from(st.ticked).filter((k) => st.tree.leaves.has(k));
+    const bytes = sizeOf(keys), here = keys.filter(isHere), hereBytes = sizeOf(here);
+    const books = keys.filter((k) => st.tree.leaves.get(k).kind === "book").length;
+    const parts = typeof showSaveFilePicker === "function" ? 1 : P.split(keys.map((k) => ({ size: st.tree.leaves.get(k).size })), P.PART_BYTES).length;
+    totalEl.textContent = keys.length
+      ? `Ticked: ${plural(keys.length, "file")}${books ? ` (${plural(books, "book")})` : ""}, ${MB(bytes)}: ${here.length ? `${MB(hereBytes)} stored here` : "nothing stored here"}${keys.length > here.length ? `, ${MB(bytes - hereBytes)} to download` : ""}${parts > 1 ? `; about ${parts} parts` : ""}.`
+      : "Nothing ticked.";
+    if (goEl) { goEl.disabled = !keys.length || !!(st.running || P.busy || V.busy); goEl.textContent = keys.length ? `Make the package (${MB(bytes)})…` : "Make the package…"; }
+    globalThis.PACKTAB.last = { ticked: keys.length, bytes, here: here.length };
+  }
+  function preset(which) {
+    if (which === "none") st.ticked.clear();
+    else if (which === "stored") st.ticked = new Set(Array.from(st.tree.leaves.keys()).filter(isHere));
+    else {
+      const need = P.needs(U.after()).filter((k) => st.tree.leaves.has(k));
+      st.ticked = new Set(need);
+      if (!need.length) U.say("The voice as set here is a browser voice: it needs no files.");
+    }
+    drawTree();
+  }
+
+  // ---- Selection: mouse, keys, touch ------------------------------------------------------------------
+  function wire(el) {
+    let press = null;
+    el.addEventListener("pointerdown", (e) => {
+      const row = e.target.closest(".prow");
+      if (!row) return;
+      press = { id: row.dataset.id, touch: e.pointerType === "touch" || e.pointerType === "pen", fired: false, x: e.clientX, y: e.clientY };
+      if (press.touch) press.timer = setTimeout(() => { press.fired = true; startRange(press.id); }, LONG_MS);
+    });
+    const cancel = () => { if (press && press.timer) clearTimeout(press.timer); };
+    el.addEventListener("pointerup", cancel);
+    el.addEventListener("pointercancel", () => { cancel(); press = null; });
+    el.addEventListener("pointermove", (e) => { if (press && press.timer && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) { clearTimeout(press.timer); press.timer = null; } });
+    el.addEventListener("contextmenu", (e) => { if (press && press.touch) e.preventDefault(); });
+    el.addEventListener("click", (e) => {
+      const row = e.target.closest(".prow");
+      const p = press;
+      press = null;
+      if (!row) return;
+      const id = row.dataset.id;
+      if (p && p.fired) return;                                       // the long press already did its part
+      st.focus = id;
+      if (e.target.closest(".ptw") && row.hasAttribute("aria-expanded")) { toggleOpen(id); return; }
+      if (p && p.touch) {
+        if (st.touchAnchor && st.touchAnchor !== id) {
+          const a = visible().find((r) => r.n.id === st.touchAnchor);
+          const on = a ? tickState(a.n) !== "true" : true;
+          setTicks(between(st.touchAnchor, id), on);
+          st.touchAnchor = "";
+        } else { st.touchAnchor = ""; tick([id]); }
+        st.selected = new Set([id]); st.anchor = id;
+      } else if (e.target.closest(".pbox")) { tick([id]); st.selected = new Set([id]); st.anchor = id; }
+      else if (e.shiftKey) st.selected = new Set(between(st.anchor || id, id));
+      else if (e.ctrlKey || e.metaKey) { if (st.selected.has(id)) st.selected.delete(id); else st.selected.add(id); st.anchor = id; }
+      else { st.selected = new Set([id]); st.anchor = id; }
+      el.focus({ preventScroll: true });
+      drawTree();
+    });
+    el.addEventListener("dblclick", (e) => { const row = e.target.closest(".prow"); if (row && row.hasAttribute("aria-expanded") && !e.target.closest(".pbox")) toggleOpen(row.dataset.id); });
+    el.addEventListener("keydown", key);
+  }
+  function startRange(id) {
+    st.touchAnchor = id; st.focus = id; st.selected = new Set([id]); st.anchor = id;
+    U.say("Range started: tap another row to tick (or untick) every row from here to there.");
+    drawTree();
+  }
+  function toggleOpen(id) { if (st.expanded.has(id)) st.expanded.delete(id); else st.expanded.add(id); drawTree(); }
+  function key(e) {
+    const rows = visible(), ids = rows.map((r) => r.n.id);
+    let i = ids.indexOf(st.focus);
+    if (i < 0) i = 0;
+    const r = rows[i];
+    const move = (j, extend) => {
+      j = Math.max(0, Math.min(ids.length - 1, j));
+      st.focus = ids[j];
+      if (extend) st.selected = new Set(between(st.anchor || ids[i], ids[j]));
+      else { st.selected = new Set([ids[j]]); st.anchor = ids[j]; }
+    };
+    const k = e.key;
+    if (k === "ArrowDown") move(i + 1, e.shiftKey);
+    else if (k === "ArrowUp") move(i - 1, e.shiftKey);
+    else if (k === "Home") move(0, e.shiftKey);
+    else if (k === "End") move(ids.length - 1, e.shiftKey);
+    else if (k === "ArrowRight") {
+      if (r && r.n.kids && !st.expanded.has(r.n.id)) st.expanded.add(r.n.id);
+      else if (r && r.n.kids && r.n.kids.length) move(i + 1, false);
+    } else if (k === "ArrowLeft") {
+      if (r && r.n.kids && st.expanded.has(r.n.id)) st.expanded.delete(r.n.id);
+      else if (r && r.parent) move(ids.indexOf(r.parent), false);
+    } else if (k === " " || k === "Spacebar") tick(st.selected.size ? Array.from(st.selected) : [st.focus]);
+    else if ((k === "a" || k === "A") && (e.ctrlKey || e.metaKey)) st.selected = new Set(ids);
+    else return;
+    e.preventDefault();
+    drawTree();
+  }
+
+  // ---- Making it ------------------------------------------------------------------------------------
+  const cancelled = (e) => !!(e && (e.stopped || e.name === "AbortError"));
+  function makeNow() {
+    if (st.running || P.busy || V.busy) { U.say("A package is already being made or imported."); return; }
+    const keys = Array.from(st.ticked).filter((k) => st.tree.leaves.has(k));
+    if (!keys.length) { U.say("Tick what goes in first."); return; }
+    let target = null;
+    try { target = P.savePicker(); } catch (e) { target = null; }
+    if (target) target.catch(() => {});
+    st.running = "make"; st.made = null;
+    redo();
+    (async () => {
+      let said = "";
+      try {
+        const r = await P.build(keys, st.tree.leaves, Object.assign({ target, settings: st.withSettings ? V.mySettings() : null, progress: (t, f) => U.progress(t, f) }, globalThis.PACKTAB.hooks));
+        said = `Made the offline package: ${plural(r.files, "file")}, ${MB(r.bytes)}${st.withSettings ? " and your settings" : ""}${r.downloaded ? ` (${r.downloaded} downloaded for it)` : ""}; ${r.how}.`;
+        if (r.held && r.held.length) st.made = { parts: r.held, saved: new Set() };
+      } catch (e) {
+        said = cancelled(e) ? "Stopped: no package was written." : e && e.name === "AbortError" ? "No file was chosen: nothing was written." : `The package was not made: ${e.message}`;
+      } finally {
+        st.running = ""; U.progress("");
+        st.have = await P.storedSet().catch(() => st.have);
+        U.say(said); redo();
+      }
+    })();
+  }
+
+  function savePart(i) {
+    const p = st.made.parts[i];
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(p.blob); a.download = p.name; a.hidden = true;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 600000);
+    st.made.saved.add(i);
+    log("storage", `offline package: ${p.name} offered as a download (${MB(p.size)})`);
+    U.say(`${p.name} offered as a download.${st.made.saved.size === st.made.parts.length ? " Every part has been offered: press Done when they have all landed." : ""}`);
+    redo();
+  }
+
+  // ---- Import -----------------------------------------------------------------------------------------
+  function importRow() {
+    const box = h("div", "simp");
+    if (st.running === "import") {
+      box.appendChild(U.button("sbtn", "Stop importing", () => { P.stop(); U.say("Stopping after the current file…"); }));
+      return U.row("Import a package", "", box, { block: true });
+    }
+    if (st.report) for (const [t, bad] of st.report) box.appendChild(line(t, bad));
+    if (!st.pkgs) {
+      box.appendChild(U.button("sbtn", st.report ? "Import more parts…" : "Import parts…", importPick));
+      return U.row("Import a package", "Choose every part of an offline package (or several), in any order; an old Voice_data.zip works too. Each file is checked before it is stored; what is missing is named.", box, { block: true });
+    }
+    for (const e of st.pkgs.errors) box.appendChild(line(`${e.name} ${e.why}.`, true));
+    if (!st.pkgs.packages.length) box.appendChild(line("No package among them: nothing to import.", true));
+    const go = U.button("sbtn hot", "Import", importNow);
+    go.disabled = true;
+    const fit = h("div", "sfit", "Checking…");
+    for (const p of st.pkgs.packages) P.describe(p).forEach((t, i) => box.appendChild(line(t, i > 0 && /not given/.test(t))));
+    box.appendChild(fit);
+    Promise.resolve().then(async () => {
+      let take = [], here = 0;
+      for (const p of st.pkgs.packages) { const q = await P.plan(p); take = take.concat(q.take); here += q.here.length; }
+      const f = await MODELS.fit(take.filter((r) => r.kind === "file").map((r) => ({ url: r.url, size: r.size })));
+      go.disabled = !(take.length ? f.ok : st.bring && settingsOf());
+      go.textContent = take.length ? `Import ${plural(take.length, "file")} (${MB(take.reduce((n, r) => n + r.size, 0))})` : st.bring ? "Bring in the settings" : "Nothing to import";
+      return [line(take.length ? `${here ? `${plural(here, "file")} already here; ` : ""}${plural(take.length, "file")} to import.` : "Everything given is already here."), line(`Storage: ${f.text}.`, !f.ok)];
+    }).then((nodes) => { if (fit.isConnected) fit.replaceChildren(...nodes); }, (e) => { if (fit.isConnected) fit.replaceChildren(line(`Could not be checked: ${e.message}`, true)); });
+    const s = settingsOf();
+    if (s) {
+      const vals = Object.keys(V.validSettings(s)), tuned = vals.filter((k) => V.DEVICE_TUNED.includes(k));
+      const t1 = h("label", "stick"), i1 = h("input");
+      i1.type = "checkbox"; i1.checked = st.bring;
+      i1.addEventListener("change", () => { st.bring = i1.checked; redo(); });
+      t1.append(i1, h("span", null, `Also bring in the package's settings (${vals.length - tuned.length}): the light ones apply at once, the others wait for Apply`));
+      box.appendChild(t1);
+      if (st.bring && tuned.length) {
+        const t2 = h("label", "stick"), i2 = h("input");
+        i2.type = "checkbox"; i2.checked = st.bringTuned;
+        i2.addEventListener("change", () => { st.bringTuned = i2.checked; redo(); });
+        t2.append(i2, h("span", null, `…and the ones tuned to the device it was made on (${tuned.join(", ")})`));
+        box.appendChild(t2);
+      }
+    }
+    const btns = h("div", "sbtnrow");
+    btns.append(go, U.button("sbtn", "Cancel", () => { st.pkgs = null; st.bring = st.bringTuned = false; redo(); }));
+    box.appendChild(btns);
+    return U.row("Import a package", "", box, { block: true });
+  }
+  const settingsOf = () => (st.pkgs && (st.pkgs.packages.find((p) => p.settings) || {}).settings) || null;
+  function importPick() {
+    const picked = P.pick();
+    (async () => {
+      const files = await picked;
+      if (!files.length) return;
+      try { st.pkgs = await P.open(files); st.report = null; st.bring = st.bringTuned = false; U.say(""); } catch (e) { st.pkgs = null; U.say(e.message); }
+      redo();
+    })();
+  }
+  async function importNow() {
+    const pk = st.pkgs;
+    if (!pk) return;
+    const s = st.bring ? settingsOf() : null;
+    st.running = "import"; redo();
+    const rep = [];
+    let said = "";
+    try {
+      for (const p of pk.packages) {
+        const r = await P.take(p, (t, f) => U.progress(t, f));
+        const what = p.old ? p.name : `the package of ${p.made}`;
+        rep.push([`From ${what}: ${r.took ? `imported ${plural(r.took, "file")} (${MB(r.bytes)}), each checked` : "nothing new imported"}${r.here ? `; ${plural(r.here, "file")} already here` : ""}.`, false]);
+        for (const m of r.missing) rep.push([`Part ${m.part} of ${p.parts} not given: ${plural(m.files, "file")} (${MB(m.bytes)}) not imported: ${m.names.slice(0, 6).join(", ")}${m.names.length > 6 ? ", …" : ""}.`, true]);
+        for (const f of r.failed) rep.push([`Failed: ${f.why}.`, true]);
+      }
+      if (s) rep.push([bringIn(s), false]);
+      said = rep.map((x) => x[0]).join(" ");
+      st.pkgs = null; st.bring = st.bringTuned = false;
+    } catch (e) {
+      said = e.stopped ? "Import stopped. The files imported so far are kept (each was checked)." : e.message;
+      rep.push([said, !e.stopped]);
+    } finally {
+      st.report = rep; st.running = ""; U.progress(""); U.say(said); U.refreshNeed();
+      st.have = await P.storedSet().catch(() => st.have);
+      redo();
+    }
+  }
+  // The package's settings: the light ones applied now, the heavy ones pending, the tuned ones only when asked.
+  function bringIn(values) {
+    const vals = V.validSettings(values), dropped = V.droppedSettings(values);
+    const left = st.bringTuned ? [] : Object.keys(vals).filter((k) => V.DEVICE_TUNED.includes(k) && JSON.stringify(vals[k]) !== JSON.stringify(SETTINGS.get(k)));
+    const names = Object.keys(vals).filter((k) => !left.includes(k) && JSON.stringify(vals[k]) !== JSON.stringify(SETTINGS.get(k)));
+    const now = names.filter((k) => U.LIVE.includes(k)), wait = names.filter((k) => !U.LIVE.includes(k));
+    for (const k of names) U.change(k, vals[k]);
+    log("settings", `brought in from an offline package: ${names.length ? `applied now: ${now.join(", ") || "none"} · waiting for Apply: ${wait.join(", ") || "none"}` : "none differ"}${left.length ? ` · left out (tuned to the other device): ${left.join(", ")}` : ""}${dropped.length ? ` · not taken (unknown here or of the wrong kind): ${dropped.join(", ")}` : ""}`);
+    let t = names.length ? `${now.length ? `Applied now from the package's settings: ${now.join(", ")}.` : ""}${wait.length ? `${now.length ? " " : ""}Waiting for Apply (review them first): ${wait.join(", ")}.` : ""}` : "Its settings are the same as these.";
+    if (left.length) t += ` Left out, as tuned to the device it was made on: ${left.join(", ")}.`;
+    if (dropped.length) t += ` Not taken (this reader does not know them, or they are of the wrong kind): ${dropped.join(", ")}.`;
+    return t;
+  }
+
+  globalThis.PACKTAB = { st, hooks: {}, last: null, reload: () => { st.tree = null; redo(); } };
+  W.addTab("Offline package", render);
 })();
 </script>
 <script>
@@ -11998,7 +12410,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const DEVICE = [P + "device", P + "memory-ceiling", P + "memory-probe", P + "step", P + "step-stopped"];
   const GROUPS = [
     { id: "book", title: "Books", help: "Every stored book: its chapters and your reading place in it. Delete removes them all and leaves the page empty; the Open window (top left) deletes one book at a time, or adds books again." },
-    { id: "voice", title: "Voice and listener files", help: "The voice and listener models and their libraries. Delete removes them all: a voice downloads its files again at its next Play, or copies them from Voice_data.zip." },
+    { id: "voice", title: "Voice and listener files", help: "The voice and listener models and their libraries. Delete removes them all: a voice downloads its files again at its next Play, or comes from an imported offline package." },
     { id: "settings", title: "Settings", help: "Your settings and the small things the page remembers (window sizes and positions, the lock button). Delete returns every setting to its default at once; unsaved changes in this window stay pending. This device's broken precisions (graphics-card facts, not choices) are kept." },
     { id: "logs", title: "Logs", help: "The logs of earlier visits. Delete removes them; this visit's log stays, as it is still being written." },
     { id: "device", title: "Device results", help: "The results of the device check and the measured working-memory limit. Delete forgets them: the Voice tab loses its \"runs well / too slow\" marks until System → Debug → Re-check this device runs again. Settings stay." },
