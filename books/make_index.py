@@ -54,7 +54,7 @@ def scan(folder):
             raise ValueError(f"book.json is not valid JSON: {e}")
         if not isinstance(meta, dict):
             raise ValueError("book.json must hold an object { ... }")
-    zips = sorted(p.name for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".zip")
+    zips = sorted(p.name for p in folder.iterdir() if p.is_file() and p.suffix.lower() in (".zip", ".epub"))
     zname = meta.get("zip")
     if zname:
         if not (folder / zname).is_file():
@@ -62,10 +62,12 @@ def scan(folder):
     elif len(zips) == 1:
         zname = zips[0]
     elif not zips:
-        raise ValueError("no zip in the folder (a book is one zip of .md or .txt files)")
+        raise ValueError("no zip in the folder (a book is one zip of .md or .txt files, or one .epub)")
     else:
         raise ValueError(f"{len(zips)} zips in the folder ({', '.join(zips)}); say which in book.json: \"zip\": \"name.zip\"")
     zpath = folder / zname
+    epub = zname.lower().endswith(".epub")
+    kinds = (".xhtml", ".html", ".htm") if epub else TEXT
     h = hashlib.sha1()
     files = words = 0
     try:
@@ -74,13 +76,14 @@ def scan(folder):
                 if info.is_dir():
                     continue
                 h.update(f"{info.filename}\0{info.CRC}\0{info.file_size}\0".encode("utf-8"))
-                if info.filename.lower().endswith(TEXT):
+                if info.filename.lower().endswith(kinds):
                     files += 1
-                    words += len(z.read(info).decode("utf-8", "replace").split())
+                    t = z.read(info).decode("utf-8", "replace")
+                    words += len((re.sub(r"<[^>]*>", " ", t) if epub else t).split())  # an EPUB's count is rough (markup stripped)
     except zipfile.BadZipFile as e:
         raise ValueError(f"{zname} is not a zip: {e}")
     if not files:
-        raise ValueError(f"{zname} holds no .md or .txt file")
+        raise ValueError(f"{zname} holds no {'XHTML page' if epub else '.md or .txt file'}")
     size = zpath.stat().st_size
     if size > 50_000_000:
         raise ValueError(f"{zname} is {size / 1e6:.1f} MB; GitHub Pages files must stay under 50 MB")

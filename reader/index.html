@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.403 and 2026-10-22 10:27 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.455 and 2026-10-22 11:14 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.403</title>
+<title>Book reader V1.0.455</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.403";
-  window.APP_BUILT = "2026-10-22 10:27 PM";
-  window.APP_NOTE = "Test runs keep the last description (testing, unchanged) \u00b7 testing, unchanged";
+  window.APP_VERSION = "Book reader V1.0.455";
+  window.APP_BUILT = "2026-10-22 11:14 PM";
+  window.APP_NOTE = "EPUB import, single files, simpler first-run wording";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -784,7 +784,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     Chapter numbers are optional. Plain text only (<code>.txt</code>, <code>.text</code>, <code>.md</code>).</p>
   <p class="note"></p>
   <input type="file" id="file-folder" webkitdirectory multiple hidden>
-  <input type="file" id="file-files" multiple accept=".txt,.text,.md,.gz,.zip,text/plain,application/zip" hidden>
+  <input type="file" id="file-files" multiple accept=".txt,.text,.md,.gz,.zip,.epub,text/plain,application/zip,application/epub+zip" hidden>
 </section>
 <footer class="play" id="play">
   <button id="prevpiece" type="button" title="Previous piece (↑)" aria-label="Previous piece">⏮</button>
@@ -1525,8 +1525,462 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return { chapters: [{ title: o.title, paras, n: null }], how: `one chapter (${heads.length ? "one" : "no"} heading line${heads.length === 1 ? "" : "s"}, ${words.toLocaleString("en-US")} words)`, numbered: false };
   }
 
-  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, topFolder, pretty, outline, placeHeads, eraSplit, softenMd, plain, looksWrapped, paragraphs, heading, split, countWords,
+  globalThis.CHAPTER = { number, base, stem, isChapter, isText, nameTitle, parse, natural, numbered, group, topFolder, pretty, outline, placeHeads, eraSplit, softenMd, plain, rowText, looksWrapped, paragraphs, heading, split, countWords,
     PART_WORDS, PARTS_FROM, source: "(" + chapterJs.toString() + ")();" };
+})();
+</script>
+<script>
+// epub.js: an EPUB to chapters (2026-10-22), no browser needed: no DOMParser (the import worker has none), a
+// small tag tokenizer instead. EPUB.source is this file as text for book.js's import worker; it uses ZIP
+// (the entries) and CHAPTER (pretty, rowText). An EPUB is a zip: META-INF/container.xml names the OPF, the OPF
+// gives the metadata (title, author), the manifest and the spine (reading order); the table of contents is
+// the EPUB 3 nav document (manifest properties "nav"), else the EPUB 2 NCX (the spine's toc, else the one
+// of its media type).
+//   EPUB.peek(blob)         { title, author }; throws "This EPUB is locked (DRM) …" or the plain reason
+//   EPUB.read(blob, opts)   { title, author, chapters: [{ title, sec, paras, heads }], how, info, skipped }
+// Chapters come from the TOC: each entry's target (a file, or an anchor inside one) starts a chapter that
+// runs to the next entry's target across as many spine files as it takes. Nesting: a top entry WITH children
+// is a part (its children are the chapters, `sec` = the part's name, for the Index panel's groups); a top
+// entry without children is a chapter; deeper entries are headings inside their chapter (`heads`, at their
+// paragraph), as are the <h1>-<h6> inside the chapter. Text before the first entry, when any, is a chapter
+// named by its first heading. No usable TOC: a chapter per spine file, named by its first heading, the file's
+// <title>, or the file name made readable. XHTML to text: a paragraph per <p> / heading / <div> of text /
+// list (items on lines) / table row (as a sentence, CHAPTER.rowText); <br> keeps the line (verse); <pre> is
+// kept as written; scripts, styles, images (no alt), svg and math are ignored; entities decoded; soft hyphens
+// removed; nbsp a space; a drop cap in its own element ("T" + "he") rejoined. Front matter (opts.skipFront,
+// default true): a file is skipped when it is the nav document, the guide / landmarks say cover, toc or
+// copyright-page, the TOC calls it Contents / Copyright, its name says toc / contents / copyright, or it is
+// a short page that is mostly links; blocks inside an epub:type toc / copyright-page element go too; nav
+// landmarks / page-list blocks always go. Footnotes: a note reference (<a epub:type="noteref">, a link in
+// <sup>, a link whose text is a bare number or mark, a bare number in <sup>) is removed from the text; the
+// note bodies (epub:type footnote / endnote / rearnote, class footnote, an <aside>, or the target of a
+// reference) are dropped (opts.footnotes "skip", default) or read at the end of their chapter ("end").
+// Spine items with linear="no" are not read (said in `info`). DRM: META-INF/encryption.xml naming a content
+// file, or any method but font obfuscation, or META-INF/rights.xml → refused with a plain message.
+(function epubJs() {
+  const SHY = String.fromCharCode(173), NBSP = String.fromCharCode(160);
+  const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", shy: "", ensp: " ", emsp: " ", thinsp: " ", zwnj: "", zwj: "",
+    mdash: "—", ndash: "–", hellip: "…", lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”", sbquo: "‚", bdquo: "„", laquo: "«", raquo: "»",
+    copy: "©", reg: "®", trade: "™", deg: "°", middot: "·", bull: "•", dagger: "†", Dagger: "‡", sect: "§", para: "¶", times: "×", divide: "÷",
+    pound: "£", euro: "€", yen: "¥", cent: "¢", frac12: "½", frac14: "¼", frac34: "¾", iexcl: "¡", iquest: "¿", prime: "′", Prime: "″",
+    eacute: "é", egrave: "è", ecirc: "ê", euml: "ë", aacute: "á", agrave: "à", acirc: "â", auml: "ä", atilde: "ã", aring: "å", aelig: "æ",
+    iacute: "í", igrave: "ì", icirc: "î", iuml: "ï", oacute: "ó", ograve: "ò", ocirc: "ô", ouml: "ö", otilde: "õ", oslash: "ø", uacute: "ú",
+    ugrave: "ù", ucirc: "û", uuml: "ü", ntilde: "ñ", ccedil: "ç", szlig: "ß", yacute: "ý", yuml: "ÿ", Eacute: "É", Agrave: "À", Ccedil: "Ç",
+    Ouml: "Ö", Uuml: "Ü", Auml: "Ä", AElig: "Æ", oelig: "œ", OElig: "Œ", scaron: "š", Scaron: "Š" };
+  const dec = (s) => (s.includes("&") ? s.replace(/&(#x([0-9a-fA-F]+)|#(\d+)|([A-Za-z][A-Za-z0-9]*));/g, (m, _, hx, dn, name) => {
+    if (hx || dn) { const n = hx ? parseInt(hx, 16) : Number(dn); return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : ""; }
+    return name in NAMED ? NAMED[name] : m;
+  }) : s);
+  const norm = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const same = (a, b) => norm(a).toLowerCase().replace(/[^a-z0-9]+/g, "") === norm(b).toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+  // ---- Paths ----------------------------------------------------------------------------------------------
+  const dirOf = (p) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/") + 1) : "");
+  // href relative to a folder ("OEBPS/") → { path (a zip name), frag }.
+  function resolve(base, href) {
+    let h = String(href || "").trim(), frag = "";
+    const hash = h.indexOf("#");
+    if (hash >= 0) { frag = h.slice(hash + 1); h = h.slice(0, hash); }
+    try { h = decodeURIComponent(h); } catch (e) {}
+    try { frag = decodeURIComponent(frag); } catch (e) {}
+    if (!h || /^[a-z]+:/i.test(h)) return { path: "", frag };
+    const out = [];
+    for (const p of (h.startsWith("/") ? h.slice(1) : base + h).split("/")) { if (p === "..") out.pop(); else if (p && p !== ".") out.push(p); }
+    return { path: out.join("/"), frag };
+  }
+
+  // ---- The tokenizer ---------------------------------------------------------------------------------------
+  // [{ text } | { tag (local name, lower case), close, self, raw (the attributes as written) }]. Comments, the
+  // prolog, the doctype and the whole of <script> / <style> go.
+  const VOID = new Set(["br", "img", "hr", "input", "meta", "link", "wbr", "source", "col", "area", "base", "embed", "param", "track"]);
+  const TAG = /<(\/?)([A-Za-z][\w:.-]*)((?:"[^"]*"|'[^']*'|[^"'>])*?)(\/?)>/y;
+  function tokenize(s) {
+    const out = [], n = s.length;
+    let i = 0;
+    while (i < n) {
+      const lt = s.indexOf("<", i);
+      if (lt < 0) { out.push({ text: s.slice(i) }); break; }
+      if (lt > i) out.push({ text: s.slice(i, lt) });
+      if (s.startsWith("<!-" + "-", lt)) { const e = s.indexOf("-->", lt + 4); i = e < 0 ? n : e + 3; continue; }     // a comment (the opener spelled in two pieces: the build refuses it whole)
+      if (s.startsWith("<![CDATA[", lt)) { const e = s.indexOf("]]>", lt); out.push({ text: s.slice(lt + 9, e < 0 ? n : e), raw: true }); i = e < 0 ? n : e + 3; continue; }
+      if (s[lt + 1] === "?" || s[lt + 1] === "!") { const e = s.indexOf(">", lt); i = e < 0 ? n : e + 1; continue; }
+      TAG.lastIndex = lt;
+      const m = TAG.exec(s);
+      if (!m) { out.push({ text: "<" }); i = lt + 1; continue; }
+      const full = m[2], tag = full.toLowerCase().replace(/^.*:/, "");
+      out.push({ tag, close: m[1] === "/", self: m[4] === "/" || VOID.has(tag), raw: m[3] });
+      i = lt + m[0].length;
+      if (m[1] !== "/" && (tag === "script" || tag === "style")) {
+        const re = new RegExp("</" + full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*>", "ig");
+        re.lastIndex = i;
+        const e = re.exec(s);
+        i = e ? e.index + e[0].length : n;
+      }
+    }
+    return out;
+  }
+  const ATTR = /([\w:.-]+)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  function attrs(t) {
+    if (t.attrs) return t.attrs;
+    const o = {};
+    if (t.raw && t.raw.trim()) { ATTR.lastIndex = 0; let m; while ((m = ATTR.exec(t.raw))) o[m[1].toLowerCase()] = dec(m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4] || ""); }
+    return (t.attrs = o);
+  }
+  const typeOf = (a) => `${a["epub:type"] || ""} ${a.role || ""}`.toLowerCase();
+
+  // ---- The OPF, the NCX, the nav document ------------------------------------------------------------------
+  function opf(src, path) {
+    const base = dirOf(path), out = { title: "", author: "", items: new Map(), spine: [], guide: [], tocId: "", nav: "", ncx: "" };
+    let cap = "";
+    for (const t of tokenize(src)) {
+      if (t.text !== undefined) { if (cap && !out[cap]) out[cap] = norm(dec(t.text)); continue; }
+      if (t.close) { cap = ""; continue; }
+      const a = attrs(t);
+      if (t.tag === "title" && !out.title) cap = "title";
+      else if (t.tag === "creator" && !out.author) cap = "author";
+      else if (t.tag === "meta" && a.property === "dcterms:creator" && !out.author) cap = "author";
+      else if (t.tag === "item" && a.id && a.href) {
+        const it = { id: a.id, path: resolve(base, a.href).path, type: (a["media-type"] || "").toLowerCase(), props: (a.properties || "").toLowerCase().split(/\s+/) };
+        out.items.set(a.id, it);
+        if (it.props.includes("nav") && !out.nav) out.nav = it.path;
+        if (it.type === "application/x-dtbncx+xml" && !out.ncx) out.ncx = it.path;
+      } else if (t.tag === "spine") out.tocId = a.toc || "";
+      else if (t.tag === "itemref" && a.idref) out.spine.push({ id: a.idref, linear: (a.linear || "yes").toLowerCase() !== "no" });
+      else if (t.tag === "reference" && a.href) out.guide.push({ type: (a.type || "").toLowerCase(), path: resolve(base, a.href).path });
+      if (t.self) cap = "";
+    }
+    if (out.tocId && out.items.has(out.tocId)) out.ncx = out.items.get(out.tocId).path;
+    return out;
+  }
+  // Both give a tree: [{ label, path, frag, children }].
+  function ncx(src, path) {
+    const base = dirOf(path), root = { children: [] }, stack = [root];
+    let label = false;
+    for (const t of tokenize(src)) {
+      const top = stack[stack.length - 1];
+      if (t.text !== undefined) { if (label && top !== root && !top.label) top.label = norm(dec(t.text)); continue; }
+      if (t.tag === "navpoint") { if (t.close) { if (stack.length > 1) stack.pop(); } else if (!t.self) { const n = { label: "", path: "", frag: "", children: [] }; top.children.push(n); stack.push(n); } }
+      else if (t.tag === "text") label = !t.close;
+      else if (t.tag === "content" && !t.close && top !== root) Object.assign(top, resolve(base, attrs(t).src));
+    }
+    return root.children;
+  }
+  function nav(src, path) {
+    const base = dirOf(path), root = { children: [] }, stack = [root];
+    let depth = 0, inToc = 0, cap = null, landmarks = [], inLand = 0, land = null;
+    for (const t of tokenize(src)) {
+      const top = stack[stack.length - 1];
+      if (t.text !== undefined) { if (cap) cap.text += dec(t.text); continue; }
+      const a = t.close ? {} : attrs(t);
+      if (t.tag === "nav") {
+        if (t.close) { if (inToc) inToc = 0; if (inLand) inLand = 0; }
+        else { const ty = typeOf(a); if (/\btoc\b|doc-toc/.test(ty) || (!inToc && !root.children.length && !/landmarks|page-list|doc-pagelist/.test(ty))) inToc = 1; else if (/landmarks/.test(ty)) inLand = 1; }
+        continue;
+      }
+      if (inLand) {
+        if (t.tag === "a" && !t.close) { land = { type: typeOf(a), path: resolve(base, a.href).path }; landmarks.push(land); }
+        continue;
+      }
+      if (!inToc) continue;
+      if (t.tag === "li") { if (t.close) { if (stack.length > 1) { if (!top.label && cap) top.label = norm(cap.text); stack.pop(); } cap = null; } else if (!t.self) { const n = { label: "", path: "", frag: "", children: [] }; top.children.push(n); stack.push(n); } }
+      else if ((t.tag === "a" || t.tag === "span") && !t.close && top !== root && !top.label) { cap = { text: "" }; if (t.tag === "a") Object.assign(top, resolve(base, a.href)); }
+      else if ((t.tag === "a" || t.tag === "span") && t.close && cap && top !== root) { if (!top.label) top.label = norm(cap.text); cap = null; }
+    }
+    return { toc: root.children, landmarks };
+  }
+
+  // ---- One content file to blocks -------------------------------------------------------------------------
+  // { blocks: [{ text, kind: "p" | "h" | "li" | "row", level, ids, within, note, front, list }], title, links,
+  //   linkChars, textChars, targets: Set (note ids this page's references point at) }.
+  const BLOCK = new Set(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "pre", "section", "article", "aside", "header", "footer",
+    "nav", "figure", "figcaption", "table", "tr", "td", "th", "ul", "ol", "dl", "dt", "dd", "hr", "body", "main", "details", "summary", "address", "center", "caption", "thead", "tbody", "tfoot"]);
+  const SKIP = new Set(["head", "svg", "math", "script", "style", "title", "img", "video", "audio", "object", "iframe", "canvas", "noscript"]);
+  const REF = /^\s*[[(]?\s*(?:\d{1,3}|[a-z]|[ivxl]{1,4}|[*†‡§¶#]{1,3})\s*[\])]?\s*$/i;
+  const BACK = /^[\s↩↵←⏎^]+$/;
+  function page(src) {
+    const out = { blocks: [], title: "", links: 0, linkChars: 0, textChars: 0, targets: new Set() };
+    const stack = [];          // { tag, id, note, front, drop, pre, list }
+    const caps = [];           // open <a> / <sup> / <title> captures: { tag, href, type, text, cls }
+    let cur = [], kind = "p", level = 0, pending = [], dropcap = false, listN = 0;
+    let table = null;          // { head: null | [cells], cells: null | [], cell: null | [] }
+    const inside = (tag) => stack.some((s) => s.tag === tag);
+    const nearest = (key) => { for (let i = stack.length - 1; i >= 0; i--) if (stack[i][key]) return stack[i][key]; return 0; };
+    const emit = (text) => {
+      if (caps.length) { caps[caps.length - 1].text += text; return; }
+      if (table && table.cell) { table.cell.push(text); return; }
+      if (table && !table.cell) return;        // text between the cells of a table (whitespace, a caption without <caption>)
+      cur.push(text);
+    };
+    const clean = (parts, pre) => {
+      let t = parts.join("").replace(new RegExp(SHY, "g"), "").replace(new RegExp(NBSP, "g"), " ");
+      if (!pre) t = t.replace(/[ \t\r\f\v]+/g, " ").split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+      else t = t.replace(/\r\n?/g, "\n").replace(/^\n+|\s+$/g, "");
+      return t;
+    };
+    const push = (text, k, lvl) => {
+      const b = { text, kind: k, level: lvl || 0, ids: pending, within: stack.map((s) => s.id).filter(Boolean), note: !!nearest("note"), front: !!nearest("front"), navlist: !!nearest("navlist"), list: k === "li" ? nearest("list") : 0 };
+      pending = [];
+      out.textChars += text.length;
+      if (b.kind === "li" && out.blocks.length && out.blocks[out.blocks.length - 1].kind === "li" && out.blocks[out.blocks.length - 1].list === b.list && !b.ids.length) { out.blocks[out.blocks.length - 1].text += "\n" + text; return; }
+      out.blocks.push(b);
+    };
+    const flush = () => {
+      if (!cur.length) { dropcap = false; return; }
+      const pre = inside("pre");
+      let text = clean(cur, pre);
+      cur = [];
+      if (dropcap) text = text.replace(/^([B-HJ-Z])\s+(?=[a-z]{2})/, "$1");
+      dropcap = false;
+      if (!text) return;
+      push(text, inside("li") ? "li" : kind, level);
+      kind = "p"; level = 0;
+    };
+    for (const t of tokenize(src)) {
+      if (t.text !== undefined) {
+        if (nearest("drop")) { if (caps.length && caps[caps.length - 1].tag === "title") caps[caps.length - 1].text += dec(t.text); continue; }
+        const text = t.raw ? t.text : dec(t.text);
+        if (!caps.length && !table && !cur.length && /^\s*$/.test(text)) continue;
+        emit(text);
+        continue;
+      }
+      const tag = t.tag;
+      if (t.close) {
+        let k = stack.length - 1;
+        while (k >= 0 && stack[k].tag !== tag) k--;
+        if (k < 0) continue;
+        if (stack[k].cap) {
+          const c = caps.pop();
+          stack.length = k;
+          let text = c.text;
+          if (tag === "title") { if (!out.title) out.title = norm(text); continue; }
+          if (tag === "a") {
+            const frag = c.href.includes("#") ? c.href.slice(c.href.indexOf("#") + 1) : "";
+            const ref = /noteref|doc-noteref/.test(c.type) || (frag && (c.sup || REF.test(text)));
+            if (ref) { if (frag) out.targets.add(frag); continue; }
+            if (/backlink|doc-backlink/.test(c.type) || (frag && BACK.test(text))) continue;
+            if (c.href && !/^\s*$/.test(text)) { out.links++; out.linkChars += text.replace(/\s+/g, "").length; }
+          } else if (tag === "sup") { if (REF.test(text) && !/^\s*[a-z]\s*$/i.test(text)) continue; }
+          else if (tag === "span" || tag === "b" || tag === "strong" || tag === "i" || tag === "em" || tag === "big" || tag === "font") {
+            if (c.drop && /^\s*[A-Za-z]\s*$/.test(text) && !cur.length && !caps.length) dropcap = true;
+          }
+          emit(text);
+          continue;
+        }
+        if (BLOCK.has(tag) || SKIP.has(tag)) {
+          if (table && (tag === "td" || tag === "th")) { if (table.cell) { table.cells.push(clean(table.cell, false)); table.cell = null; } }
+          else if (table && tag === "tr") { if (table.cells) { const cells = table.cells; table.cells = null; if (cells.some(Boolean)) { if (table.heads && !table.head) table.head = cells; else { const row = CHAPTER.rowText(table.head, cells); if (row) push(row, "row", 0); } } } }
+          else if (tag === "table") { if (table && table.outer) table = table.outer; else table = null; }
+          else if (!table) flush();
+          if (tag === "thead" && table) table.heads = false;
+        }
+        stack.length = k;
+        continue;
+      }
+      const a = attrs(t);
+      const ty = typeOf(a), cls = (a.class || "").toLowerCase();
+      if (a.id) pending.push(a.id);
+      if (t.self) { if (tag === "br") emit("\n"); else if (tag === "hr" && !table) flush(); continue; }
+      const fr = { tag, id: a.id || "", pre: tag === "pre" };
+      if (/\b(footnote|endnote|rearnote)s?\b/.test(ty + " " + cls) || (/\bnote\b/.test(ty) && !/noteref/.test(ty)) || /doc-(foot|end)note/.test(ty) || tag === "aside") fr.note = true;
+      if (/\b(toc|copyright-page|doc-toc)\b/.test(ty)) fr.front = true;
+      if (tag === "nav" && /landmarks|page-list|doc-pagelist/.test(ty)) fr.navlist = true;
+      if (SKIP.has(tag)) fr.drop = true;
+      if (tag === "ul" || tag === "ol" || tag === "dl") fr.list = ++listN;
+      const drop = /drop|initial|lettrine|first-?letter|\bcap\b/.test(cls);
+      if (tag === "a" || tag === "sup" || tag === "title" || (drop && /^(span|b|strong|i|em|big|font)$/.test(tag))) {
+        caps.push({ tag, href: a.href || "", type: ty, text: "", sup: tag === "a" && inside("sup"), drop });
+        fr.cap = true;
+        stack.push(fr);
+        continue;
+      }
+      if (BLOCK.has(tag)) {
+        if (tag === "table") { flush(); table = { head: null, heads: false, cells: null, cell: null, outer: table }; }
+        else if (table && tag === "tr") table.cells = [];
+        else if (table && (tag === "td" || tag === "th")) { table.cell = []; if (tag === "th" && !table.head && table.cells) table.heads = true; }
+        else if (table && tag === "thead") table.heads = true;
+        else if (!table) { flush(); if (/^h[1-6]$/.test(tag)) { kind = "h"; level = Number(tag[1]); } }
+      }
+      stack.push(fr);
+    }
+    flush();
+    return out;
+  }
+
+  // ---- The book ----------------------------------------------------------------------------------------------
+  async function open(blob) {
+    const list = await ZIP.entries(blob);
+    const byName = new Map(list.filter((e) => !e.dir).map((e) => [e.name, e]));
+    const text = async (name) => ZIP.decode(await ZIP.bytes(blob, byName.get(name))).text;
+    const has = (n) => byName.has(n);
+    if (!has("META-INF/container.xml")) throw new Error(`not an EPUB: it has no META-INF/container.xml (${list.length} entries)`);
+    if (has("META-INF/rights.xml")) throw new Error("This EPUB is locked (DRM): it carries a rights file, so its text cannot be read. Only books without DRM open here.");
+    if (has("META-INF/encryption.xml")) {
+      let cur = null;
+      for (const t of tokenize(await text("META-INF/encryption.xml"))) {
+        if (t.text !== undefined || t.close) continue;
+        const a = attrs(t);
+        if (t.tag === "encrypteddata") cur = { alg: "", uri: "" };
+        else if (cur && t.tag === "encryptionmethod") cur.alg = a.algorithm || "";
+        else if (cur && t.tag === "cipherreference") {
+          cur.uri = a.uri || "";
+          const font = /idpf.org\/2008\/embedding|ns.adobe.com\/pdf\/enc#RC/i.test(cur.alg) && /\.(otf|ttf|woff2?|eot)$/i.test(cur.uri);
+          if (!font) throw new Error(`This EPUB is locked (DRM): "${cur.uri.split("/").pop()}" is encrypted (${cur.alg.split(/[#/]/).pop() || "unknown method"}), so its text cannot be read. Only books without DRM open here.`);
+        }
+      }
+    }
+    let root = "";
+    for (const t of tokenize(await text("META-INF/container.xml"))) if (t.text === undefined && !t.close && t.tag === "rootfile" && !root) root = attrs(t)["full-path"] || "";
+    if (!root || !has(root)) throw new Error(`not an EPUB that can be read: container.xml names "${root || "nothing"}" as its package file${root ? ", which is not in the zip" : ""}`);
+    const pkg = opf(await text(root), root);
+    return { list, byName, text, has, pkg, root };
+  }
+  async function peek(blob) {
+    const b = await open(blob);
+    return { title: b.pkg.title, author: b.pkg.author, spine: b.pkg.spine.length };
+  }
+
+  async function read(blob, opts) {
+    const o = Object.assign({ skipFront: true, footnotes: "skip", title: "", progress: null, breathe: null }, opts);
+    const b = await open(blob), pkg = b.pkg, info = [], skipped = [];
+    const title = pkg.title || o.title || "Book";
+    // The TOC
+    let tree = [], tocFrom = "", landmarks = [];
+    if (pkg.nav && b.has(pkg.nav)) { const n = nav(await b.text(pkg.nav), pkg.nav); tree = n.toc; landmarks = n.landmarks; tocFrom = "its contents (nav)"; }
+    if (!tree.length && pkg.ncx && b.has(pkg.ncx)) { tree = ncx(await b.text(pkg.ncx), pkg.ncx); tocFrom = "its contents (NCX)"; }
+    if (!tree.length) info.push(pkg.nav || pkg.ncx ? "the table of contents is empty: a chapter per file instead" : "no table of contents: a chapter per file");
+    // The spine, file by file
+    const pages = [];        // { path, blocks, title, why (skipped as front matter) }
+    const frontByGuide = new Map();
+    for (const g of pkg.guide.concat(landmarks)) if (/\b(cover|toc|copyright-page|doc-toc|doc-cover)\b/.test(g.type)) frontByGuide.set(g.path, g.type.split(/\s+/).find((x) => /cover|toc|copyright/.test(x)));
+    const tocNames = new Map();
+    (function walk(nodes) { for (const n of nodes) { if (n.path && !n.frag && /^(table of )?contents$|^copyright/i.test(n.label)) tocNames.set(n.path, n.label); walk(n.children); } })(tree);
+    const targets = new Set();
+    let filesRead = 0, notLinear = 0, notText = 0;
+    for (const ref of pkg.spine) {
+      const it = pkg.items.get(ref.id);
+      if (!it) { info.push(`the spine names "${ref.id}", which the manifest lacks: skipped`); continue; }
+      if (!ref.linear) { notLinear++; continue; }
+      if (!/xhtml|html|xml/.test(it.type) && !/\.x?html?$/i.test(it.path)) { notText++; continue; }
+      if (!b.has(it.path)) { info.push(`"${it.path}" is in the spine but not in the zip: skipped`); continue; }
+      const pg = page(await b.text(it.path));
+      pg.path = it.path;
+      for (const x of pg.targets) targets.add(x);
+      const stem = it.path.split("/").pop().replace(/\.[^.]*$/, "");
+      pg.why = it.path === pkg.nav ? "the contents page (the nav document)" : frontByGuide.has(it.path) ? `the ${frontByGuide.get(it.path).replace("doc-", "").replace("toc", "contents").replace("-page", "")} page (the guide says so)`
+        : tocNames.has(it.path) ? `"${tocNames.get(it.path)}" in the contents` : /(^|[-_. ])(toc|contents|copyright)([-_. ]|$)/i.test(stem) ? `the file name (${stem})`
+        : pg.links >= 3 && pg.textChars < 4000 && pg.linkChars / Math.max(1, pg.textChars) >= 0.5 ? `a short page of ${pg.links} links`
+        : pg.textChars < 2500 && /copyright|©|all rights reserved/i.test(pg.blocks.map((x) => x.text).join("\n")) ? "a short page saying copyright" : "";
+      pages.push(pg);
+      filesRead++;
+      if (o.progress) o.progress(filesRead, 0);
+      if (o.breathe) await o.breathe();
+    }
+    if (notLinear) info.push(`${notLinear} spine item${notLinear === 1 ? "" : "s"} marked linear="no" (a cover or an aside) not read`);
+    if (notText) info.push(`${notText} spine item${notText === 1 ? "" : "s"} not XHTML, skipped`);
+    // The blocks in reading order, front matter and notes marked
+    const blocks = [];
+    for (const pg of pages) {
+      const front = o.skipFront && !!pg.why;
+      let kept = 0;
+      for (const bl of pg.blocks) {
+        bl.file = pg.path; bl.fileTitle = pg.title;
+        if (!bl.note && (bl.ids.some((x) => targets.has(x)) || bl.within.some((x) => targets.has(x)))) bl.note = true;
+        bl.skip = bl.navlist || (o.skipFront && (front || bl.front));   // a landmarks / page-list nav never reads; toc / copyright blocks and pages by the choice
+        if (!bl.skip) kept++;
+        blocks.push(bl);
+      }
+      if (pg.blocks.length && !kept) skipped.push({ file: pg.path, why: pg.why || "only contents / copyright blocks", chars: pg.textChars });
+    }
+    for (const s of skipped) info.push(`skipped "${s.file.split("/").pop()}" (${s.chars.toLocaleString("en-US")} characters): ${s.why}`);
+    // Where each TOC entry lands: the first block of its file carrying its anchor (or the first block of the file)
+    const firstOf = new Map();
+    blocks.forEach((bl, i) => { if (!firstOf.has(bl.file)) firstOf.set(bl.file, i); });
+    const find = (n) => {
+      if (!n.path || !firstOf.has(n.path)) return -1;
+      if (!n.frag) return firstOf.get(n.path);
+      for (let i = firstOf.get(n.path); i < blocks.length && blocks[i].file === n.path; i++) if (blocks[i].ids.includes(n.frag) || blocks[i].within.includes(n.frag)) return i;
+      return firstOf.get(n.path);     // an anchor the file lacks: the file's start
+    };
+    const entries = [];   // { label, at, depth, part, parent (the top entry above it) }
+    let missing = 0;
+    (function walk(nodes, depth, parent) {
+      for (const n of nodes) {
+        const at = find(n);
+        if (at < 0) { missing++; if (n.children.length) walk(n.children, depth, parent); continue; }
+        const e = { label: n.label || "", at, depth, part: false, kids: n.children.length, parent };
+        entries.push(e);
+        walk(n.children, depth + 1, depth === 1 ? e : parent);
+      }
+    })(tree, 1, null);
+    if (missing) info.push(`${missing} contents entr${missing === 1 ? "y" : "ies"} point${missing === 1 ? "s" : ""} at nothing in the book (a skipped page, or a file not in the spine)`);
+    entries.sort((x, y) => x.at - y.at || x.depth - y.depth);
+    // A top entry with children is a PART (its children the chapters) when it is named like one, or when it has
+    // under 300 characters of its own before its first child (a part page is a title alone); else it is a
+    // chapter and its children are headings inside it.
+    for (let k = 0; k < entries.length; k++) {
+      const e = entries[k];
+      if (e.depth !== 1 || !e.kids) continue;
+      const child = entries.slice(k + 1).find((x) => x.parent === e);
+      let own = 0;
+      for (let i = e.at; child && i < child.at; i++) if (!blocks[i].skip && !blocks[i].note && !(blocks[i].kind === "h" && same(blocks[i].text, e.label))) own += blocks[i].text.length;
+      e.part = /^(part|book|volume)\b/i.test(e.label) || (!!child && own < 300);
+    }
+    const cuts = [], heads = [];
+    for (const e of entries) {
+      const chapterLevel = e.depth === 1 || (e.depth === 2 && e.parent && e.parent.part);
+      if (chapterLevel) { if (!cuts.length || cuts[cuts.length - 1].at !== e.at || cuts[cuts.length - 1].part) { if (cuts.length && cuts[cuts.length - 1].at === e.at) cuts.pop(); cuts.push(e); } }
+      else heads.push(e);
+    }
+    let how;
+    if (cuts.length) {
+      const parts = cuts.filter((c) => c.part).length;
+      how = `${cuts.length - parts} chapters from ${tocFrom}${parts ? `, ${parts} part${parts === 1 ? "" : "s"}` : ""}`;
+      if (cuts[0].at > 0 && blocks.slice(0, cuts[0].at).some((x) => !x.skip && !x.note && x.text)) cuts.unshift({ label: "", at: 0, depth: 1, part: false, parent: null, pre: true });
+    } else {
+      for (const [, at] of firstOf) cuts.push({ label: "", at, depth: 1, part: false, parent: null, pre: true });
+      cuts.sort((x, y) => x.at - y.at);
+      how = `a chapter per file (${cuts.length})`;
+    }
+    // The chapters
+    const chapters = [];
+    let empty = [], notes = 0, refs = targets.size;
+    cuts.forEach((c, k) => {
+      const end = k + 1 < cuts.length ? cuts[k + 1].at : blocks.length;
+      const own = blocks.slice(c.at, end).filter((x) => !x.skip);
+      const body = own.filter((x) => !x.note), noteBlocks = own.filter((x) => x.note);
+      notes += noteBlocks.length;
+      let label = norm(c.label);
+      if (!label) { const h = body.find((x) => x.kind === "h"); label = h ? h.text.replace(/\s+/g, " ") : (own[0] && own[0].fileTitle && !same(own[0].fileTitle, title)) ? own[0].fileTitle : c.pre && k === 0 && cuts.length > 1 ? title : CHAPTER.pretty((own[0] ? own[0].file : "").split("/").pop()) || `Part ${chapters.length + 1}`; }
+      if (body.length && body[0].kind === "h" && same(body[0].text, label)) body.shift();
+      const list = o.footnotes === "end" ? body.concat(noteBlocks) : body;
+      const paras = [], hs = [], pOf = new Map();
+      for (const bl of list) {
+        let text = bl.text.replace(/\[\d{1,3}\](?=[\s.,;:!?)\]]|$)/g, "").replace(/[ \t]+\n/g, "\n").trim();
+        if (bl.note) text = text.replace(/^[\s↩↵←⏎^]+|[\s↩↵←⏎^]+$/g, "");
+        if (!text) continue;
+        if (bl.kind === "h") hs.push({ l: Math.min(6, Math.max(1, bl.level)), t: text.replace(/\s+/g, " "), p: paras.length });
+        pOf.set(bl, paras.length);
+        paras.push(text);
+      }
+      const under = c.parent && c.parent.part ? 2 : 1;      // the depth of this chapter's own entry
+      for (const h of heads) {
+        if (h.at < c.at || h.at >= end || !pOf.has(blocks[h.at])) continue;
+        const p = pOf.get(blocks[h.at]);
+        if (!hs.some((x) => x.p === p)) hs.push({ l: Math.min(6, Math.max(1, h.depth - under)), t: h.label, p });
+      }
+      hs.sort((x, y) => x.p - y.p);
+      const least = hs.reduce((m, h) => Math.min(m, h.l), 6);      // levels relative to the chapter: an <h3> under an <h2> chapter is level 1
+      for (const h of hs) h.l = h.l - least + 1;
+      if (!paras.length) { empty.push(label); return; }
+      chapters.push({ title: label, sec: c.parent && c.parent.part ? norm(c.parent.label) : c.part ? norm(c.label) : "", paras, heads: hs });
+      if (o.progress) o.progress(filesRead, chapters.length);
+    });
+    if (empty.length) info.push(`${empty.length} contents entr${empty.length === 1 ? "y" : "ies"} with no text of ${empty.length === 1 ? "its" : "their"} own dropped: ${empty.slice(0, 4).map((x) => `"${x}"`).join(", ")}${empty.length > 4 ? ", …" : ""}`);
+    if (refs || notes) info.push(`${refs} note reference${refs === 1 ? "" : "s"} removed from the text; ${notes} note paragraph${notes === 1 ? "" : "s"} ${o.footnotes === "end" ? "read at the end of their chapters" : "skipped"}`);
+    return { title, author: pkg.author, chapters, how, info, skipped, files: filesRead };
+  }
+
+  globalThis.EPUB = { peek, read, page, tokenize, resolve, opf, ncx, nav, source: "(" + epubJs.toString() + ")();" };
 })();
 </script>
 <script>
@@ -2744,8 +3198,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     }
   }
   const numbered = () => !!current && current.kind === "numbered";
-  // "Chapter 3103" in a numbered book, else "Part 3" (its place); short: "Ch 3103" / "Part 3".
-  const label = (i, short) => { const e = index[i]; if (!e) return "?"; return numbered() ? `${short ? "Ch" : "Chapter"} ${e.c}` : `Part ${i + 1}`; };
+  // "Chapter 3103" in a numbered book, "Chapter 3" (its place) in an EPUB, else "Part 3" (its place); short: "Ch 3103" / "Part 3".
+  const label = (i, short) => { const e = index[i]; if (!e) return "?"; return numbered() ? `${short ? "Ch" : "Chapter"} ${e.c}` : current && current.kind === "epub" ? `${short ? "Ch" : "Chapter"} ${i + 1}` : `Part ${i + 1}`; };
 
   // ---- Rename, delete ------------------------------------------------------------------------------
   async function rename(id, title) {
@@ -2802,7 +3256,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       t.oncomplete = res;
       t.onabort = () => rej(t.error || new Error("the write was abandoned"));
     });
-    const recoded = [], dupNames = [], bad = [];
+    const recoded = [], dupNames = [], bad = [], info = [];     // info: plain lines for the log (an EPUB's skipped pages, notes)
     const bytes = (s) => (s.kind === "zip" ? ZIP.bytes(job.zips[s.zip], s.entry) : s.kind === "gz" ? ZIP.gunzipBytes(s.file) : s.file.arrayBuffer());
     const text = async (s) => { const d = ZIP.decode(await bytes(s)); if (d.enc !== "UTF-8") recoded.push(`"${s.name}" was read as ${d.enc} (${d.why})`); return d.text; };
     const seen = new Map(), names = new Map();
@@ -2846,6 +3300,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       for (let i = 0; i < job.count;) {
         const slice = await take();
         i += slice.length;
+        // An EPUB (epub.js): the one source is the whole book; its chapters come from its table of contents, each
+        // carrying its part (sec, the Index panel's group) and its headings. The title is read aloud.
+        if (job.kind === "epub") {
+          const s = slice[0];
+          const r = await EPUB.read(s.file, { skipFront: job.skipFront !== false, footnotes: job.footnotes || "skip", title: job.title, breathe, progress: (files, chapters) => post({ done: 0, files, chapters }) });
+          const recs = r.chapters.map((ch, q) => add(q + 1, null, ch.title, ch.paras, s.name, true, { sec: ch.sec || "", short: ch.title, heads: ch.heads }));
+          for (let q = 0; q < recs.length; q += job.batch) await put(recs.slice(q, q + job.batch));
+          how = r.how; info.push(...r.info);
+          post({ done: i });
+          continue;
+        }
         const texts = [];
         if (slice.some((s) => s.kind === "zip")) {
           for (const s of slice) { try { texts.push(await text(s)); } catch (e) { texts.push(null); bad.push(`"${s.name}" could not be read: ${e.message}`); } await breathe(); }
@@ -2880,9 +3345,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       }
     } finally { db.close(); }
     if (!how) how = job.kind === "numbered" ? "a chapter per numbered file" : job.sections ? `a chapter per file in ${job.sections} sections` : "a chapter per file";
-    return { list: Array.from(seen.values()).sort((a, b) => a.c - b.c), numbered, how, unreadable, duplicates, dupNames, recoded, bad, bytes: size };
+    return { list: Array.from(seen.values()).sort((a, b) => a.c - b.c), numbered, how, unreadable, duplicates, dupNames, recoded, bad, info, bytes: size };
   }
-  const WORKER = () => [ZIP.source, CHAPTER.source, "const upgrade = " + upgrade.toString() + ";", "const importJob = " + importJob.toString() + ";", `
+  const WORKER = () => [ZIP.source, CHAPTER.source, EPUB.source, "const upgrade = " + upgrade.toString() + ";", "const importJob = " + importJob.toString() + ";", `
     const queue = [], waiting = [];
     const take = () => (queue.length ? Promise.resolve(queue.shift()) : new Promise((r) => waiting.push(r)));
     onmessage = (e) => {
@@ -2960,12 +3425,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (rar) throw new Error(`"${f(rar)}" cannot be read: .rar and .7z are not supported. Use a .zip (or .gz) of text files.`);
     const tar = files.find((x) => /\.(tar\.gz|tgz|tar)$/i.test(x.name));
     if (tar) throw new Error(`"${f(tar)}" is a tar archive, which is not supported. Use a .zip of text files.`);
-    const zips = [], ignored = [], items = [];        // items: { name (a relative path), kind, file / zip + entry, size }
+    const zips = [], ignored = [], items = [], epubs = [];        // items: { name (a relative path), kind, file / zip + entry, size }
     const rel = (x) => x.webkitRelativePath || x.name;
     for (const x of files) {
       if (CHAPTER.isText(x.name)) items.push({ name: rel(x), kind: "file", file: x });
       else if (/\.gz$/i.test(x.name) && CHAPTER.isText(x.name.replace(/\.gz$/i, ""))) items.push({ name: rel(x).replace(/\.gz$/i, ""), kind: "gz", file: x });
       else if (/\.zip$/i.test(x.name)) zips.push(x);
+      else if (/\.epub$/i.test(x.name)) epubs.push(x);
       else ignored.push(f(x));
     }
     const specs = [];
@@ -3008,9 +3474,19 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       if (!found.length) throw new Error(`"${f(z)}" holds no text files (${list.filter((e) => !e.dir).length} entries). This reader opens plain text: .txt, .text and .md files, loose, in a folder, or in a zip.`);
       grouped(found.map((e) => ({ name: e.name, kind: "zip", zip: k, entry: e, size: e.size })), CHAPTER.stem(f(z)), true);
     }
+    // An EPUB (2026-10-22, epub.js): one book each, its title and author from the package metadata; a locked
+    // (DRM) or unreadable one stops the whole pick with its plain reason.
+    for (const e of epubs) {
+      let meta;
+      try { meta = await EPUB.peek(e); } catch (err) { throw new Error(`"${f(e)}": ${err.message}`); }
+      make(meta.title || CHAPTER.stem(f(e)), [{ name: rel(e), kind: "epub", file: e, size: e.size }], f(e));
+      const s = specs[specs.length - 1];
+      s.title = (meta.title || s.title).slice(0, TITLE_MAX);
+      s.epub = true; s.author = meta.author || ""; s.spine = meta.spine; s.skipFront = true; s.footnotes = "skip";
+    }
     if (!specs.length) {
       throw new Error(files.length
-        ? `None of the ${files.length} file${files.length === 1 ? " picked is" : "s picked is"} a text file (.txt, .text, .md).${/\.(epub|pdf|docx?|rtf|mobi|azw3?)$/i.test(files.map(f).join(" ")) ? " EPUB, PDF and Word files are not supported; this reader opens plain text." : ""}`
+        ? `None of the ${files.length} file${files.length === 1 ? " picked is" : "s picked is"} a text file (.txt, .text, .md) or an EPUB.${/\.(pdf|docx?|rtf|mobi|azw3?)$/i.test(files.map(f).join(" ")) ? " PDF, Word, MOBI and AZW files are not supported; this reader opens plain text and EPUB." : ""}`
         : "Nothing was picked.");
     }
     // The sizes (for the fit line). File.size is a call into the browser per file, and on Android (a
@@ -3031,8 +3507,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       s.bytes = s.measured === n ? s.sources.reduce((t, x) => t + (x.size || 0), 0) : Math.round((sum * n) / picks.length);
     }
     for (const s of specs) {
-      s.numbered = !s.sections && CHAPTER.numbered(s.paths);     // a sections book goes by place: numbers would collide across sections
-      s.kind = s.numbered ? "numbered" : s.files === 1 ? "split" : "files";
+      s.numbered = !s.sections && !s.epub && CHAPTER.numbered(s.paths);     // a sections book goes by place: numbers would collide across sections
+      s.kind = s.epub ? "epub" : s.numbered ? "numbered" : s.files === 1 ? "split" : "files";
       s.sources.forEach((src, i) => { src.c = i + 1; });
       const same = (a, b) => a && b && a.trim().toLowerCase() === b.trim().toLowerCase();
       const hit = books.find((b) => same(b.from, s.from)) || books.find((b) => same(b.title, s.title));
@@ -3045,7 +3521,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         if ((src.size || 0) > 25e6) return "";
         return ZIP.decode(await (src.kind === "zip" ? ZIP.bytes(zips[src.zip], src.entry) : src.kind === "gz" ? ZIP.gunzipBytes(src.file) : src.file.arrayBuffer())).text;
       };
-      if (!s.numbered) {
+      if (!s.numbered && !s.epub) {
         // One small read decides the defaults: hard-wrapped lines → join on; a single file's heading
         // lines and words → whether parts are offered.
         const first = s.sources[0];
@@ -3096,9 +3572,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     log("book", `adding "${title}": ${total} file${total === 1 ? "" : "s"} (${spec.kind}${spec.join ? ", wrapped lines joined" : ""}${spec.parts ? ", parts by size" : ""})${replacing ? `, replacing "${replacing.title}"` : ""}`);
     let r, gridTable = null, acrossOn = false;
     try {
-      r = await runJob({ db: DB_NAME, version: DB_VERSION, g: gen, kind: spec.kind, join: !!spec.join, parts: !!spec.parts, sections: spec.sections || 0, grid: spec.grid || "", title, batch: BATCH, sources: spec.sources, zips: zips || spec.zips || [], failAt: hooks.failAt },
-        (m) => say(m.chapters ? `Adding ${title}: ${m.chapters.toLocaleString("en-US")} chapters found` : `Adding ${title}: ${m.done.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} file${total === 1 ? "" : "s"}`, total ? m.done / total : 0));
+      r = await runJob({ db: DB_NAME, version: DB_VERSION, g: gen, kind: spec.kind, join: !!spec.join, parts: !!spec.parts, sections: spec.sections || 0, grid: spec.grid || "", title, batch: BATCH, sources: spec.sources, zips: zips || spec.zips || [], failAt: hooks.failAt,
+        skipFront: spec.skipFront !== false, footnotes: spec.footnotes || "skip" },
+        (m) => say(m.chapters ? `Adding ${title}: ${m.chapters.toLocaleString("en-US")} chapters found` : m.files ? `Adding ${title}: ${m.files.toLocaleString("en-US")} of ${(spec.spine || 0).toLocaleString("en-US")} files read` : `Adding ${title}: ${m.done.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} file${total === 1 ? "" : "s"}`,
+          m.files && spec.spine ? m.files / spec.spine : total ? m.done / total : 0));
       for (const x of r.bad) log("error", `adding "${title}": ${x}`);
+      for (const x of r.info || []) log("book", `adding "${title}": ${x}`);
       if (!r.list.length) throw new Error("no chapter could be read.");
       const grid = nameChapters(r.list, spec.grid || "");
       gridTable = grid; acrossOn = !!(spec.across && grid);
@@ -3106,7 +3585,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       if (r.gridNote) log("book", r.gridNote);
       const now = Date.now();
       const row = { id, title, from: spec.from || title, kind: r.numbered ? "numbered" : spec.kind === "split" && r.list.length === 1 ? "one" : spec.kind, chapters: r.list.length, first: r.list[0].c, last: r.list[r.list.length - 1].c,
-        bytes: r.bytes, added: replacing ? replacing.added : now, updated: now, gens: [gen], grid, across: !!(spec.across && grid),
+        bytes: r.bytes, added: replacing ? replacing.added : now, updated: now, gens: [gen], grid, across: !!(spec.across && grid), author: spec.author || "",
         shelf: spec.shelf ? { id: spec.shelf.id, version: spec.shelf.version } : null };   // from the public book shelf (shelf.js): which book and version, so ?book= opens it instead of downloading again
       await tx(["books", "index", "imports", "text"], "readwrite", (b, ix, im, t) => {
         b.put(row); ix.put({ id, list: r.list }); im.delete(gen);
@@ -3125,7 +3604,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     for (const x of r.dupNames) log("book", `adding "${title}": ${x}`);
     for (const x of r.recoded) log("book", `adding "${title}": ${x}`);
     const seconds = (Date.now() - t0) / 1000;
-    const summary = { id, title, chapters: r.list.length, first: r.list[0].c, last: r.list[r.list.length - 1].c, numbered: r.numbered, how: r.how, duplicates: r.duplicates, dupNames: r.dupNames, unreadable: r.unreadable, unreadNames: r.bad, recoded: r.recoded, seconds, where: r.where, replaced: !!replacing, join: !!spec.join, gridNote: r.gridNote || "" };
+    const summary = { id, title, chapters: r.list.length, first: r.list[0].c, last: r.list[r.list.length - 1].c, numbered: r.numbered, how: r.how, duplicates: r.duplicates, dupNames: r.dupNames, unreadable: r.unreadable, unreadNames: r.bad, recoded: r.recoded, info: r.info || [], seconds, where: r.where, replaced: !!replacing, join: !!spec.join, gridNote: r.gridNote || "" };
     log("book", `added "${title}": ${summary.chapters.toLocaleString("en-US")} chapters (${summary.first}-${summary.last}), ${gridTable ? `a chapter per era (${gridTable.eras.length} eras${acrossOn ? ", read across time" : ""})` : r.how}${spec.join ? ", wrapped lines joined" : ""}, in ${seconds.toFixed(1)} s ${r.where}${replacing ? " (replaced the stored book; the reading place is kept)" : ""}`, { duplicates: r.duplicates, unreadable: r.unreadable, recoded: r.recoded.length });
     if (!persistAsked && navigator.storage && navigator.storage.persist) {
       persistAsked = true;
@@ -4031,7 +4510,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   function renderList(body) {
     const box = h("div", "lib");
     const bar = h("div", "libbtns");
-    const addFiles = btn("libbtn", "Add files or a zip", () => inputs.files.click(), "Text files (.txt, .text, .md), a .gz, or a zip of them");
+    const addFiles = btn("libbtn", "Add files, a zip or an EPUB", () => inputs.files.click(), "Text files (.txt, .text, .md), a .gz, a zip of them, or an .epub");
     const addFolder = btn("libbtn", "Add a folder", () => inputs.folder.click(), "A folder of text files, or a folder holding several books");
     bar.append(addFiles, addFolder);
     box.appendChild(bar);
@@ -4111,12 +4590,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       return r;
     }
     head.append(h("span", "libtitle", b.title), cur ? h("span", "libnow", "open now") : st.news.has(b.id) ? h("span", "libnow", "new") : "");
-    const kind = b.kind === "numbered" ? "numbered" : b.kind === "one" ? "one file" : b.kind === "split" ? "one file, split" : b.grid ? `a chapter per era (${b.grid.eras.length} eras${b.across ? ", across time" : ""})` : "a chapter per file";
+    const kind = b.kind === "numbered" ? "numbered" : b.kind === "one" ? "one file" : b.kind === "split" ? "one file, split" : b.kind === "epub" ? `EPUB${b.author ? ` by ${b.author}` : ""}` : b.grid ? `a chapter per era (${b.grid.eras.length} eras${b.across ? ", across time" : ""})` : "a chapter per file";
     const sub1 = h("div", "libsub", `${fmt(b.chapters)} chapter${b.chapters === 1 ? "" : "s"} · ${MB(b.bytes)} · ${kind}`);
     const p = BOOK.posOf(b.id);
     // The place: the chapter's name when this book is open (its index is loaded), else its number / place.
     const here = p && cur ? BOOK.info(BOOK.indexOf(p.c)) : null;
-    const place = p ? `${b.kind === "numbered" ? `Chapter ${p.c}` : `Part ${here ? BOOK.indexOf(p.c) + 1 : p.c}`}${here ? ` · ${here.title}` : ""} ¶ ${(p.p || 0) + 1} · ${p.pct || 0} %${p.at ? ` · ${when(p.at)}` : ""}` : "not started";
+    const place = p ? `${b.kind === "numbered" ? `Chapter ${p.c}` : `${b.kind === "epub" ? "Chapter" : "Part"} ${here ? BOOK.indexOf(p.c) + 1 : p.c}`}${here ? ` · ${here.title}` : ""} ¶ ${(p.p || 0) + 1} · ${p.pct || 0} %${p.at ? ` · ${when(p.at)}` : ""}` : "not started";
     open.append(head, sub1, h("div", "libsub", place));
     r.appendChild(open);
     const acts = h("div", "libacts");
@@ -4239,6 +4718,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       top.append(tick, name);
       r.appendChild(top);
       const what = s.numbered ? `${fmt(s.files)} chapter files numbered ${CHAPTER.number(s.paths[0])}-${CHAPTER.number(s.paths[s.paths.length - 1])}`
+        : s.epub ? `An EPUB${s.author ? ` by ${s.author}` : ""}: ${fmt(s.spine)} files; chapters from its table of contents`
         : s.kind === "split" ? (s.headings ? `1 file: split at its ${fmt(s.headings)} heading lines` : `1 file: one chapter (${fmt(s.words)} words)`)
         : s.grid ? `${fmt(s.files)} files in ${fmt(s.sections)} sections (topics × eras: a chapter per era), in folder order`
         : s.sections ? `${fmt(s.files)} files in ${fmt(s.sections)} sections, a chapter each, in folder order` : `${fmt(s.files)} files, a chapter each, in name order`;
@@ -4247,8 +4727,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       // Advanced (Jon, 2026-10-21): the extra switches for this book behind one button, the preview
       // itself staying plain. Join wrapped lines (plain documents), Split into parts (a long single file
       // with no headings), Read across time (a grid book). A numbered book has none, so no button.
+      // An EPUB (2026-10-22): "Skip copyright and contents pages" (on) and "Read footnotes at the end of their
+      // chapter" (off: the notes are skipped; the note marks go from the text either way).
       const advanced = [];
-      if (!s.numbered) advanced.push(["join", `Join wrapped lines${s.wrapped ? " (the file looks hard-wrapped)" : ""}`]);
+      if (s.epub) advanced.push(["skipFront", "Skip copyright and contents pages"], ["notesEnd", "Read footnotes at the end of their chapter (else skipped)"]);
+      if (!s.numbered && !s.epub) advanced.push(["join", `Join wrapped lines${s.wrapped ? " (the file looks hard-wrapped)" : ""}`]);
       if (s.kind === "split" && !s.headings && s.words > CHAPTER.PARTS_FROM) advanced.push(["parts", `Split into parts of about ${fmt(CHAPTER.PART_WORDS)} words (${fmt(Math.ceil(s.words / CHAPTER.PART_WORDS))} parts)`]);
       if (s.grid) advanced.push(["across", "Read across time (experimental): every topic's first era, then every topic's next, … (can be changed later from this book's Options)"]);
       if (advanced.length) {
@@ -4259,8 +4742,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
           const box = h("div", "libopts");
           for (const [key, text] of advanced) {
             const l = h("label", "libopt");
-            const c = h("input"); c.type = "checkbox"; c.checked = !!s[key];
-            c.addEventListener("change", () => { s[key] = c.checked; });
+            const c = h("input"); c.type = "checkbox"; c.checked = key === "notesEnd" ? s.footnotes === "end" : !!s[key];
+            c.addEventListener("change", () => { if (key === "notesEnd") s.footnotes = c.checked ? "end" : "skip"; else s[key] = c.checked; });
             l.append(c, h("span", null, text));
             box.appendChild(l);
           }
@@ -4324,7 +4807,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         if (r.duplicates) notes.push(`${r.duplicates} chapter number${r.duplicates > 1 ? "s" : ""} appeared twice: ${more(r.dupNames || [], 2)}`);
         if (r.unreadable) notes.push(`${r.unreadable} file${r.unreadable > 1 ? "s" : ""} could not be read and ${r.unreadable > 1 ? "were" : "was"} skipped${r.unreadNames && r.unreadNames.length ? ": " + more(r.unreadNames, 2) : ""}`);
         if (r.recoded && r.recoded.length) notes.push(`${r.recoded.length} file${r.recoded.length > 1 ? "s were" : " was"} not UTF-8: ${more(r.recoded, 2)}`);
-        if (s.kind === "split") notes.push(`"${r.title}": ${r.how}`);
+        if (s.kind === "split" || s.kind === "epub") notes.push(`"${r.title}": ${r.how}`);
+        if (s.kind === "epub" && r.info && r.info.length) notes.push(more(r.info, 3));
         if (r.join) notes.push(`"${r.title}": wrapped lines joined`);
         if (r.replaced) notes.push(`"${r.title}" replaced the stored book; your place in it is kept`);
         if (r.gridNote) notes.push(r.gridNote);
@@ -10649,7 +11133,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       if (sg) line(`Suggested: ${sg.setup.label} (${PLAIN[sg.level] || sg.level}).`);
       else line("Suggested: nothing. No model voice keeps up here and the browser lists no voices of its own.", true);
       for (const p of rec.predictions || []) if (p.measured) line(`Full benchmark: ${p.label} measured ${r1(p.x)}× real time (predicted ${r1(p.predicted)}×).`);
-      line(`Last check: ${LOG.when(rec.when)} with ${rec.version || "an earlier version"}${rec.choice ? ` · chosen: ${{ suggested: "Good enough", default: "Default", skip: "Skip" }[rec.choice] || rec.choice}` : ""}.`);
+      line(`Last check: ${LOG.when(rec.when)} with ${rec.version || "an earlier version"}${rec.choice ? ` · chosen: ${{ suggested: "Finish", default: "Default", skip: "Skip" }[rec.choice] || rec.choice}` : ""}.`);
       const det = h("details", "sdet"), dl = h("div", "sfit");
       det.appendChild(h("summary", null, "Numbers"));
       line(`Processor: one core ${r0(s.f32)} MMAC/s, all cores ${r0(s.multi)} MMAC/s (${rec.gates ? rec.gates.threads : "?"} threads).`, false, dl);
@@ -12470,14 +12954,14 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const root = h("div", "swin frun");
     const head = h("div", "shead");
     const btns = h("div", "sbtns");
-    const good = U().button("save", "Good enough", goodEnough);
-    good.title = "Use the suggested settings now: they are applied and saved, and the voice's files download with progress in Settings";
-    const fullB = U().button("sfull", "Full benchmark", fullClick);
-    fullB.title = "Download the suggested voice and one alternative and measure them (nothing is played)";
+    const good = U().button("save", "Finish", goodEnough);     // was "Good enough" (Jon, 2026-10-22)
+    good.title = "Use the suggested voice and close this window";
+    const fullB = U().button("sfull", "Full test", fullClick);
+    fullB.title = "Try the voices for real before choosing (a few minutes)";
     const def = U().button("sdef", "Default", useDefault);
-    def.title = "Use Kokoro af_heart, fp32, on the graphics card now, without the benchmark";
+    def.title = "Use the standard voice without testing";
     const skip = U().button("exit", "Skip", () => close());
-    skip.title = "Close; the reader works with the settings as they are";
+    skip.title = "Close and decide later";
     btns.append(good, fullB, def, skip);
     const msg = h("div", "smsg");
     msg.setAttribute("aria-live", "polite");
@@ -12501,8 +12985,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     // 1. The suggestion (while the check runs: what is happening)
     if (phase === "light" || !(rec && rec.predictions)) {
       const box = h("div", "sfit");
-      box.appendChild(h("div", "sline", phase === "light" ? "Checking what this device can do: about 10 seconds. Nothing is downloaded, and you can keep reading meanwhile." : "Not checked."));
-      B.appendChild(row(phase === "light" ? "Checking this device" : "Suggested", crashNote, box, { block: true }));
+      box.appendChild(h("div", "sline", phase === "light" ? "Finding the best voice for this phone or computer. This takes about 10 seconds." : "Not checked."));
+      B.appendChild(row(phase === "light" ? "Checking this device" : "Best voice for this device", crashNote, box, { block: true }));
     } else {
       const sg = rec.suggestion, box = h("div", "sfit");
       if (sg) {
@@ -12510,21 +12994,21 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         pick.append(h("span", "spickname", sg.setup.label), h("span", "schip " + (CHIP[sg.level] || "cant"), sg.level));
         box.appendChild(pick);
         box.appendChild(h("div", "sline", sg.reason));
-      } else box.appendChild(h("div", "sline bad", "No voice runs on this device: no model voice keeps up and the browser lists no voices of its own."));
-      B.appendChild(row("Suggested", (rec.full ? "Use the suggestion" : "Good enough") + " uses it at once: Settings opens to show it and the voice's files download there.", box, { block: true }));
+      } else box.appendChild(h("div", "sline bad", "No voice can read aloud on this device."));
+      B.appendChild(row("Best voice for this device", "Press Finish to use it. Its voice files download once (Settings shows the progress).", box, { block: true }));
     }
     // 2. The full benchmark, while it runs and once it has
-    if (phase === "full" || fullNote) B.appendChild(row("Full benchmark", "The voices are loaded and a few sentences are timed for real; nothing is played.", h("div", "sline frun-full", fullNote || "Running…"), { block: true }));
+    if (phase === "full" || fullNote) B.appendChild(row("Full test", "Each voice makes a few sentences, timed. Nothing is played aloud.", h("div", "sline frun-full", fullNote || "Running…"), { block: true }));
     // 3. What the buttons do
     const bl = h("div", "sfit");
     const done = !!(rec && rec.full);
     for (const [name, what] of [
-      [done ? "Use the suggestion" : "Good enough", "use the suggestion now. It is applied and saved at once; Settings opens on the Voice tab to show it and the download's progress."],
-      [done ? "Run the full benchmark again" : "Full benchmark", done ? "measure again (the files are stored now, so nothing more is downloaded unless the suggestion changed)." : "download the suggested voice and one alternative and time them for real: a few minutes, nothing is played. The first tap says how much would be downloaded."],
-      ["Default", "use the reader's standard settings (Kokoro on the graphics card) now, applied and saved the same way."],
-      ["Skip", "close this window and keep the settings as they are. The check can be run again from Settings → System → Debug → Re-check this device."],
+      ["Finish", "use the best voice shown above. You can change it any time in Settings."],
+      [done ? "Run the full test again" : "Full test", done ? "test the voices again." : "not sure? Try the voices for real first. Takes a few minutes and downloads the voices."],
+      ["Default", "use the standard voice (Kokoro) without testing."],
+      ["Skip", "close and decide later. To see this again: Settings → System → Debug → Re-check this device."],
     ]) bl.appendChild(labelled("sline", name, what));
-    B.appendChild(row("What the buttons do", "", bl, { block: true }));
+    B.appendChild(row("Your choices", "", bl, { block: true }));
     // 4. What was found, in plain words; the numbers and the technical list under a fold
     if (g) {
       const found = h("div", "sfit");
@@ -12542,7 +13026,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       for (const l of DEVICE.lines(g)) dl.appendChild(labelled("sline" + (l.bad ? " bad" : ""), l.label, l.text));
       det.appendChild(dl);
       found.appendChild(det);
-      B.appendChild(row("Found on this device", `${crashNote ? crashNote + " " : ""}Checked ${LOG.when(rec.when)}${rec.seconds ? ` in ${rec.seconds} s` : ""}.`, found, { block: true }));
+      B.appendChild(row("About this device",`${crashNote ? crashNote + " " : ""}Checked ${LOG.when(rec.when)}${rec.seconds ? ` in ${rec.seconds} s` : ""}.`, found, { block: true }));
     }
     // 5. Every setup
     if (rec && rec.predictions) {
@@ -12557,7 +13041,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         r.appendChild(h("div", "why", (p.measured ? `Measured ${r1(p.x)}× real time, predicted ${r1(p.predicted)}×. ` : p.x ? "" : "") + p.why + (p.note ? `; ${p.note}` : "") + "." + extra));
         list.appendChild(r);
       }
-      B.appendChild(row("Every setup on this device", "Best-sounding first. Speeds are multiples of real time (2× = the sound is made twice as fast as it plays). Runs well: comfortable margin. Barely: keeps up, pauses possible. Too slow: falls behind. The small line under each shows how the figure was reached.", list, { block: true }));
+      B.appendChild(row("All voices on this device", "Best-sounding first. 2× means the voice is made twice as fast as it is spoken. Runs well: no pauses. Barely: may pause now and then. Too slow: will keep pausing.", list, { block: true }));
     }
     buttons();
     win.body.scrollTop = top;
@@ -12568,9 +13052,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     el.good.disabled = busy || !(rec && rec.suggestion);
     el.good.classList.toggle("hot", !el.good.disabled);
     el.full.disabled = phase === "light" || !(rec && rec.predictions && BENCH.candidates(rec).length);
-    const done = !!(rec && rec.full);            // after the full benchmark (Jon, 2026-10-21): not "Good enough" any more
-    el.good.textContent = done ? "Use the suggestion" : "Good enough";
-    el.full.textContent = phase === "full" ? "Stop the benchmark" : armedAt && Date.now() - armedAt < 15000 ? "Start the full benchmark" : done ? "Run the full benchmark again" : "Full benchmark";
+    const done = !!(rec && rec.full);
+    el.full.textContent = phase === "full" ? "Stop the test" : armedAt && Date.now() - armedAt < 15000 ? "Start the full test" : done ? "Run the full test again" : "Full test";
   }
 
   // ---- The runs -----------------------------------------------------------------------------------
@@ -12583,7 +13066,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       rec = await BENCH.light((t, f) => { if (my === ctl) say(t, f); }, my, { probe: reason !== "crashed" });
       if (my !== ctl) return;
       phase = "ready";
-      say(`Checked in ${rec.seconds || "a few"} s.${rec.suggestion ? " Good enough uses the suggestion now; Full benchmark measures it for real." : ""}`);
+      say(rec.suggestion ? "Done. Press Finish to use the best voice." : "Done.");
     } catch (e) {
       if (my !== ctl) return;
       phase = "ready";
@@ -12602,7 +13085,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       let plan = [];
       try { plan = await BENCH.plan(rec); } catch (e) {}
       const need = plan.reduce((n, x) => n + x.need, 0);
-      say(`The full benchmark makes a few sentences with ${plan.map((x) => `${x.setup.label}${x.need ? ` (${MODELS.MB(x.need)} to download)` : " (stored)"}`).join(" and ")}${need ? `: ${MODELS.MB(need)} in all` : ""}. Nothing is played; it takes a few minutes. Tap "Start the full benchmark" to go on.`);
+      say(`The full test tries ${plan.map((x) => `${x.setup.label}${x.need ? ` (${MODELS.MB(x.need)} to download)` : ""}`).join(" and ")}${need ? `: ${MODELS.MB(need)} to download in all` : ""}. It takes a few minutes. Tap "Start the full test" to go on.`);
       buttons();
       setTimeout(buttons, 15100);
       return;
@@ -12615,7 +13098,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       rec = await BENCH.full(rec, (t) => { if (my === ctl) { fullNote = t; say(t); const n = el && el.body.querySelector(".frun-full"); if (n) n.textContent = t; } }, my);
       const res = rec.full.results;
       fullNote = res.map((r) => (r.x ? `${r.label}: measured ${r1(r.x)}× real time` : `${r.label}: ${r.skipped ? "skipped (" + r.skipped + ")" : "failed (" + r.failed + ")"}`)).join(" · ") + ".";
-      say(`Full benchmark done. ${rec.suggestion ? `Suggested: ${rec.suggestion.setup.label}. Next: tap "Use the suggestion" to apply it.` : ""}`);
+      say(`Full test done.${rec.suggestion ? ` Best voice: ${rec.suggestion.setup.label}. Press Finish to use it.` : ""}`);
     } catch (e) {
       fullNote = e.stopped ? "Stopped; nothing was measured." : `The full benchmark stopped: ${e.message}`;
       say(fullNote);
