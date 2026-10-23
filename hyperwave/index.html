@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 4:58 PM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 8:23 PM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3253,13 +3253,13 @@ HW.SHAPE_FIT = {
 
   // ---- instruments: (E, ch, t, note, durSeconds, velocity, params) -> oscillator weight ---------------------
   const INST = {};
-  const DRUMS = new Set(["kick", "snare", "clap", "hat", "ride", "crash", "tom", "perc", "rim", "cowbell", "shaker", "taiko", "timpani", "chipnoise", "metal", "brush", "snap", "guiro", "wardrum", "kettle"]);
+  const DRUMS = new Set(["kick", "snare", "clap", "hat", "ride", "crash", "tom", "perc", "rim", "cowbell", "shaker", "taiko", "timpani", "chipnoise", "metal", "brush", "snap", "guiro", "wardrum", "kettle", "bassdrum"]);
   const BASSES = new Set(["sub", "808", "acid", "reese", "fmbass", "bass", "organbass"]);
   const FXS = new Set(["riser", "downer", "impact", "subdrop", "crackle", "zap", "revcym", "wind", "siren", "rain", "crickets", "birds", "ocean"]);
   // (round three) the sustained instruments: a seek / jump / resume into the middle of one of their notes starts it
   // again with what is left of it (Session.revive). Everything struck or plucked is left to ring out unheard.
   const REVIVE = new Set(["sub", "organbass", "reese", "supersaw", "strings", "pad", "lead", "organ", "choir", "brass", "pulse", "tri", "flute",
-    "crackle", "wind", "rain", "crickets", "birds", "ocean", "bowedglass", "cello", "duduk", "woodwind", "breathflute", "reedorgan", "monks", "horn", "voices", "solo", "bowed", "fhorn", "tpt", "flute2", "oboe", "clarinet", "reed2"]);
+    "crackle", "wind", "rain", "crickets", "birds", "ocean", "bowedglass", "cello", "duduk", "woodwind", "breathflute", "reedorgan", "monks", "horn", "voices", "solo", "bowed", "fhorn", "tpt", "flute2", "oboe", "clarinet", "reed2", "warchoir"]);
 
   INST.kick = function (E, ch, t, n, d, v, P) {
     const c = E.ctx, out = ch.in;
@@ -4697,10 +4697,10 @@ HW.SHAPE_FIT = {
     const fm = vowelAt(n, vowel, male).map(([F, BW]) => [F * k * (0.97 + r() * 0.06), BW * (0.85 + r() * 0.3)]);
     if (!male && fm[0][0] < f * 1.08) fm[0][0] = f * 1.08;     // sopranos tune the first formant above the pitch
     const rd = Math.round(Math.max(0.4, Math.min(2.6, Rd + (r() - 0.5) * 0.3)) * 20) / 20;
-    return { key, o: { sr, f, mode: "loop", A: 0.3, L0: 1.5 + r() * 0.35, src: lfSource(rd), srcKey: "lf" + rd, tract: tractFor(fm, f, male, vowel),
+    return { key, o: { sr, f, mode: "loop", A: 0.3, L0: (K.L0 || 1.5) + r() * 0.35, src: lfSource(rd), srcKey: "lf" + rd, tract: tractFor(fm, f, male, vowel),
       vib: { rate: (K.vibRate || 5) * (0.88 + r() * 0.24), depth: vib * (0.7 + r() * 0.6), at: 0.12, ramp: 0.18 }, drift: K.drift || 4, flutter: 1.2, jitter: K.jitter || 6,
-      shimmer: 0.35, swell: 0.4, fdrift: 0.025, scoop: { cents: (K.scoop || 30) * (0.6 + r() * 0.8), tau: 0.045 }, onset: 0.07,
-      noise: { level: breath, hp: 1100, lp: 6000, am: 0.8, burst: 1.5, burstT: 0.05 }, seed: hash(key + "!"), rms: 0.2 } };
+      shimmer: 0.35, swell: 0.4, fdrift: 0.025, scoop: { cents: (K.scoop || 30) * (0.6 + r() * 0.8), tau: 0.045 }, onset: K.onset || 0.07,
+      noise: { level: breath, hp: 1100, lp: 6000, am: 0.8, burst: K.burst || 1.5, burstT: K.burstT || 0.05 }, seed: hash(key + "!"), rms: 0.2 } };
   }
   function voiceTone(E, n, P, K, variant) {
     const sp = voiceSpec(E, n, P, K, variant);
@@ -4796,6 +4796,34 @@ HW.SHAPE_FIT = {
     scoop: 22, drift: 4, jitter: 5, legato: true, glideT: 0.09, sag: 8, gain: 1.6 };
   INST.voices = function (E, ch, t, n, d, v, P) { return ensemble(E, ch, t, n, d, v, P, CHOIR, (m, k) => voiceTone(E, m, P, CHOIR, k), (m, k, fr, len, gt) => voiceSlide(E, m, P, CHOIR, k, fr, len, gt)); };
   INST.voices.warm = (E, n, P) => [0, 1, 2, 3].map((k) => () => voiceTone(E, n, P, CHOIR, k));
+  // a war choir (2026-10-22, for the Skyrim-style anthem; the monks stay the Halo-style chant): a hall of men
+  // chanting a saga, not monks at prayer. Pressed, loud voices (a low Rd: more upper harmonics), twice the singers,
+  // every syllable sung afresh (never slid into) with a hard onset, a consonant's puff and an accent that blooms
+  // bright and settles; the vowel changes syllable by syllable as if they sang words (P.vowels, e.g. "ao"), almost
+  // no vibrato, the pitch sagging as the breath runs out. P.accent: the accent's size (0 for held chords).
+  const WARCHOIR = { name: "warchoir", voices: 8, a: 0.03, r: 0.3, spread: 10, ragged: 0.02, width: 0.9, vib: 6, vibRate: 5.2, Rd: 0.7, breath: 0.06, male: true,
+    scoop: 50, drift: 5, jitter: 7, legato: false, sag: 18, gain: 1.05, variants: 3, L0: 1.1, onset: 0.035, burst: 3.5, burstT: 0.03, acc: 0.6, vowels: "ao" };
+  WARCHOIR.post = (c, t, d, v, P) => {
+    const acc = P.accent != null ? P.accent : WARCHOIR.acc, pk = F(c, "peaking", 1900, 0.9), g = G(c, 1);
+    pk.gain.setValueAtTime(2 + 7 * acc, t); pk.gain.setTargetAtTime(1.5, t + 0.04, 0.12);
+    g.gain.setValueAtTime(1 + acc, t); g.gain.setTargetAtTime(1, t + 0.05, 0.1 + 0.05 * Math.min(1, d));
+    pk.connect(g);
+    return { in: pk, out: g };
+  };
+  const syllable = (ch, t, P) => {     // this note's vowel: the next of the part's vowels (a chord's notes share one)
+    const vs = P.vowels || P.vowel || WARCHOIR.vowels, s = ch.syl || (ch.syl = { t: -1, k: -1 });
+    if (Math.abs(t - s.t) >= 0.012) { s.t = t; s.k++; }
+    return vs[s.k % vs.length];
+  };
+  INST.warchoir = function (E, ch, t, n, d, v, P) {
+    const Q = Object.assign({}, P, { vowel: syllable(ch, t, P) });
+    return ensemble(E, ch, t, n, d, v, Q, WARCHOIR, (m, k) => voiceTone(E, m, Q, WARCHOIR, k), null);
+  };
+  INST.warchoir.warm = (E, n, P) => {
+    const jobs = [];
+    for (const vw of new Set(P.vowels || P.vowel || WARCHOIR.vowels)) for (let k = 0; k < WARCHOIR.variants; k++) jobs.push(() => voiceTone(E, n, Object.assign({}, P, { vowel: vw }), WARCHOIR, k));
+    return jobs;
+  };
   // a solo voice, every note rendered whole: it slides in from the last note (or scoops up from below), a vibrato
   // that grows through the note, a cry that falls at the end of a long note. P.male, P.vowel, P.vib (cents)
   const SOLO = { name: "solo", Rd: 0.85, breath: 0.07, vib: 45, vibRate: 5.6, scoop: 90, gain: 2 };
@@ -5022,20 +5050,30 @@ HW.SHAPE_FIT = {
   // head relaxes after the blow, and the stick or felt mallet's contact noise. Cached per note, strength and decay.
   const TAIKO_MODES = [[1, 1, 1], [1.59, 0.55, 0.6], [2.14, 0.38, 0.42], [2.3, 0.3, 0.5], [2.65, 0.22, 0.3], [2.92, 0.18, 0.32], [3.16, 0.14, 0.24], [3.5, 0.11, 0.22], [4.06, 0.07, 0.16]];
   const TIMP_MODES = [[0.6, 0.5, 0.12], [1, 1, 1], [1.5, 0.5, 0.55], [1.98, 0.32, 0.4], [2.44, 0.2, 0.3], [2.9, 0.12, 0.22], [3.37, 0.07, 0.16], [3.8, 0.04, 0.12]];
+  // per kind: the named modes; the dense upper modes (how many, their spacing, level and decay); the length; the
+  // pitch bend after the blow; how much a harder hit wakes the high modes; the contact noise (length in seconds,
+  // low-pass Hz + Hz per strength, level); the attack. taiko and timp are the round-three values unchanged.
+  const DRUMK = {
+    taiko: { modes: TAIKO_MODES, up: 44, step: 0.85, upAmp: 0.06, upDec: 0.13, lenK: 1.6, bend: [0.09, 0.06], bendT: 0.06, wake: (vb, ratio) => Math.pow(vb, 0.6 * (ratio - 1)), nl: 0.025, lp: [1000, 1500], nk: 1.1, at: 0.0012 },
+    timp: { modes: TIMP_MODES, up: 24, step: 1.1, upAmp: 0.03, upDec: 0.1, lenK: 1.3, bend: [0.02, 0.015], bendT: 0.12, wake: (vb, ratio) => Math.pow(vb, 0.8 * Math.max(0, ratio - 1)), nl: 0.012, lp: [500, 900], nk: 0.8, at: 0.003 },
+    // (2026-10-22) an orchestral bass drum, the gran cassa: a big membrane like the taiko's but struck with a soft
+    // felt beater, so few high modes wake, a soft thud instead of a stick's crack, a long low boom
+    gran: { modes: TAIKO_MODES, up: 30, step: 0.85, upAmp: 0.02, upDec: 0.12, lenK: 1.6, bend: [0.03, 0.02], bendT: 0.08, wake: (vb, ratio) => Math.pow(vb, 1.1 * (ratio - 1)), nl: 0.02, lp: [260, 420], nk: 0.9, at: 0.004 },
+  };
   function drumBuffer(E, kind, f, vel, dec) {
     const vb = Math.round(Math.max(0.1, Math.min(1, vel)) * 4) / 4, key = kind + "/" + f.toFixed(1) + "/" + vb + "/" + dec;
     const cache = E.drums || (E.drums = new Map());
     let b = cache.get(key);
     if (b) return b;
-    const c = E.ctx, sr = c.sampleRate, taiko = kind === "taiko", r = rng(hash(key)), modes = (taiko ? TAIKO_MODES : TIMP_MODES).slice();
+    const c = E.ctx, sr = c.sampleRate, K = DRUMK[kind], r = rng(hash(key)), modes = K.modes.slice();
     // above the named modes the head has hundreds more, ever denser: they carry the slap and the skin
-    for (let i = 0; i < (taiko ? 44 : 24); i++) { const ratio = 4.2 + i * (taiko ? 0.85 : 1.1) + r() * 0.6; modes.push([ratio, (taiko ? 0.06 : 0.03) * Math.pow(ratio / 4, -1.1), (taiko ? 0.13 : 0.1) * Math.pow(4 / ratio, 0.5)]); }
-    const len = Math.floor(sr * Math.min(6, dec * (taiko ? 1.6 : 1.3) + 0.2)), d = new Float32Array(len);
-    const bend = taiko ? 0.09 + 0.06 * vb : 0.02 + 0.015 * vb, bendT = taiko ? 0.06 : 0.12;
+    for (let i = 0; i < K.up; i++) { const ratio = 4.2 + i * K.step + r() * 0.6; modes.push([ratio, K.upAmp * Math.pow(ratio / 4, -1.1), K.upDec * Math.pow(4 / ratio, 0.5)]); }
+    const len = Math.floor(sr * Math.min(6, dec * K.lenK + 0.2)), d = new Float32Array(len);
+    const bend = K.bend[0] + K.bend[1] * vb, bendT = K.bendT;
     for (const [ratio, amp0, decay] of modes) {
       const fm = f * ratio;
       if (fm > 9000) continue;
-      const amp = amp0 * Math.pow(vb, taiko ? 0.6 * (ratio - 1) : 0.8 * Math.max(0, ratio - 1)) * (0.9 + r() * 0.2);
+      const amp = amp0 * K.wake(vb, ratio) * (0.9 + r() * 0.2);
       const t60 = Math.max(0.05, dec * decay), k = Math.exp(-6.91 / (t60 * sr));
       let ph = r() * 0.3, a = amp, i = 0;
       const settle = Math.min(len, Math.floor(sr * bendT * 6));
@@ -5056,12 +5094,12 @@ HW.SHAPE_FIT = {
         }
       }
     }
-    // the contact: a stick's crack (taiko) or a felt mallet's soft thud (timpani), low-passed noise
-    const nl = Math.floor(sr * (taiko ? 0.025 : 0.012)), lpk = Math.exp((-2 * Math.PI * (taiko ? 1000 + 1500 * vb : 500 + 900 * vb)) / sr);
+    // the contact: a stick's crack (taiko) or a felt mallet's soft thud (timpani, bass drum), low-passed noise
+    const nl = Math.floor(sr * K.nl), lpk = Math.exp((-2 * Math.PI * (K.lp[0] + K.lp[1] * vb)) / sr);
     let y = 0;
-    for (let i = 0; i < nl; i++) { y = y * lpk + (r() * 2 - 1) * (1 - lpk); d[i] += y * (taiko ? 1.1 : 0.8) * vb * Math.exp(-i / (nl / 4)); }
+    for (let i = 0; i < nl; i++) { y = y * lpk + (r() * 2 - 1) * (1 - lpk); d[i] += y * K.nk * vb * Math.exp(-i / (nl / 4)); }
     // attack: the first millisecond rises (no click)
-    const at = Math.floor(sr * (taiko ? 0.0012 : 0.003));
+    const at = Math.floor(sr * K.at);
     for (let i = 0; i < at && i < len; i++) d[i] *= i / at;
     let pk = 1e-9;
     for (let i = 0; i < len; i++) pk = Math.max(pk, Math.abs(d[i]));
@@ -5091,6 +5129,15 @@ HW.SHAPE_FIT = {
 
   INST.kettle.warm = (E, n, P, v) => [() => drumBuffer(E, "timp", mtof(n != null ? n : 38), v, P.decay || 2.4)];
   INST.kettle.warmV = true;
+  INST.bassdrum = function (E, ch, t, n, d, v, P) {     // the orchestral bass drum (gran cassa), soft beater
+    const c = E.ctx, f = mtof(n != null ? n : 28), b = drumBuffer(E, "gran", f, v, P.decay || 1.8), s = c.createBufferSource(), g = G(c, v * (P.gain || 1.8));
+    s.buffer = b;
+    chain(s, g, ch.in);
+    run(E, s, t, t + b.duration + 0.01, [g]);
+    return 1;
+  };
+  INST.bassdrum.warm = (E, n, P, v) => [() => drumBuffer(E, "gran", mtof(n != null ? n : 28), v, P.decay || 1.8)];
+  INST.bassdrum.warmV = true;
 
   // ---- a part's channel: inserts, volume, pan, sends ----------------------------------------------------------
   function stemFor(pd) {
@@ -6042,7 +6089,10 @@ HW.SHAPE_FIT = {
     { id: "songs", name: "Slow songs", energy: 2, bpm: [56, 84], blurb: "Ballads, waltzes, lullabies and tangos: melodies that take their time." },
     { id: "chamber", name: "Chamber & far places", energy: 2, bpm: [56, 90], blurb: "Strings, piano, harp, koto and gamelan: quiet music from concert halls and far shores." },
     { id: "drift", name: "Drifting & beatless", energy: 1, bpm: [40, 70], blurb: "Drones, oceans, forests and deep space: no beat to speak of, or only a heartbeat." },
-    { id: "legends", name: "Legends & far lands", energy: 2, bpm: [48, 132], blurb: "Monks in stone halls, horns over rolling drums, harps and flutes on quiet roads: music for old adventures, written new." },
+    // the game-score nostalgia songs (music-tracks-legends.js), split in two separate groups 2026-10-22 (they were
+    // one "Legends & far lands" category): each song is one side only, with its own sounds
+    { id: "halo", name: "Halo style", energy: 3, bpm: [48, 132], blurb: "Monks chanting in a vast stone hall, tribal war drums, driving strings, a wailing voice, cold synths and an electric guitar: sci-fi battle hymns and alien ruins, written new." },
+    { id: "scrolls", name: "Elder Scrolls style", energy: 2, bpm: [54, 100], blurb: "Harp, flute, oboe and horns on the road, a lute and a dulcimer in town, a war choir in the northern hall: orchestral fantasy journeys, written new." },
   ];
   // the 18 original tracks' categories and energies (their music is untouched)
   const CAT = {
@@ -8588,26 +8638,41 @@ HW.SHAPE_FIT = {
 </script>
 <script>
 // ---- music-tracks-legends.js ----
-// HYPERWAVE Studio: round-two demo tracks (2026-10-22): game-soundtrack nostalgia. Original music in the spirit
-// of the great game scores (monks in stone halls, horns over rolling pulses, harps and flutes on quiet nights):
-// nothing is quoted from any game music: the chants and themes are new melodies written in the same spirit.
+// HYPERWAVE Studio: round-two demo tracks (2026-10-22): game-soundtrack nostalgia, in TWO SEPARATE GROUPS (split
+// 2026-10-22 evening, Jon: "I wanted them to be very separate"): every song is either
+//   HALO STYLE (category "halo"): Gregorian-style monks in a vast stone hall (original chant lines), slow string
+//     swells, tribal war drums, driving string ostinatos, a wordless wailing solo voice, electric guitar, cold synth
+//     pads, synth bass and synth stabs: sci-fi, military, ancient-and-alien;
+//   or ELDER SCROLLS STYLE (category "scrolls"): the orchestral fantasy of Morrowind / Oblivion (a small theme that
+//     returns bigger, often in 3/4: harp, flute, oboe, French horns, timpani and an orchestral bass drum; lute,
+//     dulcimer and fiddle in the towns and taverns) and of Skyrim (a war choir of men chanting with war drums, piano
+//     and harp at night).
+// No song uses the other group's sounds: no monks, synths or guitar on the Elder Scrolls side, no harp, flute, lute,
+// French horns or timpani on the Halo side. The monks (Halo) and the war choir (Skyrim, INST.warchoir) are two
+// different voices. Each song's header says its side and why. Nothing is quoted from any game music: the chants and
+// themes are new melodies written in the same spirit.
 // Same shape as music-tracks.js; helpers from HW.music.patterns and HW.music.patterns2 (music-tracks-groove.js).
 "use strict";
 (function () {
   const M = HW.music, T = M.theory, N = T.note, P = M.patterns, P2 = M.patterns2;
   const { D, S, hold, stab, arp, bass, sparkle, roll, at, cat, when, from, until, fill, lastBar, tr, vel, grow, alt, byPass, none, K4, crashIn, riserOut, crash8, clean, segAt, tones, BPB } = P;
   const { strum, shift, every, pedal, once, atBar } = P2;
-  // per-track loudness trims (verify/music/trims2.mjs): the legends land near -13 LUFS
+  // per-track loudness trims (verify/music/trims2.mjs): set for -13 LUFS in round two; round three's instruments left
+  // the songs 0-1.2 dB above that (MUSIC3-PROGRESS.md) and the split moved none by more than 0.2 dB
+  // (verify/music/split.mjs), so they stand
   const TRIM = { "beyond-the-grey-mountains": 0.88, "cold-moon-infiltration": 0.8, "embers-at-the-waystation": 1.15, "harp-at-the-crossroads": 0.94, "ring-of-fire-charge": 0.81, "ruins-in-the-mist": 0.74, "song-of-the-northern-hall": 0.73, "stars-over-the-long-road": 1.23, "stone-hall-before-the-storm": 0.71, "the-sleeping-town": 1.5 };
   const add = (def) => { def.fx = def.fx || {}; if (TRIM[def.id]) def.fx.trim = TRIM[def.id]; M.addTrack(def); };
   // 12-step bars: triplet-eighth patterns in 4/4 (the "twelve-eight" feel of tribal drums and driving strings)
   const T12 = (s, o) => D(s, o);
 
   // =========================================================================================================
-  // THE MAIN-MENU AWE: Stone Hall Before the Storm (legends)  E Dorian, 120 bpm (the chant at ~92)
+  // THE MAIN-MENU AWE: Stone Hall Before the Storm (Halo style)  E Dorian, 120 bpm (the chant at ~92)
   // Monks alone in a vast stone hall, four phrases over an open fifth; the strings bloom; tribal drums roll in
   // and the strings drive in triplets under a wailing voice; a distorted guitar joins the last charge; the
   // chant returns over the drums, then alone.
+  // Halo style: the shape of a Halo main menu: unaccompanied men's chant in a church-like hall over a drone, slow
+  // string swells, then tribal drums with driving triplet strings, a wordless wail and a rock guitar. The drone
+  // under the chant is a cold synth pad (was a glass harmonica until the split), so nothing here is fantasy-orchestral.
   {
     // the chant: low male range, mostly steps, one or two small leaps a phrase, the phrase ends held; four phrases
     const chant = S("E3 - - - F#3 - - - G3 - - - B3 - - - | A3 - - - F#3 - - - E3 - - - - - - - | B3 - - - A3 - - - G3 - - - E3 - - - | F#3 - - - A3 - - - G3 - - - - - - - | " +
@@ -8624,15 +8689,15 @@ HW.SHAPE_FIT = {
     const gtrRiff = S("E3 E3 E3 . G3 . A3 . E3 E3 E3 . D3 . E3 . | E3 E3 E3 . G3 . A3 . B3 . A3 . G3 . E3 .", { gate: 0.5, v: 0.9 });
     const drums = { taiko: T12("x..x..x..x..|x..x..x.xx.x"), toms: T12(".x..x..x..x.|.x..x..x..x.", { n: 43 }), tomsLo: T12("..x..x..x..x|..x..x..x..x", { n: 38 }), snare: T12("...x.....x..|...x.....x.x"), crash: alt(crashIn, none, none, none) };
     add({
-      id: "stone-hall-before-the-storm", name: "Stone Hall Before the Storm", genre: "Game-score nostalgia", style: "Chant, strings, drums and guitar", bpm: 120, key: "E Dorian", mood: "Awed, ancient, rising",
-      category: "legends", energy: 3, preview: 3,
+      id: "stone-hall-before-the-storm", name: "Stone Hall Before the Storm", genre: "Halo-style game score", style: "Chant, strings, drums and guitar", bpm: 120, key: "E Dorian", mood: "Awed, ancient, rising",
+      category: "halo", energy: 3, preview: 3,
       blurb: "Monks chant in a vast stone hall; strings bloom, drums roll in, a voice wails over driving triplets, a guitar joins the charge, and the chant returns.",
       prog: ["Em"], voice: 60, hum: 4,
       fx: { reverb: { seconds: 6.5, damp: 0.35, mix: 0.42, kind: "stone" }, delay: { beats: 0.75, fb: 0.2, mix: 0.1 }, duck: 0.1, duckRel: 0.5 },
       parts: {
         monks: { i: "monks", vol: 0.42, rev: 0.6, pan: 0, p: { vowel: "o", a: 0.3, r: 1.6, voices: 4 } },
         monks2: { i: "monks", vol: 0.26, rev: 0.65, pan: 0.3, p: { vowel: "a", a: 0.35, r: 1.6, voices: 3, det: 9 } },
-        drone: { i: "bowedglass", vol: 0.2, rev: 0.5, pan: -0.2, p: { a: 1.5, r: 3, breath: 0.04 } },
+        drone: { i: "pad", vol: 0.17, rev: 0.5, pan: -0.2, p: { wave: "triangle", top: 1, det: 6, cut: 1600, q: 0.7, a: 1.5, r: 3 } },     // a cold synth drone
         sub: { i: "sub", vol: 0.3, p: { a: 1.5, r: 2.5, s: 1, harm: 0.1 } },
         cello: { i: "bowed", vol: 0.26, pan: -0.25, rev: 0.5, p: { solo: 1, body: "cello", a: 0.2, r: 0.6, vib: 9, vibAt: 0.4, bow: 0.05 } },
         strings: { i: "bowed", vol: 0.18, rev: 0.55, pan: 0.15, p: { a: 1, r: 1.6, cut: 3200 } },
@@ -8666,9 +8731,12 @@ HW.SHAPE_FIT = {
   }
 
   // =========================================================================================================
-  // NIGHT MISSION: Cold Moon Infiltration (legends)  C# minor, 88 bpm
+  // NIGHT MISSION: Cold Moon Infiltration (Halo style)  C# minor, 88 bpm
   // A synth bass creeps in eighths under a slow, cold synth tune; strings tremble; sparse electronic drums
   // arrive late; monks murmur in the dark; the bass is the last thing to go.
+  // Halo style: Halo's night-stalking "mood groove": a slow synth melody over a busier synth bass line, drums and
+  // chanting men arriving late, a cold synth pad and trembling strings. Unchanged by the split: it had no harp,
+  // flute, horn or lute to remove.
   {
     const bassP = bass("x.x.x.x.x.x.x.f.|x.x.x.x.x.x.w.x.", { gate: 0.45 });
     const tune = S("G#4 - - - - - - - - - - - - - B4 - | C#5 - - - - - - - - - - - - - - - | B4 - - - - - - - - - G#4 - - - - - | F#4 - - - - - - - - - - - - - - - | " +
@@ -8678,8 +8746,8 @@ HW.SHAPE_FIT = {
     const trem = S("G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5 G#5", { gate: 0.5, v: 0.35 });
     const kit = { kick: D("x.........x.....|x.......x..x...."), rim: D("....x.......x..."), hat: D("..x...x...x...x."), snare: D("....x.......x...") };
     add({
-      id: "cold-moon-infiltration", name: "Cold Moon Infiltration", genre: "Game-score nostalgia", style: "Covert night mission", bpm: 88, key: "C# minor", mood: "Tense, covert, moonlit",
-      category: "legends", energy: 2, preview: 3,
+      id: "cold-moon-infiltration", name: "Cold Moon Infiltration", genre: "Halo-style game score", style: "Covert night mission", bpm: 88, key: "C# minor", mood: "Tense, covert, moonlit",
+      category: "halo", energy: 2, preview: 3,
       blurb: "A synth bass creeps in eighths under a cold slow tune; strings tremble; drums and murmuring monks arrive late.",
       prog: ["C#m", "C#m", "A", "B"], chordBars: 2, voice: 61, hum: 3,
       fx: { reverb: { seconds: 4, damp: 0.5, mix: 0.3 }, delay: { beats: 0.75, fb: 0.4, mix: 0.3 }, duck: 0.25, duckRel: 0.5 },
@@ -8716,9 +8784,15 @@ HW.SHAPE_FIT = {
   }
 
   // =========================================================================================================
-  // HEROIC ACTION: Ring of Fire Charge (legends)  D minor, 132 bpm
-  // Tribal drums and low strings in a driving eighth-note pulse; a horn theme over them; a choir hit on the
-  // turnarounds; a distorted guitar takes the theme in the chorus; a tense break and the last charge.
+  // HEROIC ACTION: Ring of Fire Charge (Halo style)  D minor, 132 bpm
+  // Tribal drums and low strings in a driving eighth-note pulse; the theme on marcato strings; synth stabs and
+  // synth-brass hits on the turnarounds; a distorted guitar takes the theme in the chorus; a tense break
+  // with the monks humming under it, and the last charge; a wailing voice over the smoke.
+  // Halo style: Halo's upbeat battle music: tribal percussion under short driving strings and long low strings,
+  // an electric guitar over the orchestral rhythm, synth hits, the monks and the wail. Re-orchestrated at the split
+  // (it had the fantasy orchestra's French horns, timpani, trumpet hits and a mixed choir): the theme moved from the
+  // horns to the strings, the hits to synths, the timpani to a low war drum, the choir to the monks
+  // and the wail. Melody, chords, sections and length unchanged.
   {
     const lowP = bass("x.x.x.x.x.x.x.x.|x.x.x.x.x.x.f.x.", { gate: 0.5, oct: 1 });
     const theme = S("D4 - - - F4 - - - A4 - - - - - G4 - | A4 - - - - - F4 - D4 - - - - - - - | D4 - - - F4 - - - A4 - - - C5 - - - | Bb4 - - - - - G4 - A4 - - - - - - - | " +
@@ -8728,9 +8802,9 @@ HW.SHAPE_FIT = {
     const run = S("D5 F5 A5 D6 C6 A5 F5 D5 E5 G5 Bb5 E6 D6 Bb5 G5 E5", { gate: 0.6, v: 0.6 });
     const drums = { taiko: D("x...x...x...x...|x...x...x.x.x..."), toms: D("..x...x...x...x.|..x...x...x.x.x.", { n: 45 }), snare: D("....x.......x...|....x.......x.xx"), hat: D("x.x.x.x.x.x.x.x."), crash: alt(crashIn, none, none, none) };
     add({
-      id: "ring-of-fire-charge", name: "Ring of Fire Charge", genre: "Game-score nostalgia", style: "Heroic action", bpm: 132, key: "D minor", mood: "Charging, fearless, bright",
-      category: "legends", energy: 4, preview: 2,
-      blurb: "Tribal drums and low strings drive an eighth-note pulse; horns carry the theme, the choir hits, a guitar takes the charge.",
+      id: "ring-of-fire-charge", name: "Ring of Fire Charge", genre: "Halo-style game score", style: "Heroic action", bpm: 132, key: "D minor", mood: "Charging, fearless, bright",
+      category: "halo", energy: 4, preview: 2,
+      blurb: "Tribal drums and low strings drive an eighth-note pulse; strings carry the theme, synths hit, a guitar takes the charge.",
       prog: ["Dm", "Bb", "Gm", "A", "Dm", "F", "C", "A"], voice: 60, hum: 3,
       fx: { reverb: { seconds: 3.2, damp: 0.4, mix: 0.3, kind: "hall" }, delay: { beats: 0.5, fb: 0.2, mix: 0.1 }, duck: 0.2, duckRel: 0.4 },
       parts: {
@@ -8739,13 +8813,16 @@ HW.SHAPE_FIT = {
         snare: { i: "snare", vol: 0.36, rev: 0.35, p: { tone: 220, decay: 0.15 } },
         hat: { i: "hat", vol: 0.12, pan: 0.3, p: { decay: 0.03, tone: 7000 } },
         crash: { i: "crash", vol: 0.24, rev: 0.45 },
-        timp: { i: "kettle", vol: 0.5, rev: 0.45, pan: -0.2 },
+        boom: { i: "wardrum", vol: 0.42, rev: 0.45, pan: -0.2, p: { decay: 1.3 } },     // a big low war drum (was the timpani)
         low: { i: "bowed", stem: "bass", vol: 0.32, pan: -0.1, rev: 0.25, p: { a: 0.012, r: 0.06, cut: 2000, vib: 0, hp: 50 } },
         sub: { i: "sub", vol: 0.3, duck: true, p: { a: 0.01, r: 0.1 } },
-        horns: { i: "fhorn", vol: 0.3, rev: 0.45, pan: 0.1, p: { a: 0.06, r: 0.3, vib: 5 } },
-        horns2: { i: "fhorn", vol: 0.2, rev: 0.45, pan: -0.25, p: { a: 0.06, r: 0.3, vib: 4 } },
-        brass: { i: "tpt", vol: 0.26, rev: 0.4, p: { cut: 2800, a: 0.025, scoop: 30 } },
-        choir: { i: "voices", vol: 0.26, rev: 0.55, pan: 0.15, p: { vowel: "a", a: 0.05, r: 0.5, breath: 0.04 } },
+        melo: { i: "bowed", vol: 0.3, rev: 0.42, pan: 0.1, p: { a: 0.05, r: 0.25, cut: 4200, vib: 10, voices: 6 } },     // the theme, marcato strings (was the horns)
+        melo2: { i: "bowed", vol: 0.2, rev: 0.42, pan: -0.25, p: { a: 0.05, r: 0.25, cut: 3200, vib: 8 } },     // its lower line (was the second horns)
+        stabs: { i: "stab", vol: 0.2, rev: 0.4, pan: -0.1, p: { wave: "sawtooth", wave2: "square", cut: 1800, env: 2, decay: 0.45, sus: 0.25, det: 8 } },     // was the trumpet hits
+        hits: { i: "brass", vol: 0.17, rev: 0.5, pan: 0.15, p: { cut: 2000, a: 0.02, r: 0.3, scoop: 20 } },     // synth brass hits (was the choir hits)
+        highStr: { i: "bowed", vol: 0.18, pan: 0.25, rev: 0.4, p: { a: 0.015, r: 0.1, cut: 4500, vib: 0 } },     // the runs (were on the choir)
+        choir: { i: "monks", vol: 0.26, rev: 0.6, pan: 0, p: { vowel: "o", a: 0.4, r: 1.4, voices: 4 } },     // the monks (the part keeps its old name: same timing as before)
+        wail: { i: "solo", vol: 0.22, pan: 0.05, rev: 0.6, dly: 0.2, p: { vowel: "a", a: 0.08, r: 0.6 } },
         strings: { i: "bowed", vol: 0.18, rev: 0.5, pan: 0.2, p: { a: 0.3, r: 0.8, cut: 3600 } },
         gtr: { i: "lead", vol: 0.24, pan: -0.1, rev: 0.35, dly: 0.2, p: { wave: "sawtooth", uni: 2, det: 7, a: 0.015, r: 0.25, vib: 14, vibRate: 5.5, cut: 3000, glide: 0.04 }, fx: { drive: 5, lp: 4500, eq: [["peaking", 700, 3, 1], ["peaking", 2600, 2, 1.2]] } },
         gtrChug: { i: "ks", vol: 0.26, pan: 0.2, p: { t60: 0.6, bright: 0.5, pick: 0.15, soft: 0, damp: 0.06 }, fx: { drive: 6, lp: 4000, eq: [["peaking", 160, 3, 1], ["highpass", 80, 0, 0.7]] } },
@@ -8756,23 +8833,26 @@ HW.SHAPE_FIT = {
         { name: "Drums at the Gate", kind: "intro", bars: 8,
           play: { taiko: drums.taiko, toms: from(2, drums.toms), low: from(4, lowP), hat: from(4, drums.hat), impact: at(0, 0, null, 4, 0.6) } },
         { name: "The Charge", kind: "verse", bars: 24,
-          play: Object.assign({}, drums, { low: lowP, sub: bass("x.......x......."), horns: theme, horns2: from(8, tr(theme, -5)), choir: from(16, choirHit), strings: from(8, hold({ v: 0.4, max: 3 })), timp: from(16, D("x.......x.......", { n: 38, v: 0.6 })) }) },
+          play: Object.assign({}, drums, { low: lowP, sub: bass("x.......x......."), melo: theme, melo2: from(8, tr(theme, -5)), hits: from(16, choirHit), strings: from(8, hold({ v: 0.4, max: 3 })), boom: from(16, D("x.......x.......", { n: 38, v: 0.6 })) }) },
         { name: "Ring of Fire", kind: "chorus", bars: 16,
-          play: Object.assign({}, drums, { low: lowP, sub: bass("x.......x......."), gtr: theme, gtrChug: lowP, brass: hits, choir: choirHit, strings: hold({ v: 0.5, max: 3, top: 1 }), timp: D("x.......x.......", { n: 38, v: 0.7 }), impact: at(0, 0, null, 4, 0.8) }) },
+          play: Object.assign({}, drums, { low: lowP, sub: bass("x.......x......."), gtr: theme, gtrChug: lowP, stabs: hits, hits: choirHit, strings: hold({ v: 0.5, max: 3, top: 1 }), boom: D("x.......x.......", { n: 38, v: 0.7 }), impact: at(0, 0, null, 4, 0.8) }) },
         { name: "Held Breath", kind: "break", bars: 8, prog: ["Gm", "A"], chordBars: 2, sweep: { "music.lp": [9000, 2500, 0, 0.6] },
-          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), choir: hold({ v: 0.5, max: 3, bars: 2 }), low: every(2, 0, bass("x---------------", { oct: 1 })), timp: from(4, roll({ n: 38, v0: 0.3, v1: 1, gap: 0.5, x: { decay: 0.6 } })), riser: riserOut(4, 50, 0.7), taiko: from(6, D("x...x...x...x.x.")) } },
+          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), choir: hold({ v: 0.5, max: 3, bars: 2 }), low: every(2, 0, bass("x---------------", { oct: 1 })), boom: from(4, roll({ n: 38, v0: 0.3, v1: 1, gap: 0.5, x: { decay: 0.6 } })), riser: riserOut(4, 50, 0.7), taiko: from(6, D("x...x...x...x.x.")) } },
         { name: "The Last Charge", kind: "chorus", bars: 24,
-          play: Object.assign({}, drums, { low: lowP, sub: bass("x.......x......."), gtr: tr(theme, 12), horns: theme, horns2: tr(theme, -5), gtrChug: lowP, brass: hits, choir: cat(choirHit, every(4, 3, run)), strings: cat(hold({ v: 0.5, max: 3, top: 1 }), every(4, 3, tr(run, 12))), timp: D("x.......x.......", { n: 38, v: 0.8 }), impact: at(0, 0, null, 4, 0.9) }) },
+          play: Object.assign({}, drums, { low: lowP, sub: bass("x.......x......."), gtr: tr(theme, 12), melo: theme, melo2: tr(theme, -5), gtrChug: lowP, stabs: hits, hits: choirHit, highStr: every(4, 3, run), strings: cat(hold({ v: 0.5, max: 3, top: 1 }), every(4, 3, tr(run, 12))), boom: D("x.......x.......", { n: 38, v: 0.8 }), impact: at(0, 0, null, 4, 0.9) }) },
         { name: "Smoke Clears", kind: "outro", bars: 8, prog: ["Dm"], stretch: [1, 1.3], sweep: { "music.lp": [8000, 900, 0.3, 1] },
-          play: { taiko: until(5, drums.taiko), low: until(5, lowP), horns: at(5, 0, 62, 8, 0.6), horns2: at(5, 0, 57, 8, 0.5), strings: hold({ v: 0.45, max: 3, bars: 2 }), choir: at(5, 0, 74, 8, 0.5), impact: at(5, 0, null, 4, 0.8), timp: at(5, 0, 38, 6, 0.7) } },
+          play: { taiko: until(5, drums.taiko), low: until(5, lowP), choir: cat(at(5, 0, 62, 8, 0.6), at(5, 0, 57, 8, 0.5)), strings: hold({ v: 0.45, max: 3, bars: 2 }), wail: at(5, 0, 74, 8, 0.5), impact: at(5, 0, null, 4, 0.8), boom: at(5, 0, 38, 6, 0.7) } },
       ],
     });
   }
 
   // =========================================================================================================
-  // CALL TO ADVENTURE in 3/4: Beyond the Grey Mountains (legends)  A minor, 80 bpm, meter 3
+  // CALL TO ADVENTURE in 3/4: Beyond the Grey Mountains (Elder Scrolls style)  A minor, 80 bpm, meter 3
   // A three-note cell on harp and flute, answered twice; an oboe-like voice takes it; horns; then the whole
   // orchestra over a rolling timpani pulse, the theme bigger every time; it ends looking at the far peaks.
+  // Elder Scrolls style (Morrowind / Oblivion): the series' main-theme way: a small motif answered twice, stated
+  // over and over with growing scope, harp and flute first, then the oboe, the horns, the full orchestra with
+  // timpani, in 3/4. At the split the tribal war drum (a Halo sound) became an orchestral bass drum (soft beater).
   {
     const P = ["Am", "F", "C", "G", "Am", "F", "Dm", "E"];
     // the theme: a three-note cell (up a step, down a third) answered twice, stepwise with a fourth leap
@@ -8784,8 +8864,8 @@ HW.SHAPE_FIT = {
     const timpP = D("x..x..|x..x.x", { n: 33, v: 0.7 }), timpRoll = D("xxxxxx|xxxxxx", { n: 33, v: 0.45 });
     const ost = arp("0 2 4 2 0 2 4 2 0 2 4 2", { oct: 1, gate: 0.5, v: 0.5 });
     add({
-      id: "beyond-the-grey-mountains", name: "Beyond the Grey Mountains", genre: "Game-score nostalgia", style: "Sweeping main theme in 3/4", bpm: 80, meter: 3, key: "A minor", mood: "Stirring, hopeful, far-seeing",
-      category: "legends", energy: 3, preview: 4,
+      id: "beyond-the-grey-mountains", name: "Beyond the Grey Mountains", genre: "Elder Scrolls-style game score", style: "Sweeping main theme in 3/4", bpm: 80, meter: 3, key: "A minor", mood: "Stirring, hopeful, far-seeing",
+      category: "scrolls", energy: 3, preview: 4,
       blurb: "A three-note call on harp and flute grows through oboe, horns and the whole orchestra over rolling timpani.",
       prog: P, voice: 62, hum: 5,
       fx: { reverb: { seconds: 4.8, damp: 0.4, mix: 0.4, kind: "hall" }, delay: { beats: 1, fb: 0.15, mix: 0.08 }, duck: 0.05 },
@@ -8803,7 +8883,7 @@ HW.SHAPE_FIT = {
         cello: { i: "bowed", stem: "bass", vol: 0.36, pan: -0.2, rev: 0.45, p: { solo: 1, body: "cello", a: 0.15, r: 0.5, vib: 8, vibAt: 0.4, bow: 0.05, cutRatio: 3.5 } },
         choir: { i: "voices", vol: 0.22, rev: 0.6, pan: 0.1, p: { vowel: "a", a: 0.6, r: 1.4, breath: 0.05 } },
         timp: { i: "kettle", vol: 0.55, rev: 0.5, pan: -0.15, p: { decay: 1.2 } },
-        taiko: { i: "wardrum", vol: 0.6, side: true, rev: 0.4, p: { decay: 0.8 } },
+        bassdrum: { i: "bassdrum", vol: 0.5, side: true, rev: 0.45, p: { decay: 1.4 } },     // orchestral bass drum (was a war drum)
         snare: { i: "snare", vol: 0.26, rev: 0.4, pan: 0.2, p: { tone: 230, decay: 0.14 } },
         crash: { i: "crash", vol: 0.24, rev: 0.5, p: { decay: 2.8 } },
         wind: { i: "wind", vol: 0.12, rev: 0.4, p: { lo: 300, hi: 2200, q: 2.5 } },
@@ -8816,9 +8896,9 @@ HW.SHAPE_FIT = {
         { name: "The Answer", kind: "verse", bars: 16,
           play: { oboe: theme, harp: harpP, harpHi: from(8, harpHi), strings: hold({ v: 0.45, max: 3 }), cello: (c) => [[0, c.chord.bass + 12, 3, 0.55]], horns: from(8, hold({ v: 0.4, max: 2 })), timp: from(12, timpP) } },
         { name: "Horns on the Ridge", kind: "verse", bars: 16,
-          play: { horns: theme, horns2: tr(theme, -7), ost, strings: hold({ v: 0.5, max: 3 }), cello: (c) => [[0, c.chord.bass + 12, 3, 0.6]], timp: timpP, taiko: D("x.....|x..x.."), harp: harpP, choir: from(8, hold({ v: 0.45, max: 3 })), snare: from(8, D("..x..x|..x.xx")) } },
+          play: { horns: theme, horns2: tr(theme, -7), ost, strings: hold({ v: 0.5, max: 3 }), cello: (c) => [[0, c.chord.bass + 12, 3, 0.6]], timp: timpP, bassdrum: D("x.....|x..x.."), harp: harpP, choir: from(8, hold({ v: 0.45, max: 3 })), snare: from(8, D("..x..x|..x.xx")) } },
         { name: "Beyond the Mountains", kind: "chorus", bars: 16, mix: { strings: 1.15, horns: 1.1 },
-          play: { strings: tr(theme, 12), stringsHi: tr(theme, 12), horns: theme, horns2: tr(theme, -7), brass: every(4, 3, stab("x.....|", { v: 0.8, d: 2.5, max: 3 })), ost, choir: hold({ v: 0.55, max: 3, top: 1 }), cello: (c) => [[0, c.chord.bass + 12, 3, 0.6]], timp: cat(timpP, every(4, 3, timpRoll)), taiko: D("x..x..|x..x.x"), snare: D("..x..x|..x.xx"), crash: alt(crashIn, none, none, none), harpHi } },
+          play: { strings: tr(theme, 12), stringsHi: tr(theme, 12), horns: theme, horns2: tr(theme, -7), brass: every(4, 3, stab("x.....|", { v: 0.8, d: 2.5, max: 3 })), ost, choir: hold({ v: 0.55, max: 3, top: 1 }), cello: (c) => [[0, c.chord.bass + 12, 3, 0.6]], timp: cat(timpP, every(4, 3, timpRoll)), bassdrum: D("x..x..|x..x.x"), snare: D("..x..x|..x.xx"), crash: alt(crashIn, none, none, none), harpHi } },
         { name: "The Far Peaks", kind: "outro", bars: 10, prog: ["Am", "F", "C", "G", "Am", "Am", "Am", "Am", "Am", "Am"], stretch: [1, 1.6], sweep: { "music.lp": [9000, 1500, 0.4, 1] },
           play: { flute: cat(until(4, theme), at(4, 0, 69, 18, 0.6)), harp: until(6, harpP), strings: hold({ v: 0.5, max: 3, bars: 2 }), horns: at(4, 0, 57, 18, 0.5), cello: until(6, (c) => [[0, c.chord.bass + 12, 3, 0.5]]), choir: hold({ v: 0.4, max: 3, bars: 2 }), timp: at(4, 0, 33, 6, 0.6), wind: atBar(4, 6, 0.5) } },
       ],
@@ -8826,9 +8906,14 @@ HW.SHAPE_FIT = {
   }
 
   // =========================================================================================================
-  // SAGA ANTHEM: Song of the Northern Hall (legends)  D Dorian, 100 bpm
-  // War drums and a male choir chanting an anthem; horns answer; string ostinatos in the A parts, washes of
+  // SAGA ANTHEM: Song of the Northern Hall (Elder Scrolls style)  D Dorian, 100 bpm
+  // War drums and a war choir of men chanting an anthem; horns answer; string ostinatos in the A parts, washes of
   // string harmony and woodwinds in the B parts; a trumpet fanfare; the last verse with everything.
+  // Elder Scrolls style (Skyrim): the Nordic anthem: a big choir of men chanting in unison over taiko-style war
+  // drums, horns and a trumpet fanfare, rhythmic string ostinatos in the A sections and washes of strings with
+  // woodwinds in the B sections. At the split the Halo monks who sang it became INST.warchoir: loud, pressed voices,
+  // every syllable accented, vowels changing like words, many more men, no quarter-beat echo (that canon is the
+  // Halo chant's), and a big wooden hall instead of the cathedral's stone.
   {
     const PA = ["Dm", "Dm", "C", "Dm", "Dm", "Bb", "C", "Dm"], PB = ["Bb", "F", "C", "Dm", "Bb", "F", "Gm", "A"];
     // the anthem: male range, a repeated-note call, steps, one fourth leap, held phrase ends
@@ -8840,19 +8925,20 @@ HW.SHAPE_FIT = {
     const wash = S("A4 - - - - - - - - - - - - - - - | Bb4 - - - - - - - - - - - - - - - | G4 - - - - - - - - - - - - - - - | A4 - - - - - - - - - - - - - - -", { gate: 1, v: 0.5 });
     const drums = { taiko: D("x.......x.......|x.......x...x..."), taiko2: D("....x.......x...|....x.......x.xx", { n: 43 }), snare: D("..x...x...x...x.|..x...x...x.xxxx"), crash: alt(crashIn, none, none, none) };
     add({
-      id: "song-of-the-northern-hall", name: "Song of the Northern Hall", genre: "Game-score nostalgia", style: "Choir-and-war-drum anthem", bpm: 100, key: "D Dorian", mood: "Mighty, cold, triumphant",
-      category: "legends", energy: 4, preview: 4,
+      id: "song-of-the-northern-hall", name: "Song of the Northern Hall", genre: "Elder Scrolls-style game score", style: "Choir-and-war-drum anthem", bpm: 100, key: "D Dorian", mood: "Mighty, cold, triumphant",
+      category: "scrolls", energy: 4, preview: 4,
       blurb: "War drums and a hall of men chanting an anthem; horns answer, strings churn, a trumpet fanfare, the last verse with everything.",
       prog: PA, voice: 62, hum: 4,
-      fx: { reverb: { seconds: 5, damp: 0.4, mix: 0.4, kind: "stone" }, delay: { beats: 0.75, fb: 0.15, mix: 0.08 }, duck: 0.15, duckRel: 0.5 },
+      fx: { reverb: { seconds: 4, damp: 0.45, mix: 0.34, kind: "hall" }, delay: { beats: 0.75, fb: 0.15, mix: 0.08 }, duck: 0.15, duckRel: 0.5 },
       parts: {
         taiko: { i: "wardrum", vol: 0.85, side: true, rev: 0.4, p: { decay: 1 } },
         taiko2: { i: "wardrum", vol: 0.5, rev: 0.4, pan: 0.3, p: { decay: 0.5 } },
         snare: { i: "snare", vol: 0.3, rev: 0.4, pan: -0.2, p: { tone: 240, decay: 0.14 } },
         crash: { i: "crash", vol: 0.26, rev: 0.5, p: { decay: 3 } },
         timp: { i: "kettle", vol: 0.5, rev: 0.5, pan: -0.2 },
-        monks: { i: "monks", vol: 0.42, rev: 0.6, pan: 0, p: { vowel: "a", a: 0.15, r: 1, voices: 4, det: 8 } },
-        monks2: { i: "monks", vol: 0.28, rev: 0.6, pan: 0.3, p: { vowel: "o", a: 0.2, r: 1, voices: 3 } },
+        chant: { i: "warchoir", vol: 0.34, rev: 0.45, pan: -0.05, p: { vowels: "aoa", voices: 8 } },     // the war choir (was the monks)
+        chant2: { i: "warchoir", vol: 0.24, rev: 0.45, pan: 0.3, p: { vowels: "aoa", voices: 6 } },     // more men, in unison (was a canon a quarter beat behind)
+        tenors: { i: "warchoir", vol: 0.19, rev: 0.5, pan: -0.3, p: { vowels: "aea", voices: 6 } },     // the anthem an octave up
         choir: { i: "voices", vol: 0.24, rev: 0.6, pan: -0.2, p: { vowel: "a", a: 0.3, r: 1.2, breath: 0.04, male: 1 } },
         horns: { i: "fhorn", vol: 0.28, rev: 0.5, pan: 0.1, p: { a: 0.08, r: 0.4, vib: 5 } },
         horns2: { i: "fhorn", vol: 0.2, rev: 0.5, pan: -0.3, p: { a: 0.08, r: 0.4, vib: 4, cut: 900, sub: 0.3 } },
@@ -8868,23 +8954,26 @@ HW.SHAPE_FIT = {
         { name: "Drums in the Snow", kind: "intro", bars: 8, sweep: { "music.lp": [1000, 7000] },
           play: { taiko: drums.taiko, taiko2: from(4, drums.taiko2), sub: bass("x-------x-------"), ost: from(4, ost), impact: at(0, 0, null, 4, 0.7) } },
         { name: "The Anthem", kind: "verse", bars: 16,
-          play: Object.assign({}, drums, { crash: crashIn, monks: anthem, monks2: from(8, shift(anthem, 0.25)), ost, cello: (c) => [[0, c.chord.bass + 12, 4, 0.6]], sub: bass("x-------x-------"), horns: from(8, hold({ v: 0.4, max: 2 })) }) },
+          play: Object.assign({}, drums, { crash: crashIn, chant: anthem, chant2: from(8, anthem), ost, cello: (c) => [[0, c.chord.bass + 12, 4, 0.6]], sub: bass("x-------x-------"), horns: from(8, hold({ v: 0.4, max: 2 })) }) },
         { name: "Across the Fjord", kind: "bridge", bars: 8, prog: PB, sweep: { "music.lp": [9000, 4000, 0.3, 1] },
           play: { strings: hold({ v: 0.55, max: 3, top: 1 }), woods: wash, choir: hold({ v: 0.5, max: 3 }), cello: (c) => [[0, c.chord.bass + 12, 4, 0.55]], timp: every(2, 1, D("........x.......", { n: 38, v: 0.6 })), taiko: every(2, 0, D("x...............")) } },
         { name: "Horns Answer", kind: "verse", bars: 16,
-          play: Object.assign({}, drums, { crash: crashIn, monks: anthem, monks2: shift(anthem, 0.25), choir: anthemHi, horns: shift(tr(anthem, 12), 2), ost, strings: hold({ v: 0.45, max: 3 }), cello: (c) => [[0, c.chord.bass + 12, 4, 0.6]], sub: bass("x-------x-------"), timp: D("x.......x.......", { n: 38, v: 0.6 }) }) },
-        { name: "The Fanfare", kind: "chorus", bars: 16, mix: { monks: 1.1, trumpet: 1.1 },
-          play: Object.assign({}, drums, { monks: anthem, monks2: shift(anthem, 0.25), choir: anthemHi, horns: tr(anthem, 12), horns2: anthem, trumpet: every(8, 4, fanfare), ost, strings: hold({ v: 0.55, max: 3, top: 1 }), cello: (c) => [[0, c.chord.bass + 12, 4, 0.65]], sub: bass("x-------x-------"), timp: D("x.......x.....x.", { n: 38, v: 0.8 }), impact: at(0, 0, null, 4, 0.9) }) },
+          play: Object.assign({}, drums, { crash: crashIn, chant: anthem, chant2: anthem, tenors: anthemHi, horns: shift(tr(anthem, 12), 2), ost, strings: hold({ v: 0.45, max: 3 }), cello: (c) => [[0, c.chord.bass + 12, 4, 0.6]], sub: bass("x-------x-------"), timp: D("x.......x.......", { n: 38, v: 0.6 }) }) },
+        { name: "The Fanfare", kind: "chorus", bars: 16, mix: { chant: 1.1, trumpet: 1.1 },
+          play: Object.assign({}, drums, { chant: anthem, chant2: anthem, tenors: anthemHi, horns: tr(anthem, 12), horns2: anthem, trumpet: every(8, 4, fanfare), ost, strings: hold({ v: 0.55, max: 3, top: 1 }), cello: (c) => [[0, c.chord.bass + 12, 4, 0.65]], sub: bass("x-------x-------"), timp: D("x.......x.....x.", { n: 38, v: 0.8 }), impact: at(0, 0, null, 4, 0.9) }) },
         { name: "The Hall Falls Silent", kind: "outro", bars: 8, prog: ["Dm"], stretch: [1, 1.4], sweep: { "music.lp": [8000, 1200, 0.3, 1] },
-          play: { monks: cat(until(4, anthem), at(4, 0, 50, 12, 0.7)), monks2: at(4, 0, 57, 12, 0.5), horns: at(4, 0, 62, 12, 0.5), strings: hold({ v: 0.45, max: 3, bars: 2 }), taiko: cat(until(4, drums.taiko), at(4, 0, null, 4, 1)), timp: at(4, 0, 38, 8, 0.8), impact: at(4, 0, null, 4, 0.9), sub: bass("x-------x-------") } },
+          play: { chant: cat(until(4, anthem), at(4, 0, 50, 12, 0.7)), chant2: at(4, 0, 57, 12, 0.5), horns: at(4, 0, 62, 12, 0.5), strings: hold({ v: 0.45, max: 3, bars: 2 }), taiko: cat(until(4, drums.taiko), at(4, 0, null, 4, 1)), timp: at(4, 0, 38, 8, 0.8), impact: at(4, 0, null, 4, 0.9), sub: bass("x-------x-------") } },
       ],
     });
   }
 
   // =========================================================================================================
-  // EXPLORATION AT DAWN: Harp at the Crossroads (legends)  D major, 66 bpm
+  // EXPLORATION AT DAWN: Harp at the Crossroads (Elder Scrolls style)  D major, 66 bpm
   // Harp arpeggios and a flute that states a small idea and answers it; an oboe takes the answer; strings
   // and a horn join with each restatement; no drums; it ends on the open road.
+  // Elder Scrolls style (Morrowind / Oblivion / Skyrim): the series' soft exploration music for hours of roaming:
+  // harp and solo flute over soft strings with long echoes, a melody restated with more instruments each time,
+  // the oboe, cello and horn. Unchanged by the split: nothing in it is a Halo sound.
   {
     const P = ["D", "Bm7", "G", "A", "D", "F#m7", "G", "Asus4 A"];
     const theme = S("F#4 - - - G4 - - - E4 - - - - - - - | F#4 - - - - - - - - - - - . . . . | A4 - - - B4 - - - G4 - - - - - - - | A4 - - - - - - - - - - - . . . . | " +
@@ -8894,8 +8983,8 @@ HW.SHAPE_FIT = {
     const harpP = arp("0 1 2 3 4 3 2 1 0 1 2 3 4 3 2 1", { oct: 0, gate: 0.95, v: 0.45, top: 1 });
     const harpSlow = arp("0 . 1 . 2 . 4 . 3 . 2 . 1 . . .", { oct: 0, gate: 0.95, v: 0.45, top: 1 });
     add({
-      id: "harp-at-the-crossroads", name: "Harp at the Crossroads", genre: "Game-score nostalgia", style: "Exploration at dawn", bpm: 66, key: "D major", mood: "Fresh, open, hopeful",
-      category: "legends", energy: 2, preview: 3,
+      id: "harp-at-the-crossroads", name: "Harp at the Crossroads", genre: "Elder Scrolls-style game score", style: "Exploration at dawn", bpm: 66, key: "D major", mood: "Fresh, open, hopeful",
+      category: "scrolls", energy: 2, preview: 3,
       blurb: "Harp arpeggios and a flute that asks and answers; an oboe, strings and a horn join on each return; the road is open.",
       prog: P, voice: 62, hum: 6,
       fx: { reverb: { seconds: 4.5, damp: 0.4, mix: 0.4, kind: "hall" }, delay: { beats: 1, fb: 0.2, mix: 0.1 }, duck: 0 },
@@ -8930,9 +9019,11 @@ HW.SHAPE_FIT = {
   }
 
   // =========================================================================================================
-  // A TOWN AT NIGHT: The Sleeping Town (legends)  G major, 60 bpm
+  // A TOWN AT NIGHT: The Sleeping Town (Elder Scrolls style)  G major, 60 bpm
   // A hammered dulcimer and a lute in the quiet streets; a cello sings a warm tune; a soft clarinet; a church
   // bell on the hour; windows go dark one by one.
+  // Elder Scrolls style (Morrowind / Oblivion): the town music: a dulcimer and a lute, a warm cello tune, gentle
+  // woodwinds, a bell. Unchanged by the split: nothing in it is a Halo sound.
   {
     const P = ["G", "Em7", "C", "D", "G", "Bm7", "C", "D"];
     const dulc = arp("0 2 4 2 1 2 4 2 0 2 4 2 3 2 4 2", { oct: 1, gate: 0.8, v: 0.45, top: 1 });
@@ -8942,8 +9033,8 @@ HW.SHAPE_FIT = {
     const clar = S(". . . . . . . . . . . . . . . . | . . . . . . . . B4 - - - A4 - - - | G4 - - - - - - - . . . . . . . . | . . . . . . . . A4 - - - C5 - - - | " +
       ". . . . . . . . . . . . . . . . | . . . . . . . . B4 - - - G4 - - - | A4 - - - - - - - . . . . . . . . | . . . . . . . . . . . . . . . .", { gate: 1, v: 0.5 });
     add({
-      id: "the-sleeping-town", name: "The Sleeping Town", genre: "Game-score nostalgia", style: "A town at night", bpm: 60, key: "G major", mood: "Safe, warm, drowsy",
-      category: "legends", energy: 2, preview: 2,
+      id: "the-sleeping-town", name: "The Sleeping Town", genre: "Elder Scrolls-style game score", style: "A town at night", bpm: 60, key: "G major", mood: "Safe, warm, drowsy",
+      category: "scrolls", energy: 2, preview: 2,
       blurb: "A hammered dulcimer and a lute in quiet streets, a cello's warm tune, a soft clarinet, a church bell on the hour.",
       prog: P, voice: 62, hum: 8,
       fx: { reverb: { seconds: 3.6, damp: 0.5, mix: 0.34, kind: "hall" }, delay: { beats: 1, fb: 0.2, mix: 0.1 }, duck: 0 },
@@ -8976,17 +9067,20 @@ HW.SHAPE_FIT = {
   }
 
   // =========================================================================================================
-  // NIGHT ON THE ROAD: Stars Over the Long Road (legends)  F# minor, 54 bpm
+  // NIGHT ON THE ROAD: Stars Over the Long Road (Elder Scrolls style)  F# minor, 54 bpm
   // Slow strings with suspensions that resolve late; a piano and a harp, a few notes each; bowed glass; a
   // horn far off; crickets and wind. No beat at all.
+  // Elder Scrolls style (Skyrim): the night-time wilderness music: light piano with harp under the stars, lush
+  // slow strings whose suspensions resolve late, a soft wordless choir, a horn far off, crickets and wind (the
+  // "lonely road, stars over the road" feeling the research notes record). Unchanged by the split.
   {
     const P = ["F#m9", "Dmaj7", "Aadd9", "Esus4 E", "F#m9", "Dmaj7", "Bm9", "C#7sus4 C#7"];
     const pianoP = S("C#5 - - - - - - - - - - - E5 - - - | F#5 - - - - - - - - - - - - - - - | A4 - - - - - - - - - - - B4 - - - | C#5 - - - - - - - - - - - . . . . | " +
       "F#5 - - - - - - - E5 - - - - - - - | C#5 - - - - - - - - - - - D5 - - - | B4 - - - - - - - - - - - E5 - - - | C#5 - - - - - - - - - - - - - - -", { gate: 1, v: 0.5 });
     const harpP = every(2, 1, arp("0 . 1 . 2 . 3 . 4 . . . . . . .", { oct: 1, gate: 1, v: 0.4 }));
     add({
-      id: "stars-over-the-long-road", name: "Stars Over the Long Road", genre: "Game-score nostalgia", style: "Quiet night on the road", bpm: 54, key: "F# minor", mood: "Vast, calm, wondering",
-      category: "legends", energy: 1, preview: 2,
+      id: "stars-over-the-long-road", name: "Stars Over the Long Road", genre: "Elder Scrolls-style game score", style: "Quiet night on the road", bpm: 54, key: "F# minor", mood: "Vast, calm, wondering",
+      category: "scrolls", energy: 1, preview: 2,
       blurb: "Slow strings that resolve late, a piano and a harp with a few notes each, a horn far off, crickets and wind.",
       prog: P, voice: 62, hum: 14,
       fx: { reverb: { seconds: 6, damp: 0.35, mix: 0.45, kind: "hall" }, delay: { beats: 1.5, fb: 0.3, mix: 0.18 }, duck: 0 },
@@ -9020,9 +9114,11 @@ HW.SHAPE_FIT = {
   }
 
   // =========================================================================================================
-  // THE TAVERN: Embers at the Waystation (legends)  A Dorian, 96 bpm
+  // THE TAVERN: Embers at the Waystation (Elder Scrolls style)  A Dorian, 96 bpm
   // A lute strums by the fire, a fiddle and a wooden flute trade the tune, a frame drum and a tambourine keep
   // it easy, a hurdy-gurdy drone underneath; the fire burns down.
+  // Elder Scrolls style (Skyrim): the inn's band: lute, fiddle, frame drum and wooden flute, medieval and modal.
+  // Unchanged by the split: nothing in it is a Halo sound.
   {
     const P = ["Am", "G", "Am", "Em", "Am", "G", "C", "G Am"];
     const lute = strum("d.u.d.u.|d.u.d.u.", { spread: 0.035, max: 4, low: 1, v: 0.62, d: 0.4 });
@@ -9032,8 +9128,8 @@ HW.SHAPE_FIT = {
       "A4 - - - C5 - D5 - E5 - - - G5 - E5 - | D5 - - - - - B4 - C5 - A4 - - - - - | G4 - B4 - A4 - C5 - D5 - - - B4 - G4 - | A4 - - - - - - - - - - - . . . .", { gate: 0.9 });
     const kit = { frame: D("x.....x.x.......|x.....x.x...x..."), tamb: D("....x.......x..."), click: D("..x...x...x...x.") };
     add({
-      id: "embers-at-the-waystation", name: "Embers at the Waystation", genre: "Game-score nostalgia", style: "Tavern by the fire", bpm: 96, key: "A Dorian", mood: "Convivial, easy, crackling",
-      category: "legends", energy: 3, preview: 2,
+      id: "embers-at-the-waystation", name: "Embers at the Waystation", genre: "Elder Scrolls-style game score", style: "Tavern by the fire", bpm: 96, key: "A Dorian", mood: "Convivial, easy, crackling",
+      category: "scrolls", energy: 3, preview: 2,
       blurb: "A lute by the fire, a fiddle and a wooden flute trading the tune, a frame drum and a tambourine, a hurdy-gurdy drone.",
       prog: P, voice: 62, hum: 7,
       fx: { reverb: { seconds: 2.2, damp: 0.5, mix: 0.26, kind: "room" }, delay: { beats: 0.75, fb: 0.15, mix: 0.08 }, duck: 0.05 },
@@ -9069,28 +9165,32 @@ HW.SHAPE_FIT = {
   }
 
   // =========================================================================================================
-  // RUINS: Ruins in the Mist (legends)  E Aeolian, 48 bpm
-  // Held string chords that don't quite agree; a deep drone; a double reed sings an old lament; monks far
-  // off in the mist; a bowl; the mist closes again.
+  // RUINS: Ruins in the Mist (Halo style)  E Aeolian, 48 bpm
+  // Held string chords that don't quite agree; a deep drone; a distant wordless voice sings an old lament; monks
+  // far off in the mist; a bowl; a cold synth shimmer; the mist closes again.
+  // Halo style: the ancient-and-alien ruins of Halo's quiet levels: a drone, slow string swells, chanting men far off
+  // in a vast stone space, a cold synth pad, and the lament on a wordless solo voice (Halo's wailing voice, here
+  // soft and far). Moved to this side at the split: the double reed's lament became that voice and the glass
+  // harmonica a cold synth pad. Melody, chords, sections and length unchanged.
   {
     const P = ["Em", "Cmaj7", "Am", "Bsus4", "Em", "G", "Am", "Bsus4"];
     const lament = S("B4 - - - - - - - - - - - C5 - - - | B4 - - - - - - - G4 - - - - - - - | A4 - - - - - - - - - B4 - - - - - | E4 - - - - - - - - - - - - - - - | " +
       "G4 - - - - - A4 - - - - - B4 - - - | D5 - - - - - - - C5 - - - - - - - | B4 - - - - - - - - - A4 - - F#4 - - | E4 - - - - - - - - - - - - - - -", { gate: 1 });
     const sus = (c) => c.bar % 2 ? [] : [[0, c.chord.root + 2, 8, 0.4], [0, c.chord.root + 7, 8, 0.45], [4, c.chord.root + 3, 4, 0.4]];
     add({
-      id: "ruins-in-the-mist", name: "Ruins in the Mist", genre: "Game-score nostalgia", style: "Mysterious exploration", bpm: 48, key: "E Aeolian", mood: "Mysterious, uneasy, awed",
-      category: "legends", energy: 1, preview: 2,
-      blurb: "Held string chords that don't quite agree, a deep drone, a double reed's old lament, monks far off in the mist.",
+      id: "ruins-in-the-mist", name: "Ruins in the Mist", genre: "Halo-style game score", style: "Mysterious exploration", bpm: 48, key: "E Aeolian", mood: "Mysterious, uneasy, awed",
+      category: "halo", energy: 1, preview: 2,
+      blurb: "Held string chords that don't quite agree, a deep drone, a distant voice's old lament, monks far off in the mist.",
       prog: P, chordBars: 2, voice: 60, hum: 12,
       fx: { reverb: { seconds: 7, damp: 0.35, mix: 0.46, kind: "stone" }, delay: { beats: 2, fb: 0.35, mix: 0.2 }, duck: 0 },
       parts: {
         strings: { i: "bowed", vol: 0.2, rev: 0.6, pan: 0.1, p: { a: 2, r: 3, cut: 2600 } },
         sus: { i: "bowed", vol: 0.14, rev: 0.65, pan: -0.2, p: { a: 2.5, r: 3, cut: 3200 } },
         drone: { i: "sub", vol: 0.34, p: { a: 2, r: 3, s: 1, harm: 0.15 } },
-        reed: { i: "reed2", vol: 0.26, pan: 0.05, rev: 0.6, dly: 0.25, p: { vib: 24, vibAt: 0.5, a: 0.15, r: 0.6, breath: 0.06 } },
+        voice: { i: "solo", vol: 0.26, pan: 0.05, rev: 0.6, dly: 0.25, p: { vowel: "a", vib: 30, a: 0.15, r: 0.8, breath: 0.09, gain: 3.2 } },     // the lament, far off (was a double reed)
         monks: { i: "monks", vol: 0.2, rev: 0.7, pan: -0.1, p: { vowel: "u", a: 1.5, r: 2.5, voices: 4 } },
         bowl: { i: "bowl", vol: 0.18, rev: 0.5, pan: 0.3, p: { decay: 8 } },
-        glass: { i: "bowedglass", vol: 0.12, rev: 0.65, pan: -0.3, p: { a: 3, r: 4 } },
+        shimmer: { i: "pad", vol: 0.1, rev: 0.65, pan: -0.3, p: { wave: "triangle", top: 1, det: 5, cut: 1800, q: 0.7, a: 3, r: 4 } },     // cold synth (was a glass harmonica)
         wind: { i: "wind", vol: 0.16, rev: 0.4, p: { lo: 200, hi: 1500, q: 2.5 } },
         drip: { i: "fmbell", vol: 0.08, rev: 0.7, dly: 0.5, pan: 0.4, p: { ratio: 2, index: 0.3, decay: 1 } },
       },
@@ -9098,15 +9198,15 @@ HW.SHAPE_FIT = {
         { name: "Mist", kind: "intro", bars: 8, sweep: { "music.lp": [600, 5000] },
           play: { wind: atBar(0, 8, 0.8), drone: pedal({ bars: 2, oct: 0, v: 0.6 }), strings: from(2, hold({ v: 0.45, max: 3, bars: 2 })), drip: sparkle([88, 91, 95], { density: 0.03, len: 1, v: 0.4 }) } },
         { name: "Broken Columns", kind: "verse", bars: 16,
-          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), sus, drone: pedal({ bars: 2, oct: 0, v: 0.6 }), reed: from(8, lament), wind: atBar(0, 16, 0.5), bowl: every(8, 0, at(0, 0, 64, 24, 0.5)) } },
+          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), sus, drone: pedal({ bars: 2, oct: 0, v: 0.6 }), voice: from(8, lament), wind: atBar(0, 16, 0.5), bowl: every(8, 0, at(0, 0, 64, 24, 0.5)) } },
         { name: "Voices in the Stone", kind: "verse", bars: 16,
-          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), sus, drone: pedal({ bars: 2, oct: 0, v: 0.6 }), reed: lament, monks: hold({ v: 0.45, max: 3, oct: -1, bars: 2 }), glass: from(8, hold({ v: 0.35, max: 1, oct: 1, bars: 4 })), drip: sparkle([88, 91, 95], { density: 0.03, len: 1, v: 0.4 }) } },
+          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), sus, drone: pedal({ bars: 2, oct: 0, v: 0.6 }), voice: lament, monks: hold({ v: 0.45, max: 3, oct: -1, bars: 2 }), shimmer: from(8, hold({ v: 0.35, max: 1, oct: 1, bars: 4 })), drip: sparkle([88, 91, 95], { density: 0.03, len: 1, v: 0.4 }) } },
         { name: "The Altar", kind: "bridge", bars: 8, prog: ["Cmaj7", "Bsus4"], chordBars: 4, mix: { monks: 1.2 },
-          play: { monks: hold({ v: 0.6, max: 3, oct: -1, bars: 4 }), strings: hold({ v: 0.55, max: 3, bars: 4, top: 1 }), drone: pedal({ bars: 4, oct: 0, v: 0.65 }), bowl: at(0, 0, 59, 32, 0.6), glass: hold({ v: 0.4, max: 2, oct: 1, bars: 4 }) } },
+          play: { monks: hold({ v: 0.6, max: 3, oct: -1, bars: 4 }), strings: hold({ v: 0.55, max: 3, bars: 4, top: 1 }), drone: pedal({ bars: 4, oct: 0, v: 0.65 }), bowl: at(0, 0, 59, 32, 0.6), shimmer: hold({ v: 0.4, max: 2, oct: 1, bars: 4 }) } },
         { name: "The Lament Again", kind: "verse", bars: 16,
-          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), sus, drone: pedal({ bars: 2, oct: 0, v: 0.6 }), reed: lament, monks: every(4, 2, hold({ v: 0.4, max: 3, oct: -1, bars: 2 })), wind: atBar(8, 8, 0.5), bowl: every(8, 4, at(0, 0, 71, 24, 0.45)) } },
+          play: { strings: hold({ v: 0.5, max: 3, bars: 2 }), sus, drone: pedal({ bars: 2, oct: 0, v: 0.6 }), voice: lament, monks: every(4, 2, hold({ v: 0.4, max: 3, oct: -1, bars: 2 })), wind: atBar(8, 8, 0.5), bowl: every(8, 4, at(0, 0, 71, 24, 0.45)) } },
         { name: "Mist Closes", kind: "outro", bars: 8, sweep: { "music.lp": [5000, 400, 0.3, 1] },
-          play: { strings: hold({ v: 0.45, max: 3, bars: 2 }), drone: until(6, pedal({ bars: 2, oct: 0, v: 0.55 })), wind: atBar(0, 8, 0.9), reed: at(0, 0, 64, 10, 0.5), bowl: at(3, 0, 52, 32, 0.5) } },
+          play: { strings: hold({ v: 0.45, max: 3, bars: 2 }), drone: until(6, pedal({ bars: 2, oct: 0, v: 0.55 })), wind: atBar(0, 8, 0.9), voice: at(0, 0, 64, 10, 0.5), bowl: at(3, 0, 52, 32, 0.5) } },
       ],
     });
   }
@@ -9125,7 +9225,7 @@ HW.SHAPE_FIT = {
 // Loaded after the track files; patches HW.music.tracks and the track definitions.
 "use strict";
 (function () {
-  const M = HW.music, E = {"velvet-basement":[4,3.99,[3,4,4,2,4,4],124,"steady",["steady 124","steady 124","steady 124","none","steady 124","steady 124"]],"concrete-pulse":[4,4.19,[4,4,4,2,5,4],130,"steady",["steady 130","steady 130","steady 130","none","steady 130","steady 130"]],"neon-cathedral":[4,4.3,[4,4,4,2,4,4,4],138,"steady",["steady 138","steady 138","steady 138","none","steady 138","steady 138","steady 138"]],"fractal-mantis":[5,4.79,[4,4,5,4,4,5,4],145,"steady",["steady 145","steady 145","steady 145","none","steady 145","steady 145","steady 145"]],"liquid-voltage":[4,4.15,[3,4,4,3,4,4],87,"broken",["broken 87","broken 87","broken 87","none","broken 87","broken 87"]],"gravity-wobble":[4,3.91,[2,4,4,3,4,4,2],0,"none",["none","steady 140","broken 70","none","none","broken 88","none"]],"chrome-dynasty":[4,3.97,[2,4,4,4,3,4,3],105,"broken",["none","broken 105","broken 105","broken 105","none","broken 105","none"]],"rainy-window":[3,3.06,[1,3,3,2,3,2],80,"broken",["none","broken 80","broken 80","none","broken 80","broken 80"]],"midnight-highway":[4,3.98,[3,4,4,3,4,4,3],81,"broken",["half-time 54","broken 108","broken 81","none","broken 108","broken 81","half-time 54"]],"pixel-dragon":[4,4.09,[2,4,4,4,2,4,4,4],75,"broken",["none","broken 75","steady 150","broken 75","none","steady 150","steady 150","broken 75"]],"glacier-light":[2,2.03,[1,1,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"titans-awaken":[4,3.8,[2,4,4,4,3,4,1],0,"none",["none","half-time 46","broken 91","broken 92","none","broken 93","none"]],"mirrorball-fever":[4,4.12,[4,4,4,3,4,4,4],118,"steady",["steady 118","steady 118","steady 118","none","steady 118","steady 118","steady 118"]],"rocket-fuel":[5,4.52,[4,4,4,4,4,5,5,4],102,"broken",["broken 102","broken 102","steady 126","broken 102","none","steady 126","broken 101","broken 102"]],"lion-echo-dub":[3,2.71,[2,3,3,2,3,3,2],0,"none",["none","none","none","none","none","none","none"]],"thunderforge":[4,4.29,[4,2,4,4,3,5,4],150,"steady",["steady 150","none","broken 291","steady 150","none","broken 75","steady 150"]],"saturn-lounge":[3,3.39,[2,3,3,3,3,3],65,"broken",["none","broken 65","broken 65","none","broken 63","none"]],"desert-caravan":[3,3.49,[1,3,3,2,4,3],88,"broken",["none","broken 88","broken 88","none","broken 66","broken 88"]],"copacabana-blue":[3,3.41,[2,3,3,3,3,2],98,"broken",["none","broken 98","broken 98","broken 102","broken 96","none"]],"save-point":[2,2.44,[2,2,2,2,2,1],46,"half-time",["none","none","half-time 46","none","half-time 46","none"]],"cassette-summer":[3,3.13,[1,3,3,2,3,2],85,"broken",["none","broken 85","broken 85","none","broken 85","none"]],"lagos-sunrise":[4,3.88,[3,4,4,3,4,4,3],108,"broken",["none","broken 108","broken 108","broken 57","broken 108","broken 96","broken 44"]],"submarine-lights":[4,3.53,[1,3,4,2,4,3],118,"steady",["none","steady 118","steady 118","none","steady 118","steady 118"]],"cumbia-de-la-luna":[3,3.43,[2,3,3,3,3,3,3],48,"half-time",["none","half-time 48","broken 71","half-time 48","half-time 48","broken 71","none"]],"porch-light-shuffle":[3,3.29,[2,3,3,3,3,3,3],50,"half-time",["none","half-time 50","half-time 50","half-time 50","half-time 50","half-time 50","none"]],"honey-on-vinyl":[4,3.61,[3,3,4,3,3,4,4],96,"broken",["broken 96","broken 96","broken 71","broken 96","broken 72","broken 74","broken 69"]],"rumba-del-fuego":[4,3.88,[2,4,4,3,4,3],105,"broken",["none","broken 105","broken 105","none","half-time 53","steady 105"]],"reel-of-the-green-hill":[4,3.86,[2,4,4,4,4,1],0,"none",["none","broken 167","broken 163","broken 220","broken 222","none"]],"bristol-fog":[3,2.87,[1,3,3,1,3,2],68,"broken",["none","broken 68","broken 68","none","broken 68","broken 68"]],"velvet-hours":[3,2.96,[1,3,3,1,3,2],74,"broken",["none","broken 74","broken 74","none","broken 74","broken 66"]],"halo-static":[3,3.11,[2,3,3,3,3,2],84,"broken",["none","broken 84","broken 84","half-time 42","half-time 42","none"]],"quiet-storm-radio":[3,2.67,[1,3,3,1,3,2],45,"broken",["none","broken 45","broken 43","none","broken 45","none"]],"carousel-in-winter":[2,2.27,[1,2,2,2,3,1],0,"none",["none","none","none","none","none","none"]],"moth-light":[2,1.92,[1,2,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"last-train-home":[2,2.46,[1,2,2,2,2,3,1],0,"none",["none","none","none","none","none","none","none"]],"sunday-morning-light":[2,2.24,[1,2,2,2,2,2,1],0,"none",["none","none","none","none","none","none","none"]],"moon-over-paper-screens":[2,1.69,[1,2,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"still-water-piano":[3,2.56,[2,2,3,3,3,2],0,"none",["none","none","none","none","none","none"]],"adagio-in-blue":[1,1.05,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"canon-on-the-river":[2,2.1,[1,1,2,2,2,3,2,1],0,"none",["none","none","none","none","none","none","none","none"]],"the-long-light":[3,3.3,[2,2,3,3,3,2],40,"half-time",["none","half-time 40","half-time 40","broken 160","broken 80","half-time 40"]],"last-light-of-the-fleet":[2,2.35,[1,1,2,3,1],0,"none",["none","none","none","none","none"]],"cathedral-of-snow":[1,1,[1,1,1,2,1],0,"none",["none","none","none","none","none"]],"hollow-earth":[1,1,[1,1,1,1,1],0,"none",["none","none","none","none","none"]],"tide-pools":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"first-light-forest":[1,1.17,[1,1,1,2,1],0,"none",["none","none","none","none","none"]],"voyager-blue":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"rain-on-the-skylight":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"seven-bowls":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"beneath-the-ice":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"stone-hall-before-the-storm":[4,4.29,[2,1,4,4,4,2],120,"steady",["none","none","steady 120","steady 120","steady 120","none"]],"cold-moon-infiltration":[3,3.25,[3,3,3,1,3,3],0,"none",["none","none","broken 55","none","broken 88","none"]],"ring-of-fire-charge":[4,4.46,[4,4,4,3,5,3],132,"steady",["steady 132","steady 132","steady 132","steady 132","steady 132","broken 87"]],"beyond-the-grey-mountains":[3,3.07,[2,2,2,3,3,1],107,"broken",["none","none","none","broken 107","broken 107","none"]],"song-of-the-northern-hall":[4,3.87,[3,4,2,4,4,2],50,"half-time",["half-time 50","half-time 50","none","half-time 50","half-time 50","none"]],"harp-at-the-crossroads":[2,1.84,[1,2,2,2,2,1],0,"none",["none","none","none","none","none","none"]],"the-sleeping-town":[2,1.86,[1,2,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"stars-over-the-long-road":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"embers-at-the-waystation":[3,3.31,[1,3,3,3,2,3,3],96,"broken",["none","broken 84","broken 86","broken 96","none","broken 96","broken 42"]],"ruins-in-the-mist":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]]};
+  const M = HW.music, E = {"velvet-basement":[4,3.99,[3,4,4,2,4,4],124,"steady",["steady 124","steady 124","steady 124","none","steady 124","steady 124"]],"concrete-pulse":[4,4.19,[4,4,4,2,5,4],130,"steady",["steady 130","steady 130","steady 130","none","steady 130","steady 130"]],"neon-cathedral":[4,4.3,[4,4,4,2,4,4,4],138,"steady",["steady 138","steady 138","steady 138","none","steady 138","steady 138","steady 138"]],"fractal-mantis":[5,4.79,[4,4,5,4,4,5,4],145,"steady",["steady 145","steady 145","steady 145","none","steady 145","steady 145","steady 145"]],"liquid-voltage":[4,4.15,[3,4,4,3,4,4],87,"broken",["broken 87","broken 87","broken 87","none","broken 87","broken 87"]],"gravity-wobble":[4,3.91,[2,4,4,3,4,4,2],0,"none",["none","steady 140","broken 70","none","none","broken 88","none"]],"chrome-dynasty":[4,3.97,[2,4,4,4,3,4,3],105,"broken",["none","broken 105","broken 105","broken 105","none","broken 105","none"]],"rainy-window":[3,3.06,[1,3,3,2,3,2],80,"broken",["none","broken 80","broken 80","none","broken 80","broken 80"]],"midnight-highway":[4,3.98,[3,4,4,3,4,4,3],81,"broken",["half-time 54","broken 108","broken 81","none","broken 108","broken 81","half-time 54"]],"pixel-dragon":[4,4.09,[2,4,4,4,2,4,4,4],75,"broken",["none","broken 75","steady 150","broken 75","none","steady 150","steady 150","broken 75"]],"glacier-light":[2,2.03,[1,1,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"titans-awaken":[4,3.8,[2,4,4,4,3,4,1],0,"none",["none","half-time 46","broken 91","broken 92","none","broken 93","none"]],"mirrorball-fever":[4,4.12,[4,4,4,3,4,4,4],118,"steady",["steady 118","steady 118","steady 118","none","steady 118","steady 118","steady 118"]],"rocket-fuel":[5,4.52,[4,4,4,4,4,5,5,4],102,"broken",["broken 102","broken 102","steady 126","broken 102","none","steady 126","broken 101","broken 102"]],"lion-echo-dub":[3,2.71,[2,3,3,2,3,3,2],0,"none",["none","none","none","none","none","none","none"]],"thunderforge":[4,4.29,[4,2,4,4,3,5,4],150,"steady",["steady 150","none","broken 291","steady 150","none","broken 75","steady 150"]],"saturn-lounge":[3,3.39,[2,3,3,3,3,3],65,"broken",["none","broken 65","broken 65","none","broken 63","none"]],"desert-caravan":[3,3.49,[1,3,3,2,4,3],88,"broken",["none","broken 88","broken 88","none","broken 66","broken 88"]],"copacabana-blue":[3,3.41,[2,3,3,3,3,2],98,"broken",["none","broken 98","broken 98","broken 102","broken 96","none"]],"save-point":[2,2.44,[2,2,2,2,2,1],46,"half-time",["none","none","half-time 46","none","half-time 46","none"]],"cassette-summer":[3,3.13,[1,3,3,2,3,2],85,"broken",["none","broken 85","broken 85","none","broken 85","none"]],"lagos-sunrise":[4,3.88,[3,4,4,3,4,4,3],108,"broken",["none","broken 108","broken 108","broken 57","broken 108","broken 96","broken 44"]],"submarine-lights":[4,3.53,[1,3,4,2,4,3],118,"steady",["none","steady 118","steady 118","none","steady 118","steady 118"]],"cumbia-de-la-luna":[3,3.43,[2,3,3,3,3,3,3],48,"half-time",["none","half-time 48","broken 71","half-time 48","half-time 48","broken 71","none"]],"porch-light-shuffle":[3,3.29,[2,3,3,3,3,3,3],50,"half-time",["none","half-time 50","half-time 50","half-time 50","half-time 50","half-time 50","none"]],"honey-on-vinyl":[4,3.61,[3,3,4,3,3,4,4],96,"broken",["broken 96","broken 96","broken 71","broken 96","broken 72","broken 74","broken 69"]],"rumba-del-fuego":[4,3.88,[2,4,4,3,4,3],105,"broken",["none","broken 105","broken 105","none","half-time 53","steady 105"]],"reel-of-the-green-hill":[4,3.86,[2,4,4,4,4,1],0,"none",["none","broken 167","broken 163","broken 220","broken 222","none"]],"bristol-fog":[3,2.87,[1,3,3,1,3,2],68,"broken",["none","broken 68","broken 68","none","broken 68","broken 68"]],"velvet-hours":[3,2.96,[1,3,3,1,3,2],74,"broken",["none","broken 74","broken 74","none","broken 74","broken 66"]],"halo-static":[3,3.11,[2,3,3,3,3,2],84,"broken",["none","broken 84","broken 84","half-time 42","half-time 42","none"]],"quiet-storm-radio":[3,2.67,[1,3,3,1,3,2],45,"broken",["none","broken 45","broken 43","none","broken 45","none"]],"carousel-in-winter":[2,2.27,[1,2,2,2,3,1],0,"none",["none","none","none","none","none","none"]],"moth-light":[2,1.92,[1,2,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"last-train-home":[2,2.46,[1,2,2,2,2,3,1],0,"none",["none","none","none","none","none","none","none"]],"sunday-morning-light":[2,2.24,[1,2,2,2,2,2,1],0,"none",["none","none","none","none","none","none","none"]],"moon-over-paper-screens":[2,1.69,[1,2,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"still-water-piano":[3,2.56,[2,2,3,3,3,2],0,"none",["none","none","none","none","none","none"]],"adagio-in-blue":[1,1.05,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"canon-on-the-river":[2,2.1,[1,1,2,2,2,3,2,1],0,"none",["none","none","none","none","none","none","none","none"]],"the-long-light":[3,3.3,[2,2,3,3,3,2],40,"half-time",["none","half-time 40","half-time 40","broken 160","broken 80","half-time 40"]],"last-light-of-the-fleet":[2,2.35,[1,1,2,3,1],0,"none",["none","none","none","none","none"]],"cathedral-of-snow":[1,1,[1,1,1,2,1],0,"none",["none","none","none","none","none"]],"hollow-earth":[1,1,[1,1,1,1,1],0,"none",["none","none","none","none","none"]],"tide-pools":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"first-light-forest":[1,1.17,[1,1,1,2,1],0,"none",["none","none","none","none","none"]],"voyager-blue":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"rain-on-the-skylight":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"seven-bowls":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"beneath-the-ice":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"stone-hall-before-the-storm":[4,4.29,[2,1,4,4,4,2],120,"steady",["none","none","steady 120","steady 120","steady 120","none"]],"cold-moon-infiltration":[3,3.25,[3,3,3,1,3,3],0,"none",["none","none","broken 55","none","broken 88","none"]],"ring-of-fire-charge":[4,4.45,[4,4,4,3,5,3],132,"steady",["steady 132","steady 132","steady 132","steady 132","steady 132","broken 87"]],"beyond-the-grey-mountains":[3,3.04,[2,2,2,3,3,1],107,"broken",["none","none","none","broken 107","broken 107","none"]],"song-of-the-northern-hall":[4,3.87,[3,4,2,4,4,2],50,"half-time",["half-time 50","half-time 50","none","half-time 50","half-time 50","none"]],"harp-at-the-crossroads":[2,1.84,[1,2,2,2,2,1],0,"none",["none","none","none","none","none","none"]],"the-sleeping-town":[2,1.8,[1,2,2,1,2,1],0,"none",["none","none","none","none","none","none"]],"stars-over-the-long-road":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]],"embers-at-the-waystation":[3,3.29,[1,3,3,3,2,3,3],96,"broken",["none","broken 84","broken 86","broken 96","none","broken 96","broken 42"]],"ruins-in-the-mist":[1,1,[1,1,1,1,1,1],0,"none",["none","none","none","none","none","none"]]};
   M.energies = E;
   for (const t of M.tracks) {
     const e = E[t.id];
@@ -9147,24 +9247,26 @@ HW.SHAPE_FIT = {
 // A game or a style is named, never a particular piece, and nothing was borrowed (the melodies are original).
 // A track that is not listed here: the record names no influence for it (its header names only its own genre).
 //
-// The ten tracks of music-tracks-legends.js: that file's header says they are "original music in the spirit of the
-// great game scores", and the research section names the game music studied for this set: Halo, and The Elder
-// Scrolls (Morrowind, Oblivion, Skyrim). The record does not say which song leans on which game, so each of them
-// carries the set's two names.
+// The ten tracks of music-tracks-legends.js were split into two separate groups on 2026-10-22 (Jon: "I wanted them
+// to be very separate"): each song's header now says which side it is on and why, "Halo style: ..." or "Elder
+// Scrolls style (Morrowind / Oblivion / Skyrim): ...", and each line below is copied from that header: the Halo
+// songs name Halo; the Elder Scrolls songs name the series and, in brackets, the games whose music that header
+// names (Morrowind and Oblivion for the main-theme way and the towns, Skyrim for the war-choir anthem, the night
+// piano, the tavern band; all three for the exploration music).
 "use strict";
 (function () {
-  const GAMES = "Game scores: Halo, The Elder Scrolls";
+  const HALO = "Game score: Halo";
   HW.music.influence = {
-    "stone-hall-before-the-storm": GAMES,
-    "cold-moon-infiltration": GAMES,
-    "ring-of-fire-charge": GAMES,
-    "beyond-the-grey-mountains": GAMES,
-    "song-of-the-northern-hall": GAMES,
-    "harp-at-the-crossroads": GAMES,
-    "the-sleeping-town": GAMES,
-    "stars-over-the-long-road": GAMES,
-    "embers-at-the-waystation": GAMES,
-    "ruins-in-the-mist": GAMES,
+    "stone-hall-before-the-storm": HALO,
+    "cold-moon-infiltration": HALO,
+    "ring-of-fire-charge": HALO,
+    "ruins-in-the-mist": HALO,
+    "beyond-the-grey-mountains": "Game scores: The Elder Scrolls (Morrowind, Oblivion)",
+    "song-of-the-northern-hall": "Game scores: The Elder Scrolls (Skyrim)",
+    "harp-at-the-crossroads": "Game scores: The Elder Scrolls (Morrowind, Oblivion, Skyrim)",
+    "the-sleeping-town": "Game scores: The Elder Scrolls (Morrowind, Oblivion)",
+    "stars-over-the-long-road": "Game scores: The Elder Scrolls (Skyrim)",
+    "embers-at-the-waystation": "Game scores: The Elder Scrolls (Skyrim)",
   };
 })();
 
