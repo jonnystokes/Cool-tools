@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.470 and 2026-10-22 11:35 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.514 and 2026-10-23 1:09 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.470</title>
+<title>Book reader V1.0.514</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.470";
-  window.APP_BUILT = "2026-10-22 11:35 PM";
-  window.APP_NOTE = "Open at Chapter 1; one Index toggle";
+  window.APP_VERSION = "Book reader V1.0.514";
+  window.APP_BUILT = "2026-10-23 1:09 AM";
+  window.APP_NOTE = "Steady tests (BUGS 43, 44)";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -5821,6 +5821,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       rec.busy = false;
       g.log("voice", `${name}${rec.n > 1 ? " copy #" + rec.n : ""} loaded in ${((performance.now() - t0) / 1000).toFixed(1)} s${rec.got.length ? ` (${rec.got.length} files from the store, ${MB(rec.gotBytes)})` : ""}`);
       rec.got = []; rec.gotBytes = 0;
+      // Fewer copies asked for while this one loaded (init(opts, 1) during a grow): shrink() skipped it
+      // then, as it was not ready, so it is ended now instead of running on unwanted (steady-tests 2026-10-22).
+      if (live().length > P.copies) shrink();
       wake();
       return rec;
     }
@@ -9651,7 +9654,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       made.set(x.piece.id, m);
       const max = hooks.madeMax || MADE_MAX;
       const now = STREAM.isOpen ? STREAM.time() : 0, toPlay = (id) => STREAM.entries.some((e) => e.id === id && e.end > now);   // a clip still to be played keeps its sound
-      if (made.size > max) { for (const [id, old] of made) { if (made.size <= max) break; if (!old.complete || making.has(id) || (old.url && toPlay(id))) continue; letGo(id, old); } }
+      if (made.size > max) { for (const [id, old] of made) { if (made.size <= max) break; if (!old.complete || old.appending || making.has(id) || (old.url && toPlay(id))) continue; letGo(id, old); } }
     }
     const rec = { piece: x.piece, ch: x.ch, k: x.k, name: nameOf(x.ch, x.k), t0: performance.now(), m, jobs: new Map() };
     making.set(x.piece.id, rec);
@@ -9956,8 +9959,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         const myGen = gen;
         const item = clips ? Object.assign({ id: piece.id, piece, ch: h.ch, url: m.url, dur: m.dur, sampleRate: m.chunks[0].sampleRate, offs: m.offs }, m.url ? {} : whole(m))
           : { id: piece.id, piece, ch: h.ch, audio: c.audio, mp3: c.mp3, sampleRate: c.sampleRate, dur: c.dur, words: c.words, chunk: i, chunks: n, cover: coverOf(m, i) };
+        // m.appending: not let go while its clip is going into the stream. Before (steady-tests 2026-10-22),
+        // a piece evicted during this await had no url yet, so letGo skipped STREAM.forget: its entry and
+        // blob stayed in the stream with no made record (playfix P3 on a busy PC).
+        m.appending = true;
         try {
-          await STREAM.append(item);
+          try { await STREAM.append(item); } finally { m.appending = false; }
           if (gen !== myGen) break;
           appendFails = 0;
           if (clips) { m.url = item.url; m.offs = item.offs; m.appended = n; for (const x of m.chunks) delete x.audio; }
