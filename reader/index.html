@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.455 and 2026-10-22 11:14 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.470 and 2026-10-22 11:35 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.455</title>
+<title>Book reader V1.0.470</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.455";
-  window.APP_BUILT = "2026-10-22 11:14 PM";
-  window.APP_NOTE = "EPUB import, single files, simpler first-run wording";
+  window.APP_VERSION = "Book reader V1.0.470";
+  window.APP_BUILT = "2026-10-22 11:35 PM";
+  window.APP_NOTE = "Open at Chapter 1; one Index toggle";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -296,6 +296,14 @@ html.cdock .contents { width: var(--cw); box-shadow: none; }
 .ctop input:focus { outline: none; border-color: var(--accent); }
 .ctop button { min-width: var(--tap); min-height: var(--tap); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); cursor: pointer; font-size: 1.1em; }
 .ctop button:hover { border-color: var(--accent); }
+/* One Index toggle: the top bar's ☰ opens and closes; pressed while open. Under 700 px the panel covers
+   it, so the panel's own ☰ Index (same look, same place: the panel's top row has the bar's left gutter)
+   stands in for it; docked, the bar's own button shows and the panel's is hidden. */
+.ctop { padding-left: var(--gutter); }
+.ctop .idx { flex: none; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.ctop .idx .idxt { font-size: 0.62em; margin-top: 2px; }
+html.cdock .ctop .idx { display: none; }
+.idx[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--bg)); }
 .chead { padding: 0.4em calc(var(--gutter) / 2 + 4px); color: var(--muted); font-size: 0.9em; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctree { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-bottom: 2em; }
 .ctree.none::after { content: "Nothing matches."; display: block; padding: 1em; color: var(--muted); text-align: center; }
@@ -747,7 +755,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 </head>
 <body>
 <header class="top" id="top">
-  <button class="icon idx" id="toc" type="button" title="Index: sections, chapters and headings" aria-label="Index"><span class="idxi">&#9776;</span><span class="idxt">Index</span></button>
+  <button class="icon idx" id="toc" type="button" title="Index: sections, chapters and headings" aria-label="Index" aria-pressed="false"><span class="idxi">&#9776;</span><span class="idxt">Index</span></button>
   <button id="open" type="button" title="Open: your books; add files, a zip or a folder" aria-label="Open a book">Open</button>
   <span class="chname" id="chname" role="button" tabindex="0" title="Tap to show the full chapter name"></span>
   <nav class="nav" aria-label="Chapters">
@@ -765,8 +773,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 <div class="cback" id="cback" hidden></div>
 <aside class="contents" id="contents" aria-label="Contents" aria-hidden="true" hidden>
   <div class="ctop">
+    <button class="icon idx" id="ctoc" type="button" title="Index: tap to close" aria-label="Index" aria-pressed="true"><span class="idxi">&#9776;</span><span class="idxt">Index</span></button>
     <input type="search" id="csearch" placeholder="Search sections, chapters, headings" aria-label="Search the contents" autocomplete="off">
-    <button id="cclose" type="button" title="Close" aria-label="Close the contents">&#10005;</button>
   </div>
   <div class="chead" id="chead">Contents</div>
   <div class="ctree" id="ctree"></div>
@@ -3671,6 +3679,19 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     ls.set(posKey(current.id), { c: p.c, p: p.p || 0, top: p.top || 0, at: Date.now(), pct });
   }
 
+  // Where a book with no stored place starts (Jon, 2026-10-22): the first chapter, in reading order, whose
+  // name starts with a chapter-one marker ("1", "1.", "Chapter 1", "Chapter One", "Ch. 1", "Part 1"), so
+  // the Information / Preface / Copyright pages are skipped (they stay in the book and the Index); none:
+  // the first chapter. A light check, on purpose. Gives { i, why } for the log.
+  const ONE = /^\s*(?:(?:chapter|ch\.?|part)\s*(?:1|one)\b|1(?![\d,]|\.\d))/i;
+  function startAt() {
+    for (let i = 0; i < index.length; i++) {
+      const e = index[i];
+      if (ONE.test(e.short || "") || ONE.test(e.title || "")) return { i, why: `the first chapter named like Chapter 1 ("${e.short || e.title}")` };
+    }
+    return { i: 0, why: "the first chapter (no chapter is named like Chapter 1)" };
+  }
+
   g.BOOK = {
     get count() { return index.length; },
     get title() { return current ? current.title : ""; },
@@ -3687,7 +3708,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     info: (i) => index[i] || null,                 // { c, n, title, paras, g, sec?, short?, era?, heads? } from the index, nothing loaded
     index: () => index,
     indexOf: (c) => (byC.has(c) ? byC.get(c) : -1),
-    label, chapter, warm, load, open: openBook, rename, remove, setAcross, plan, importBook, stopImport, pos, setPos, posOf, readKey, hooks, kept,
+    label, chapter, warm, load, open: openBook, rename, remove, setAcross, plan, importBook, stopImport, pos, setPos, posOf, readKey, hooks, kept, startAt, chapterOne: (t) => ONE.test(t),
     // Settings → Storage deletes everything: let go of the database (so it can be deleted), the books
     // and every per-book key, and the mark (deleted on purpose, so the start says nothing about it).
     forget: () => {
@@ -4070,6 +4091,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // Open a stored book (a switch, or the open book after it was replaced): a reading in progress stops
   // (the "book" event, player.js), the place of the book going away is already saved, the new book's
   // saved place is shown. opts.quiet: the open book's chapters changed (replaced): no switch logged.
+  // A book with no usable stored place (its first open) starts at Chapter 1 (BOOK.startAt), said in the log.
+  function firstChapter(saved) {
+    const s = BOOK.startAt();
+    log("book", `"${BOOK.title}" starts at ${BOOK.label(s.i)}: ${s.why}${saved ? ` (the stored place, chapter ${saved.c}, is not in the book)` : ""}`);
+    return s.i;
+  }
   async function openBook(id, opts) {
     const o = opts || {};
     const from = BOOK.row;
@@ -4083,7 +4110,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     emit("book", id);
     const saved = BOOK.pos();
     const i = saved ? BOOK.indexOf(saved.c) : -1;
-    await show(i >= 0 ? i : 0, i >= 0 ? saved : null);
+    await show(i >= 0 ? i : firstChapter(saved), i >= 0 ? saved : null);
     if (!o.quiet) log("book", `opened "${row.title}" (${fmt(row.chapters)} chapters)${from && from.id !== id ? ` from "${from.title}"` : ""}${saved && i >= 0 ? ` at ${BOOK.label(i)} ¶ ${(saved.p || 0) + 1}` : ""}`);
   }
   // The open book is being deleted: the reading stops, the page shows its empty state.
@@ -4119,7 +4146,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     showBook();
     const saved = BOOK.pos();
     const i = saved ? BOOK.indexOf(saved.c) : -1;
-    await show(i >= 0 ? i : 0, i >= 0 ? saved : null);
+    await show(i >= 0 ? i : firstChapter(saved), i >= 0 ? saved : null);
     const m = BOOK.migrated;
     if (m) say(`Your book is now "${m.title}" in the Open window (${fmt(m.chapters)} chapters moved to the new storage in ${m.seconds.toFixed(1)} s).`, 12000);
     if (cut) say(`${cut} The books you had are still here.`, 15000);
@@ -4151,8 +4178,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // headings are built when it is opened). A grid book read across time shows eras, then topics. The
 // tree opens to the place being read, highlighted; a tap on a chapter or a heading goes there (the
 // heading's paragraph, not only its chapter) and the panel STAYS open with the new place highlighted
-// (Jon, 2026-10-21); a tap on a section or a ▸ only opens or closes that fold. ☰ again, ✕ or Escape
-// close it. On a screen at least 700 px wide the panel is DOCKED (html.cdock, contents.css): the page
+// (Jon, 2026-10-21); a tap on a section or a ▸ only opens or closes that fold. The ☰ Index button is
+// one toggle (pressed while open; 2026-10-22): under 700 px the panel covers it, so the panel's top row
+// has a same-looking ☰ Index in the same place. Escape closes too. On a screen at least 700 px wide the panel is DOCKED (html.cdock, contents.css): the page
 // moves right and narrows to make room, so it can be left open; open / closed is remembered
 // (br1-contents) and restored at load without a slide. Under 700 px it slides over the page with a
 // dimmed backdrop (a tap on it closes too) and is never restored open. Read marks: ✓ on every chapter
@@ -4161,7 +4189,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // you type (a flat list of hits; headings under their chapter).
 (function () {
   const $ = (id) => document.getElementById(id);
-  const panel = $("contents"), back = $("cback"), box = $("csearch"), tree = $("ctree"), head = $("chead"), closeBtn = $("cclose");
+  const panel = $("contents"), back = $("cback"), box = $("csearch"), tree = $("ctree"), head = $("chead"), tocBtn = $("toc"), panelToc = $("ctoc");
   const root = document.documentElement;
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -4370,6 +4398,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     root.classList.toggle("cdock", dock);
     back.hidden = !(open && !dock);
     back.classList.toggle("open", open && !dock);
+    tocBtn.setAttribute("aria-pressed", String(open));
   }
   function remember() { try { localStorage.setItem(KEY, JSON.stringify({ open })); } catch (e) {} }
   function saved() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
@@ -4444,10 +4473,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   box.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { const b = tree.querySelector(".crow.cchap, .crow.chead"); if (b) b.click(); }
   });
-  closeBtn.addEventListener("click", close);
+  panelToc.addEventListener("click", close);     // the panel's stand-in for the top bar's ☰ (narrow screens)
   back.addEventListener("click", close);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open && !e.defaultPrevented) { e.preventDefault(); close(); } }, true);
-  $("toc").addEventListener("click", toggle);
+  tocBtn.addEventListener("click", toggle);
   READER.onChange((what) => {
     if (what === "book" || what === "order") { builtFor = null; model = null; if (open) render(); }
     else if (what === "chapter" && open && !query) { render(); if (flashSel) { flash(); flashSel = ""; } }
