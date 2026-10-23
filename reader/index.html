@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.532 and 2026-10-23 1:42 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.534 and 2026-10-23 2:34 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.532</title>
+<title>Book reader V1.0.534</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.532";
-  window.APP_BUILT = "2026-10-23 1:42 AM";
-  window.APP_NOTE = "Offline package: one Settings page to make (tree, file-manager selection, one file or 1 GB parts) and import (any order, missing parts named, old Voice_data.zip) everything the reader downloads; replaces Export voice data, Import everything and Apply and upload data";
+  window.APP_VERSION = "Book reader V1.0.534";
+  window.APP_BUILT = "2026-10-23 2:34 AM";
+  window.APP_NOTE = "Offline package: Make logs every step and says the outcome beside the button; no save picker on phones \u00b7 testing, unchanged";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -7336,7 +7336,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
   const partName = (n, m) => (m === 1 ? "Reader offline package.zip" : `Reader offline package part ${n} of ${m}.zip`);
   // The save picker where there is one (a computer's Chrome): call it straight from the click.
-  const savePicker = () => (typeof g.showSaveFilePicker === "function"
+  // Not on a phone or tablet (Jon, 2026-10-23: Make did nothing on the Red Magic): there a save picker, if the
+  // browser lists one at all, is not trusted; the parts as downloads are the known path.
+  const mobile = () => !!((g.navigator && navigator.userAgentData && navigator.userAgentData.mobile) || /Android|iPhone|iPad|Mobile/i.test((g.navigator && navigator.userAgent) || ""));
+  const canPick = () => typeof g.showSaveFilePicker === "function" && !mobile();
+  const savePicker = () => (canPick()
     ? g.showSaveFilePicker({ suggestedName: partName(1, 1), types: [{ description: "Reader offline package", accept: { "application/zip": [".zip"] } }] })
     : null);
   function offer(name, blob) {
@@ -7584,7 +7588,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   if (typeof caches !== "undefined") release();
 
   g.PACKAGE = {
-    release, FORMAT, TMP, PART_BYTES, tree, fileTree, storedSet, isStored, needs, split, partName, savePicker, build, pick, open, plan, describe, take,
+    release, FORMAT, TMP, PART_BYTES, tree, fileTree, storedSet, isStored, needs, split, partName, savePicker, canPick, build, pick, open, plan, describe, take,
     get busy() { return busy; },
     stop: () => { if (busy) busy.stop = true; },
   };
@@ -12037,11 +12041,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (st.running === "make") btns.appendChild(U.button("sbtn", "Stop", () => { P.stop(); U.say("Stopping…"); }));
     else { goEl = U.button("sbtn hot", "Make the package…", makeNow); btns.appendChild(goEl); }
     box.appendChild(btns);
+    if (st.makeMsg) box.appendChild(line(st.makeMsg.text, st.makeMsg.bad));    // the outcome beside the button, not only at the window's top
     drawTree();
     // What is stored may have changed since (a download, an import, a Delete): the marks follow.
     const el = treeEl;
     P.storedSet().then((have) => { st.have = have; if (treeEl === el && el.isConnected) drawTree(); }, () => {});
-    return U.row("Make a package", `Everything the reader can download, to carry to a device without internet. Ticked files stored here are copied from the store; the others are downloaded first. ${typeof showSaveFilePicker === "function" ? "This browser saves it as one file where you choose." : `This browser gets it as downloads in parts of at most ${MB(P.PART_BYTES)}.`}`, box, { block: true });
+    return U.row("Make a package", `Everything the reader can download, to carry to a device without internet. Ticked files stored here are copied from the store; the others are downloaded first. ${P.canPick() ? "This browser saves it as one file where you choose." : `This browser gets it as downloads in parts of at most ${MB(P.PART_BYTES)}.`}`, box, { block: true });
   }
   function drawTree() {
     if (!treeEl || !st.tree) return;
@@ -12080,11 +12085,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const keys = Array.from(st.ticked).filter((k) => st.tree.leaves.has(k));
     const bytes = sizeOf(keys), here = keys.filter(isHere), hereBytes = sizeOf(here);
     const books = keys.filter((k) => st.tree.leaves.get(k).kind === "book").length;
-    const parts = typeof showSaveFilePicker === "function" ? 1 : P.split(keys.map((k) => ({ size: st.tree.leaves.get(k).size })), P.PART_BYTES).length;
+    const parts = P.canPick() ? 1 : P.split(keys.map((k) => ({ size: st.tree.leaves.get(k).size })), P.PART_BYTES).length;
     totalEl.textContent = keys.length
       ? `Ticked: ${plural(keys.length, "file")}${books ? ` (${plural(books, "book")})` : ""}, ${MB(bytes)}: ${here.length ? `${MB(hereBytes)} stored here` : "nothing stored here"}${keys.length > here.length ? `, ${MB(bytes - hereBytes)} to download` : ""}${parts > 1 ? `; about ${parts} parts` : ""}.`
       : "Nothing ticked.";
-    if (goEl) { goEl.disabled = !keys.length || !!(st.running || P.busy || V.busy); goEl.textContent = keys.length ? `Make the package (${MB(bytes)})…` : "Make the package…"; }
+    if (goEl) { goEl.classList.toggle("hot", !!keys.length && !(st.running || P.busy || V.busy)); goEl.textContent = keys.length ? `Make the package (${MB(bytes)})…` : "Make the package…"; }
     globalThis.PACKTAB.last = { ticked: keys.length, bytes, here: here.length };
   }
   function preset(which) {
@@ -12176,27 +12181,34 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   // ---- Making it ------------------------------------------------------------------------------------
   const cancelled = (e) => !!(e && (e.stopped || e.name === "AbortError"));
+  // Every step of Make goes to the log and beside the button (Jon, 2026-10-23: on the phone Make seemed to
+  // do nothing, with no log line).
+  function makeSay(text, bad) { st.makeMsg = text ? { text, bad: !!bad } : null; U.say(text); if (text) log(bad ? "error" : "storage", `offline package: ${text}`); }
   function makeNow() {
-    if (st.running || P.busy || V.busy) { U.say("A package is already being made or imported."); return; }
     const keys = Array.from(st.ticked).filter((k) => st.tree.leaves.has(k));
-    if (!keys.length) { U.say("Tick what goes in first."); return; }
+    log("storage", `offline package: Make pressed: ${keys.length} ticked · way: ${P.canPick() ? "one file through the save picker" : "downloads in parts"} (save picker ${typeof showSaveFilePicker === "function" ? "listed" : "not listed"}, mobile ${/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? "yes" : "no"})`);
+    if (st.running || P.busy || V.busy) { makeSay(`A package is already being made or imported (${st.running || (P.busy && P.busy.what) || "voice data busy"}).`, true); redo(); return; }
+    if (!keys.length) { makeSay("Tick what goes in first.", true); redo(); return; }
     let target = null;
-    try { target = P.savePicker(); } catch (e) { target = null; }
-    if (target) target.catch(() => {});
-    st.running = "make"; st.made = null;
+    try { target = P.savePicker(); } catch (e) { target = null; log("error", "offline package: the save picker could not open", e); }
+    if (target) target.then(() => log("storage", "offline package: a file was chosen in the save picker"), (e) => log(e && e.name === "AbortError" ? "storage" : "error", `offline package: the save picker gave no file: ${e && e.name}: ${e && e.message}`));
+    st.running = "make"; st.made = null; st.makeMsg = null;
     redo();
     (async () => {
-      let said = "";
+      let said = "", bad = false;
       try {
+        log("storage", `offline package: making it: ${keys.length} files${target ? ", into the chosen file" : ", as downloads in parts"}`);
         const r = await P.build(keys, st.tree.leaves, Object.assign({ target, settings: st.withSettings ? V.mySettings() : null, progress: (t, f) => U.progress(t, f) }, globalThis.PACKTAB.hooks));
         said = `Made the offline package: ${plural(r.files, "file")}, ${MB(r.bytes)}${st.withSettings ? " and your settings" : ""}${r.downloaded ? ` (${r.downloaded} downloaded for it)` : ""}; ${r.how}.`;
         if (r.held && r.held.length) st.made = { parts: r.held, saved: new Set() };
       } catch (e) {
-        said = cancelled(e) ? "Stopped: no package was written." : e && e.name === "AbortError" ? "No file was chosen: nothing was written." : `The package was not made: ${e.message}`;
+        said = e && e.name === "AbortError" && !e.stopped ? `No file was chosen: nothing was written${e.message ? ` (${e.message})` : ""}.` : cancelled(e) ? "Stopped: no package was written." : `The package was not made: ${e && e.name ? e.name + ": " : ""}${e && e.message}`;
+        bad = !cancelled(e);
+        if (bad) log("error", "offline package: making it failed", e);
       } finally {
         st.running = ""; U.progress("");
         st.have = await P.storedSet().catch(() => st.have);
-        U.say(said); redo();
+        makeSay(said, bad); redo();
       }
     })();
   }
