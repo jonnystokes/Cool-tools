@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.391 and 2026-10-22 12:36 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.396 and 2026-10-22 10:17 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.391</title>
+<title>Book reader V1.0.396</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.391";
-  window.APP_BUILT = "2026-10-22 12:36 AM";
-  window.APP_NOTE = "drop-in book folders on the shelf (books/<id>/ + index.json by a workflow) and the Open window's Online library";
+  window.APP_VERSION = "Book reader V1.0.396";
+  window.APP_BUILT = "2026-10-22 10:17 PM";
+  window.APP_NOTE = "test run";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -75,6 +75,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .top button:not(:disabled):hover { border-color: var(--accent); }
 .top .icon { min-width: var(--tap); padding: 0; font-size: 1.1em; }
+.top .icon.idx { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; line-height: 1; }
+.top .icon.idx .idxt { font-size: 0.62em; margin-top: 2px; }
 /* The chapter's number and name take the room left; shortened with an ellipsis; a tap shows the whole. */
 .top .chname { flex: 1; min-width: 0; padding: 0 0.2em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .top .chname:empty { visibility: hidden; }
@@ -745,7 +747,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 </head>
 <body>
 <header class="top" id="top">
-  <button class="icon" id="toc" type="button" title="Contents: sections, chapters and headings" aria-label="Contents">&#9776;</button>
+  <button class="icon idx" id="toc" type="button" title="Index: sections, chapters and headings" aria-label="Index"><span class="idxi">&#9776;</span><span class="idxt">Index</span></button>
   <button id="open" type="button" title="Open: your books; add files, a zip or a folder" aria-label="Open a book">Open</button>
   <span class="chname" id="chname" role="button" tabindex="0" title="Tap to show the full chapter name"></span>
   <nav class="nav" aria-label="Chapters">
