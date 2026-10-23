@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 12:52 PM">
+<html lang="en" data-build="2.0.0 built October 22, 2026 4:58 PM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -475,6 +475,13 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .tl-sec.k-break, .tl-sec.k-bridge { background: rgba(61,200,255,.14); }
 .tl-sec.k-intro, .tl-sec.k-outro { background: rgba(255,255,255,.04); }
 .tl-marker { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #fff; box-shadow: 0 0 8px #fff; pointer-events: none; }
+/* the time slider under the timeline: the studio's slider look, with a tick at every section start */
+.sl.seek { margin: -.2rem 0 .55rem; }
+.sl.seek.off { opacity: .35; pointer-events: none; }
+.seek-marks { position: absolute; inset: 0; pointer-events: none; }
+.seek-marks i { position: absolute; top: 15%; bottom: 15%; width: 2px; margin-left: -1px; border-radius: 1px; background: rgba(255,255,255,.35); }
+.seek-marks i.k-drop, .seek-marks i.k-chorus { background: rgba(255,61,242,.8); }
+.seek-marks i.k-break, .seek-marks i.k-bridge { background: rgba(61,200,255,.7); }
 .stems .btn.on { border-color: var(--lime); color: var(--lime); }
 .stems .btn:not(.on) { color: var(--faint); text-decoration: line-through; }
 .chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .5rem; }
@@ -2863,7 +2870,7 @@ HW.SHAPE_FIT = {
     if (e.type === "beat" && typeof e.time === "number") {
       A.scoreQ.push({ t: e.time, s: Number(e.strength) || 0.8 });
       if (A.scoreQ.length > 256) A.scoreQ.shift();
-    } else if (e.type === "play" || e.type === "stop" || e.type === "pause" || e.type === "resume") A.scoreQ.length = 0;
+    } else if (e.type === "play" || e.type === "stop" || e.type === "pause" || e.type === "resume" || e.type === "seek") A.scoreQ.length = 0;   // (a seek: no beats from the old spot)
   });
   const scoreBeats = () => !!cfg["an.scoreBeats"] && A.kind === "music";
   function fromScore(st, prevBeat, prevLast, dt, time, C) {
@@ -2957,9 +2964,11 @@ HW.SHAPE_FIT = {
 //
 //   HW.music.init(ctx)          build the engine on the studio's AudioContext (idempotent); makes HW.music.out,
 //                               a GainNode the Music window connects to the speakers and the analyser
-//   play(id, {section}) pause() resume() stop() isPlaying() jump(index) state() setTempo(0.8-1.25)
+//   play(id, {section}) pause() resume() stop() isPlaying() jump(index) seek(seconds) state() setTempo(0.8-1.25)
 //   stems ["drums","bass","music","fx"], setStem(name, on)
-//   events: HW.emit("music", {type: "play"|"pause"|"resume"|"stop"|"section"|"ended", id, ...})
+//   events: HW.emit("music", {type: "play"|"pause"|"resume"|"stop"|"section"|"seek"|"ended"|"beat", id, ...})
+//   jump / seek: everything sounding stops in a few ms (voices, reverb, echoes) and the song carries on from the new
+//   point at once, with the held notes that should be sounding there started again
 //
 // Signal path: voice -> part channel (drive, crush, filters, chorus, tremolo, volume, pan, reverb and delay
 // sends) -> stem bus (sidechain duck for bass and pads, sweep filters for build-ups, mute) -> mix -> glue
@@ -3144,6 +3153,48 @@ HW.SHAPE_FIT = {
     }
     return b;
   }
+  // (round three) a real room's answer: fx.reverb.kind "stone" (a vast stone hall: long, dark, the lows hold longest,
+  // strong early reflections off the walls), "hall" (a concert hall) or "room" (a wooden tavern). The tail is noise
+  // in four bands, each dying at its own rate (stone and air swallow the highs first), building up over the first
+  // tens of milliseconds as the reflections thicken; before it, distinct early reflections, different left and right.
+  // The energy matches the old room's for the same seconds and damping, so the mix keeps its level.
+  const HALLS = {
+    stone: { rt: [1.3, 1.05, 0.62, 0.32], pre: 0.03, er: 0.55, erSpan: 0.11, build: 0.07, hp: 120 },
+    hall: { rt: [1.15, 1, 0.78, 0.45], pre: 0.02, er: 0.4, erSpan: 0.08, build: 0.05, hp: 160 },
+    room: { rt: [1, 1, 0.82, 0.55], pre: 0.006, er: 0.5, erSpan: 0.035, build: 0.015, hp: 170 },
+  };
+  function makeHallIR(c, sec, damp, seed, kind) {
+    const H = HALLS[kind] || HALLS.hall, sr = c.sampleRate, rts = H.rt.map((x, i) => sec * x * (i >= 2 ? 1.15 - damp * 0.5 : 1));
+    const len = Math.max(64, Math.floor((Math.max(...rts) * 1.05 + H.pre) * sr)), b = c.createBuffer(2, len, sr), r = rng(seed || 11);
+    const pre = Math.floor(H.pre * sr), k = (f) => Math.exp((-2 * Math.PI * f) / sr);
+    const k1 = k(300), k2 = k(1200), k3 = k(4000), dec = rts.map((t) => Math.exp(-6.91 / (t * sr)));
+    for (let ch = 0; ch < 2; ch++) {
+      const d = b.getChannelData(ch);
+      let l1 = 0, l2 = 0, l3 = 0;
+      const e = [1, 1, 1, 1];
+      for (let i = pre; i < len; i++) {
+        const n = r() * 2 - 1;
+        l1 = n + (l1 - n) * k1; l2 = n + (l2 - n) * k2; l3 = n + (l3 - n) * k3;
+        const t = (i - pre) / sr, bu = 1 - Math.exp(-t / H.build);
+        d[i] = bu * (l1 * e[0] * 1.8 + (l2 - l1) * e[1] + (l3 - l2) * e[2] + (n - l3) * e[3] * 0.8);
+        for (let q = 0; q < 4; q++) e[q] *= dec[q];
+      }
+      // early reflections: a few dozen distinct echoes off the walls, softer and duller as they come later
+      const taps = 26;
+      for (let q = 0; q < taps; q++) {
+        const at = pre + Math.floor(Math.pow(r(), 0.8) * H.erSpan * sr), a = H.er * (r() < 0.5 ? -1 : 1) * (1 - (at - pre) / (H.erSpan * sr * 1.2)) * (0.5 + r() * 0.5);
+        for (let j = 0; j < 6 && at + j < len; j++) d[at + j] += a * [0.35, 0.3, 0.18, 0.1, 0.05, 0.02][j];
+      }
+    }
+    // the same energy as the old room for these seconds and damping
+    const old = makeIR(c, sec, damp, seed);
+    let eo = 0, en = 0;
+    for (let ch = 0; ch < 2; ch++) { const a = old.getChannelData(ch), x = b.getChannelData(ch); for (let i = 0; i < a.length; i++) eo += a[i] * a[i]; for (let i = 0; i < x.length; i++) en += x[i] * x[i]; }
+    const g = Math.sqrt(eo / (en + 1e-20));
+    for (let ch = 0; ch < 2; ch++) { const x = b.getChannelData(ch); for (let i = 0; i < x.length; i++) x[i] *= g; }
+    b.hp = H.hp;
+    return b;
+  }
   function clipCurve() {
     const n = 4096, cv = new Float32Array(n);
     for (let i = 0; i < n; i++) {
@@ -3202,9 +3253,13 @@ HW.SHAPE_FIT = {
 
   // ---- instruments: (E, ch, t, note, durSeconds, velocity, params) -> oscillator weight ---------------------
   const INST = {};
-  const DRUMS = new Set(["kick", "snare", "clap", "hat", "ride", "crash", "tom", "perc", "rim", "cowbell", "shaker", "taiko", "timpani", "chipnoise", "metal", "brush", "snap", "guiro"]);
+  const DRUMS = new Set(["kick", "snare", "clap", "hat", "ride", "crash", "tom", "perc", "rim", "cowbell", "shaker", "taiko", "timpani", "chipnoise", "metal", "brush", "snap", "guiro", "wardrum", "kettle"]);
   const BASSES = new Set(["sub", "808", "acid", "reese", "fmbass", "bass", "organbass"]);
   const FXS = new Set(["riser", "downer", "impact", "subdrop", "crackle", "zap", "revcym", "wind", "siren", "rain", "crickets", "birds", "ocean"]);
+  // (round three) the sustained instruments: a seek / jump / resume into the middle of one of their notes starts it
+  // again with what is left of it (Session.revive). Everything struck or plucked is left to ring out unheard.
+  const REVIVE = new Set(["sub", "organbass", "reese", "supersaw", "strings", "pad", "lead", "organ", "choir", "brass", "pulse", "tri", "flute",
+    "crackle", "wind", "rain", "crickets", "birds", "ocean", "bowedglass", "cello", "duduk", "woodwind", "breathflute", "reedorgan", "monks", "horn", "voices", "solo", "bowed", "fhorn", "tpt", "flute2", "oboe", "clarinet", "reed2"]);
 
   INST.kick = function (E, ch, t, n, d, v, P) {
     const c = E.ctx, out = ch.in;
@@ -3918,7 +3973,7 @@ HW.SHAPE_FIT = {
   INST.wind = function (E, ch, t, n, d, v, P) {
     const c = E.ctx, s = noiseSrc(E), bp = F(c, "bandpass", 600, P.q || 3), g = G(c, 0), r = rng(hash("wind") + Math.floor(t * 10));
     for (let tt = t, k = 0; tt < t + d; tt += 0.7, k++) bp.frequency.linearRampToValueAtTime((P.lo || 300) * Math.pow((P.hi || 2400) / (P.lo || 300), r()), tt);
-    const end = adsr(g.gain, t, d, Math.min(2, d * 0.3), 0.1, 1, Math.min(2.5, d * 0.4), v);
+    const end = adsr(g.gain, t, d, P.revive ? 0.12 : Math.min(2, d * 0.3), 0.1, 1, Math.min(2.5, d * 0.4), v);
     chain(s, bp, g, ch.in);
     run(E, s, t, end, [bp, g], E.r());
     return 1;
@@ -4191,36 +4246,6 @@ HW.SHAPE_FIT = {
     }
     return w;
   };
-  // monks: a few low male voices on one note, each with its own drift and slow vibrato, through a vowel's
-  // formants, with a little breath; made for chant in a vast stone hall (long attack, long release)
-  INST.monks = function (E, ch, t, n, d, v, P) {
-    const c = E.ctx, f = mtof(n), g = G(c, 0), mix = G(c, 1), vw = VOWELS[P.vowel || "o"], N = P.voices || 3;
-    const end = adsr(g.gain, t, d, P.a || 0.4, 0.5, P.s == null ? 0.95 : P.s, P.r || 1.3, v);
-    const fs = [];
-    vw.forEach((fr, i) => {
-      const bp = F(c, "bandpass", fr * (P.formantScale || 0.92), P.q || 8), bg = G(c, [2.4, 1.1, 0.5][i]);
-      mix.connect(bp); bp.connect(bg); bg.connect(g);
-      fs.push(bp, bg);
-    });
-    // the chest: a little of the raw tone under the formants
-    const lp = F(c, "lowpass", Math.min(f * 3, 900), 0.7), lg = G(c, 0.35);
-    chain(mix, lp, lg, g);
-    g.connect(ch.in);
-    for (let i = 0; i < N; i++) {
-      const o = osc(E, "sawtooth", f, t), og = G(c, 0.6 / Math.sqrt(N));
-      o.detune.value = (i - (N - 1) / 2) * (P.det || 7) + (E.r() - 0.5) * 4;
-      const l = osc(E, "sine", 4.2 + E.r() * 1.2, t), lgn = G(c, 0);
-      lgn.gain.setValueAtTime(0, t);
-      lgn.gain.linearRampToValueAtTime((P.vib == null ? 7 : P.vib) * (0.7 + E.r() * 0.6), t + (P.a || 0.4) + 0.5);
-      chain(l, lgn, o.detune);
-      chain(o, og, mix);
-      run(E, o, t + E.r() * 0.03, end, i === 0 ? fs.concat([mix, lp, lg, g, og]) : [og]); run(E, l, t, end, [lgn]);
-    }
-    const s = noiseSrc(E), bp = F(c, "bandpass", vw[1] * 0.92, 2.5), gb = G(c, P.breath == null ? 0.05 : P.breath);
-    chain(s, bp, gb, g);
-    run(E, s, t, end, [bp, gb], E.r());
-    return N * 2 + 1;
-  };
   // horn: French horn or low brass: a rounded saw-and-triangle tone that opens slowly, with a soft vibrato
   INST.horn = function (E, ch, t, n, d, v, P) {
     const c = E.ctx, f = mtof(n), cut = (P.cut || 1100) * (0.7 + v * 0.6), lp = F(c, "lowpass", 300, P.q == null ? 1.2 : P.q), pk = F(c, "peaking", P.formant || 480, 1.5), g = G(c, 0), mix = G(c, 0.5);
@@ -4337,7 +4362,7 @@ HW.SHAPE_FIT = {
   INST.birds = (E, ch, t, n, d, v, P) => ambience(E, ch, t, d, v, P, "birds", 1200, 9000);
   INST.ocean = function (E, ch, t, n, d, v, P) {     // waves: two noise sources whose tone and level wander, left and right
     const c = E.ctx, g = G(c, 0), r = rng(hash("ocean") + Math.floor(t * 7));
-    const end = adsr(g.gain, t, d, Math.min(3, d * 0.25), 0.1, 1, Math.min(4, d * 0.35), v);
+    const end = adsr(g.gain, t, d, P.revive ? 0.12 : Math.min(3, d * 0.25), 0.1, 1, Math.min(4, d * 0.35), v);
     g.connect(ch.in);
     [-0.5, 0.5].forEach((pan, i) => {
       const s = noiseSrc(E), lp = F(c, "lowpass", 400, 0.8), wg = G(c, 0.5), pn = c.createStereoPanner();
@@ -4356,6 +4381,716 @@ HW.SHAPE_FIT = {
     });
     return 2;
   };
+
+  // ==== round three (2026-10-22): rendered voices and acoustic instruments ======================================
+  // Real singers and players are not oscillators through filters: every glottal or bow cycle is a little different
+  // (jitter, shimmer), the pitch wanders slowly (drift) and swings (vibrato, each singer at his own rate), breath
+  // and bow noise pulse with each cycle, and a choir is many such singers a few cents and milliseconds apart. These
+  // instruments render each tone sample by sample (as ksBuffer does) from a physical-style source (the LF glottal
+  // pulse; a bowed string's Helmholtz wave) through a resonator bank (the vocal tract's five formants; a string
+  // body's resonances), with all of that baked in, then play the buffer through the graph. Two forms:
+  //   tone(): a cached buffer with an onset and a seamless loop (every modulation repeats exactly over the loop:
+  //           a whole number of glottal cycles and vibrato cycles), for ensembles and chords of any length;
+  //   a whole note rendered when it comes (solo lines: a glide from the last note, a scoop, a natural release).
+  function fftIP(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { let x = re[i]; re[i] = re[j]; re[j] = x; x = im[i]; im[i] = im[j]; im[j] = x; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (-2 * Math.PI) / len, wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let k = 0; k < h; k++) {
+          const a = i + k, b = a + h, br = re[b] * cr - im[b] * ci, bi = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - br; im[b] = im[a] - bi; re[a] += br; im[a] += bi;
+          const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+        }
+      }
+    }
+  }
+  // one period of a source as a harmonic spectrum (re, im on N = 4096 points) and its flow (for pulsed breath)
+  const srcCache = new Map();
+  // the LF model (Fant, Liljencrants, Lin 1985) of the glottal flow derivative, shaped by one number Rd (Fant 1995):
+  // 0.6 pressed, 1 modal, 1.5 soft, 2.2 breathy. H1-H2 runs from -1 dB (pressed) to 15 dB (breathy).
+  function lfSource(Rd) {
+    Rd = Math.round(Math.max(0.4, Math.min(2.6, Rd)) * 20) / 20;
+    const key = "lf" + Rd;
+    if (srcCache.has(key)) return srcCache.get(key);
+    const N = 4096, Rap = (-1 + 4.8 * Rd) / 100, Rkp = (22.4 + 11.8 * Rd) / 100;
+    const Rgp = (0.25 * Rkp) / ((0.11 * Rd) / (0.5 + 1.2 * Rkp) - Rap);
+    const tp = 1 / (2 * Rgp), te = Math.min(0.98, tp * (1 + Rkp)), ta = Math.max(0.002, Rap), tb = 1 - te;
+    let eps = 1 / ta;
+    for (let i = 0; i < 80; i++) { const ex = Math.exp(-eps * tb); eps -= (eps * ta - 1 + ex) / (ta - tb * ex); }
+    const wg = Math.PI / tp, ste = Math.sin(wg * te), cte = Math.cos(wg * te);
+    const I2 = -(1 / (eps * ta)) * ((1 - Math.exp(-eps * tb)) / eps - tb * Math.exp(-eps * tb));
+    const net = (al) => { const E0 = -1 / (Math.exp(al * te) * ste); return (E0 * (Math.exp(al * te) * (al * ste - wg * cte) + wg)) / (al * al + wg * wg) + I2; };
+    let lo = -5, hi = 40;
+    for (let i = 0; i < 100; i++) { const m = (lo + hi) / 2; if (net(m) > 0) lo = m; else hi = m; }
+    const al = (lo + hi) / 2, E0 = -1 / (Math.exp(al * te) * ste);
+    const re = new Float64Array(N), im = new Float64Array(N), flow = new Float32Array(N + 1);
+    let u = 0, umax = 1e-9;
+    for (let i = 0; i < N; i++) {
+      const t = i / N;
+      re[i] = t <= te ? E0 * Math.exp(al * t) * Math.sin(wg * t) : -(1 / (eps * ta)) * (Math.exp(-eps * (t - te)) - Math.exp(-eps * tb));
+      u += re[i]; flow[i] = u; if (u > umax) umax = u;
+    }
+    for (let i = 0; i < N; i++) flow[i] = Math.max(0, flow[i] / umax);
+    flow[N] = flow[0];
+    fftIP(re, im);
+    const s = { re, im, N, flow };
+    srcCache.set(key, s);
+    return s;
+  }
+  // a source from harmonic amplitudes (bowed strings, reeds, brass): amp(k) for k = 1.., phases fixed per key
+  function harmSource(key, amp) {
+    if (srcCache.has(key)) return srcCache.get(key);
+    const N = 4096, re = new Float64Array(N), im = new Float64Array(N), r = rng(hash(key));
+    for (let k = 1; k < N / 2; k++) { const a = amp(k); if (!a) continue; const ph = k === 1 ? 0 : r() * 2 * Math.PI; re[k] = (a * N / 2) * Math.cos(ph); im[k] = (a * N / 2) * Math.sin(ph); }
+    const s = { re, im, N, flow: null };
+    if (srcCache.size > 300) srcCache.delete(srcCache.keys().next().value);
+    srcCache.set(key, s);
+    return s;
+  }
+  // a band-limited single-cycle table (2048 points + 1) of a source, harmonics 1..kmax (nothing folds past Nyquist)
+  const tabCache = new Map();
+  function srcTable(s, key, kmax) {
+    kmax = Math.max(1, Math.min(1000, kmax | 0));
+    const k2 = key + "/" + kmax;
+    let t = tabCache.get(k2);
+    if (t) return t;
+    const M = 2048, re = new Float64Array(M), im = new Float64Array(M);
+    for (let k = 1; k <= kmax; k++) { re[k] = s.re[k]; im[k] = -s.im[k]; re[M - k] = s.re[k]; im[M - k] = s.im[k]; }
+    fftIP(re, im);     // the inverse transform by conjugation: the conjugated spectrum's forward transform
+    t = new Float32Array(M + 1);
+    let pk = 1e-9;
+    for (let i = 0; i < M; i++) { t[i] = re[i]; pk = Math.max(pk, Math.abs(re[i])); }
+    for (let i = 0; i < M; i++) t[i] /= pk;
+    t[M] = t[0];
+    if (tabCache.size > 400) tabCache.delete(tabCache.keys().next().value);
+    tabCache.set(k2, t);
+    return t;
+  }
+  // band-limited periodic noise: `n` points, energy only between cycles lo..hi per period, RMS 1 (by inverse FFT)
+  function bandNoise(r, n, lo, hi) {
+    const re = new Float64Array(n), im = new Float64Array(n);
+    lo = Math.max(1, Math.round(lo)); hi = Math.max(lo, Math.min(n / 2 - 1, Math.round(hi)));
+    for (let k = lo; k <= hi; k++) { const ph = r() * 2 * Math.PI; re[k] = Math.cos(ph); im[k] = Math.sin(ph); re[n - k] = re[k]; im[n - k] = -im[k]; }
+    fftIP(re, im);
+    let s = 0;
+    for (let i = 0; i < n; i++) s += re[i] * re[i];
+    const g = 1 / Math.sqrt(s / n + 1e-20), out = new Float32Array(n + 1);
+    for (let i = 0; i < n; i++) out[i] = re[i] * g;
+    out[n] = out[0];
+    return out;
+  }
+  const lerpTab = (tab, n, x) => { const p = x * n, i = Math.floor(p), fr = p - i, j = ((i % n) + n) % n; return tab[j] + (tab[j + 1] - tab[j]) * fr; };
+
+  // render a tone. o: { f, sr, mode "loop" | "note", A (onset s, loop), L0 (loop s, loop), dur + rel (note),
+  //   src (a source), tract { cascade: [[F, BW]...] } and/or { peaks: [[F, BW, gain]...], direct },
+  //   vib { rate, depth (cents), at (s), ramp (s), wob }, drift (cents), flutter (cents), jitter (cents RMS),
+  //   shimmer (dB RMS), swell (dB), scoop { cents, tau }, glide { from (Hz), time }, fall { cents, time },
+  //   onset (s: the voice's own rise), noise { level, hp, am (0..1 with the flow), burst, burstT, comb }, seed, rms }
+  // -> { data: Float32Array, loopA, loopB } (seconds; loop mode) or { data } (note mode)
+  function renderTone(o) {
+    const sr = o.sr, r = rng(o.seed >>> 0), f = o.f, loop = o.mode === "loop", KC = 4096;
+    const vib = o.vib || { rate: 5, depth: 0 }, As = loop ? Math.round((o.A || 0.3) * sr) : 0;
+    // the periodic part of the pitch contour (cents) on KC control points: drift, flutter, jitter, vibrato
+    const Lg = loop ? o.L0 || 2.4 : (o.dur || 1) + (o.rel || 0.3);
+    const vibN = loop ? Math.max(1, Math.round(vib.rate * Lg)) : vib.rate * Lg;
+    const rest = new Float32Array(KC + 1), vibC = new Float32Array(KC + 1), amp = new Float32Array(KC + 1);
+    const dr = bandNoise(r, KC, 1, Math.max(2, 0.7 * Lg)), fl = bandNoise(r, KC, 5 * Lg, 13 * Lg), jt = bandNoise(r, KC, Math.min(f / 10, 500) * Lg, Math.min(f / 2, 700) * Lg);
+    const sh = bandNoise(r, KC, 4 * Lg, Math.min(f / 3, 600) * Lg), sw = bandNoise(r, KC, 1, Math.max(2, 0.5 * Lg));
+    const fmC = o.fdrift ? bandNoise(r, KC, 1, Math.max(2, 1.2 * Lg)) : null;     // the vowel itself drifts a little (o.fdrift: a fraction)
+    const wobN = loop ? Math.max(1, Math.round(0.23 * Lg)) : 0.23 * Lg, wob = vib.wob == null ? 0.18 : vib.wob, ph0 = r() * 6.283, ph1 = r() * 6.283;
+    for (let i = 0; i <= KC; i++) {
+      const u = i / KC;
+      rest[i] = (o.drift || 0) * dr[i] + (o.flutter || 0) * fl[i] + (o.jitter || 0) * jt[i];
+      vibC[i] = (vib.depth || 0) * (1 + wob * Math.sin(2 * Math.PI * wobN * u + ph1)) * Math.sin(2 * Math.PI * vibN * u + ph0 + 0.35 * Math.sin(2 * Math.PI * wobN * u));
+      amp[i] = Math.pow(10, ((o.shimmer || 0) * sh[i] + (o.swell || 0) * sw[i]) / 20);
+    }
+    // loop length: a whole number of glottal cycles at the mean of the contour's frequency ratio
+    let mu = 1, Ls = 0, Nc = 0;
+    if (loop) {
+      let s = 0;
+      for (let i = 0; i < KC; i++) s += Math.pow(2, (rest[i] + vibC[i]) / 1200);
+      mu = s / KC;
+      Nc = Math.max(1, Math.round(f * Lg * mu));
+      Ls = Math.round((Nc / (f * mu)) * sr);
+    }
+    const total = loop ? As + Ls : Math.ceil(((o.dur || 1) + (o.rel || 0.3)) * sr);
+    const fe = loop ? Nc / ((Ls / sr) * mu) : f;     // the exact frequency that makes the loop whole
+    // source table, band-limited for the highest pitch reached
+    const top = Math.max(60, (vib.depth || 0) * 1.3 + (o.drift || 0) * 3 + (o.jitter || 0) * 3 + (o.glide ? Math.max(0, 1200 * Math.log2(o.glide.from / f)) : 0));
+    const tab = srcTable(o.src, o.srcKey, (0.46 * sr) / (fe * Math.pow(2, top / 1200))), flow = o.src.flow, FN = o.src.N;
+    // the tract / body: a cascade of two-pole resonators (unity gain at DC) and parallel peaks
+    const cas = (o.tract && o.tract.cascade) || [], pk = (o.tract && o.tract.peaks) || [], direct = o.tract && o.tract.direct != null ? o.tract.direct : 1;
+    const cA = [], cB = [], cC = [], c1 = new Float64Array(cas.length), c2 = new Float64Array(cas.length);
+    for (const [F, BW] of cas) { const C = -Math.exp((-2 * Math.PI * BW) / sr), B = 2 * Math.exp((-Math.PI * BW) / sr) * Math.cos((2 * Math.PI * Math.min(F, sr * 0.45)) / sr); cA.push(1 - B - C); cB.push(B); cC.push(C); }
+    const baseF = cas.map((q) => Math.min(q[0], sr * 0.45)), eB = cas.map((q) => 2 * Math.exp((-Math.PI * q[1]) / sr));
+    const pA = [], pB = [], pC = [], p1 = new Float64Array(pk.length), p2 = new Float64Array(pk.length);
+    for (const [F, BW, g] of pk) { const R = Math.exp((-Math.PI * BW) / sr), th = (2 * Math.PI * Math.min(F, sr * 0.45)) / sr; pA.push(g * (1 - R)); pB.push(2 * R * Math.cos(th)); pC.push(-R * R); }
+    // the air: broad resonances above the formants fed straight from the source and the breath (as a parallel
+    // branch: the voice's edge and air between 3 and 10 kHz, which an all-pole cascade with a singer's formant
+    // cluster leaves 30 dB too weak)
+    const air = (o.tract && o.tract.air) || [], aA = [], aB = [], aC = [], a1 = new Float64Array(air.length), a2 = new Float64Array(air.length);
+    for (const [F, BW, g] of air) { const R = Math.exp((-Math.PI * BW) / sr), th = (2 * Math.PI * Math.min(F, sr * 0.45)) / sr; aA.push(g * (1 - R)); aB.push(2 * R * Math.cos(th)); aC.push(-R * R); }
+    let ax1 = 0, ax2 = 0;
+    const nz = o.noise || { level: 0 }, nLev = nz.level || 0, nHpA = Math.exp((-2 * Math.PI * (nz.hp || 800)) / sr), nLpA = Math.exp((-2 * Math.PI * (nz.lp || 9000)) / sr);
+    const loopNoise = loop && nLev ? new Float32Array(Ls) : null;
+    if (loopNoise) for (let i = 0; i < Ls; i++) loopNoise[i] = r() * 2 - 1;
+    // the comb (breath shaped by the tube's resonances: flutes) and the onset burst (a breathy or bowed start)
+    const comb = nz.comb || 0, cbuf = comb ? new Float32Array(8192) : null;
+    let cw = 0;
+    const out = new Float32Array(total);
+    const scoop = o.scoop || { cents: 0, tau: 0.05 }, glide = o.glide, fall = o.fall, onT = o.onset == null ? 0.1 : o.onset;
+    const dur = o.dur || 0, rel = o.rel || 0.3;
+    let phase = r(), x1 = 0, nh = 0, nl = 0, nl2 = 0, curF = fe, curA = 0, nextF = fe, nextA = 0;
+    // pass 1: every sample's frequency and level (control rate every 16 samples, linear between)
+    const FQ = new Float32Array(total), AM = new Float32Array(total), STEP = 16;
+    {
+      const ctl = (k) => {
+        const t = k / sr;
+        let u, vEnv = 1, cents = 0, a = 1;
+        if (loop) { u = ((((k - As) / Ls) % 1) + 1) % 1; } else u = Math.min(1, t / Lg);
+        const at = vib.at || 0, ramp = vib.ramp || 0.25;
+        vEnv = t < at ? 0 : t < at + ramp ? 0.5 - 0.5 * Math.cos((Math.PI * (t - at)) / ramp) : 1;
+        if (loop && k >= As) vEnv = 1;
+        cents = lerpTab(rest, KC, u) + vEnv * lerpTab(vibC, KC, u);
+        if (scoop.cents && !(loop && k >= As)) cents -= scoop.cents * Math.exp(-t / (scoop.tau || 0.05));
+        if (glide) { const g = Math.min(1, t / glide.time), sm = g * g * (3 - 2 * g); cents += 1200 * Math.log2(glide.from / f) * (1 - sm); }
+        a = lerpTab(amp, KC, u);
+        if (o.vibAM && vib.depth) a *= 1 + o.vibAM * vEnv * (lerpTab(vibC, KC, u) / vib.depth);     // a flute's vibrato is half loudness
+        if (!(loop && k >= As)) a *= t < onT ? 0.5 - 0.5 * Math.cos((Math.PI * t) / onT) : 1;
+        if (!loop && t > dur) {
+          const x = Math.min(1, (t - dur) / rel);
+          a *= 0.5 + 0.5 * Math.cos(Math.PI * x);
+          if (fall) cents -= fall.cents * x * x;
+        }
+        return [fe * Math.pow(2, cents / 1200), a];
+      };
+      [curF, curA] = ctl(0);
+      for (let i = 0; i < total; i += STEP) {
+        [nextF, nextA] = ctl(Math.min(total, i + STEP));
+        const n = Math.min(STEP, total - i);
+        for (let j = 0; j < n; j++) { const fr = j / STEP; FQ[i + j] = curF + (nextF - curF) * fr; AM[i + j] = curA + (nextA - curA) * fr; }
+        curF = nextF; curA = nextA;
+      }
+    }
+    // a loop holds exactly Nc cycles, so the wave joins itself without a click
+    if (loop) { let s = 0; for (let k = As; k < total; k++) s += FQ[k]; const q = (Nc * sr) / s; for (let k = As; k < total; k++) FQ[k] *= q; }
+    // pass 2: the source, the breath and the resonators, sample by sample
+    let px1 = 0, px2 = 0;
+    {
+      for (let k = 0; k < total; k++) {
+        const fi = FQ[k], ai = AM[k];
+        if (fmC && (k & 15) === 0) {
+          const u = loop ? ((((k - As) / Ls) % 1) + 1) % 1 : Math.min(1, k / sr / Lg), fv = o.fdrift * lerpTab(fmC, KC, u);
+          for (let m = 0; m < 3 && m < cA.length; m++) { const B = eB[m] * Math.cos((2 * Math.PI * baseF[m] * (1 + fv * (m === 0 ? 0.7 : 1))) / sr); cB[m] = B; cA[m] = 1 - B - cC[m]; }
+        }
+        phase += fi / sr;
+        if (phase >= 1) phase -= Math.floor(phase);
+        const p = phase * 2048, ip = p | 0;
+        let x = (tab[ip] + (tab[ip + 1] - tab[ip]) * (p - ip)) * ai;
+        if (nLev) {
+          const w = loopNoise ? loopNoise[(((k - As) % Ls) + Ls) % Ls] : r() * 2 - 1;     // a loop's breath repeats with it (the onset's too, so they join)
+          nh = w - x1 + nHpA * nh; x1 = w;     // one-pole high-pass
+          nl = nh + (nl - nh) * nLpA;          // two one-pole low-passes
+          nl2 = nl + (nl2 - nl) * nLpA;
+          let g = nLev * ai;
+          if (flow && nz.am) { const q = phase * FN, iq = q | 0; g *= 1 - nz.am + nz.am * 2 * flow[iq]; }
+          if (nz.burst) g *= 1 + nz.burst * Math.exp(-(k / sr) / (nz.burstT || 0.05));
+          let nn = nl2 * g;
+          if (cbuf) { const T = sr / fi, rd = cw - T, ir = Math.floor(rd), fr2 = rd - ir, a0 = cbuf[ir & 8191], a1 = cbuf[(ir + 1) & 8191]; const y = nn + comb * (a0 + (a1 - a0) * fr2); cbuf[cw & 8191] = y; cw++; nn = y * (1 - comb); }
+          x += nn;
+        }
+        // the resonators
+        let y = x;
+        for (let m = 0; m < cA.length; m++) { const v = cA[m] * y + cB[m] * c1[m] + cC[m] * c2[m]; c2[m] = c1[m]; c1[m] = v; y = v; }
+        if (aA.length) {
+          for (let m = 0; m < aA.length; m++) { const v = aA[m] * (x - ax2) + aB[m] * a1[m] + aC[m] * a2[m]; a2[m] = a1[m]; a1[m] = v; y += v; }
+          ax2 = ax1; ax1 = x;
+        }
+        if (pA.length) {
+          let s = direct * y;
+          for (let m = 0; m < pA.length; m++) { const v = pA[m] * (y - px2) + pB[m] * p1[m] + pC[m] * p2[m]; p2[m] = p1[m]; p1[m] = v; s += v; }
+          px2 = px1; px1 = y;
+          y = s;
+        }
+        out[k] = y;
+      }
+    }
+    // level: RMS of the held part to o.rms (the instruments scale it by velocity)
+    let e = 0, cnt = 0;
+    const from = loop ? As : Math.floor(Math.min(dur * 0.5, 0.3) * sr), to = loop ? total : Math.max(from + 1, Math.floor(dur * sr));
+    for (let i = from; i < to; i++) { e += out[i] * out[i]; cnt++; }
+    const g = (o.rms || 0.2) / Math.sqrt(e / Math.max(1, cnt) + 1e-20);
+    for (let i = 0; i < total; i++) out[i] *= g;
+    return loop ? { data: out, loopA: As / sr, loopB: (As + Ls) / sr } : { data: out };
+  }
+  // run fn once the audio clock passes `when` (offline too: a silent source's onended)
+  function setTimeoutish(E, when, fn) {
+    const c = E.ctx, s = c.createConstantSource(), g = G(c, 0);
+    s.offset.value = 0; s.connect(g); g.connect(c.destination);
+    s.onended = () => { try { s.disconnect(); g.disconnect(); } catch (e) { /* gone */ } fn(); };
+    s.start(Math.max(c.currentTime, when - 0.01)); s.stop(Math.max(c.currentTime + 0.01, when));
+  }
+  // the tone cache (LRU, about 80 MB of samples at most)
+  function toneBuffer(E, key, make) {
+    const C = E.tones || (E.tones = { map: new Map(), size: 0, ms: 0, made: 0 });
+    let b = C.map.get(key);
+    if (b) { C.map.delete(key); C.map.set(key, b); return b; }
+    if (E.peek) return null;     // (asked only what is ready)
+    const t0 = performance.now(), o = make(), c = E.ctx;
+    b = c.createBuffer(1, o.data.length, c.sampleRate);
+    b.getChannelData(0).set(o.data);
+    b.loopA = o.loopA; b.loopB = o.loopB;
+    C.ms += performance.now() - t0; C.made++;
+    C.map.set(key, b); C.size += o.data.length;
+    while (C.size > 20e6 && C.map.size > 1) { const k0 = C.map.keys().next().value; C.size -= C.map.get(k0).length; C.map.delete(k0); }
+    return b;
+  }
+
+  // ---- voices: formants of sung vowels (Hz, bandwidth) for bass, tenor, alto and soprano (the classic tables of
+  // sung vowels used for FOF synthesis), interpolated by pitch; each singer's vocal tract a few per cent longer or
+  // shorter. The fifth formant and above are a little raised and widened (the cascade's higher poles).
+  const VOX = {
+    bass: { a: [[600, 60], [1040, 70], [2250, 110], [2450, 120], [2750, 130]], e: [[400, 40], [1620, 80], [2400, 100], [2800, 120], [3100, 120]],
+      i: [[250, 60], [1750, 90], [2600, 100], [3050, 120], [3340, 120]], o: [[400, 40], [750, 80], [2400, 100], [2600, 120], [2900, 120]], u: [[350, 40], [600, 80], [2400, 100], [2675, 120], [2950, 120]] },
+    tenor: { a: [[650, 80], [1080, 90], [2650, 120], [2900, 130], [3250, 140]], e: [[400, 70], [1700, 80], [2600, 100], [3200, 120], [3580, 120]],
+      i: [[290, 40], [1870, 90], [2800, 100], [3250, 120], [3540, 120]], o: [[400, 40], [800, 80], [2600, 100], [2800, 120], [3000, 120]], u: [[350, 40], [600, 60], [2700, 100], [2900, 120], [3300, 120]] },
+    alto: { a: [[800, 80], [1150, 90], [2800, 120], [3500, 130], [4950, 140]], e: [[400, 60], [1600, 80], [2700, 120], [3300, 150], [4950, 200]],
+      i: [[350, 50], [1700, 100], [2700, 120], [3700, 150], [4950, 200]], o: [[450, 70], [800, 80], [2830, 100], [3500, 130], [4950, 135]], u: [[325, 50], [700, 60], [2530, 170], [3500, 180], [4950, 200]] },
+    soprano: { a: [[800, 80], [1150, 90], [2900, 120], [3900, 130], [4950, 140]], e: [[350, 60], [2000, 100], [2800, 120], [3600, 150], [4950, 200]],
+      i: [[270, 60], [2140, 90], [2950, 100], [3900, 120], [4950, 120]], o: [[450, 70], [800, 80], [2830, 100], [3800, 130], [4950, 135]], u: [[325, 50], [700, 60], [2700, 170], [3800, 180], [4950, 200]] },
+  };
+  function vowelAt(n, vowel, male) {
+    const V = (s) => VOX[s][vowel] || VOX[s].a;
+    const mix = (A, B, x) => A.map((p, i) => [p[0] + (B[i][0] - p[0]) * x, p[1] + (B[i][1] - p[1]) * x]);
+    if (male) return mix(V("bass"), V("tenor"), Math.max(0, Math.min(1, (n - 50) / 14)));
+    return mix(V("alto"), V("soprano"), Math.max(0, Math.min(1, (n - 62) / 12)));
+  }
+  // the whole tract: the vowel's five formants (wider at high pitch, where the open glottis damps them), then the
+  // tract's higher resonances about every kilohertz up to 8 kHz, which keep the voice's air and edge above 4 kHz
+  let AIR = 2;
+  const airOf = { a: 1, e: 1, i: 0.9, o: 0.6, u: 0.45 };
+  M._air = (g) => { AIR = g; };     // (calibration hook for verify/music/inst.mjs)
+  function tractFor(fm, f, male, vowel) {
+    const out = fm.map(([F, BW], i) => [F, BW + (i < 2 ? 0.22 : 0.1) * f]);
+    // (a cascade cut off after a few formants loses the lift the missing ones give the top: about 25 dB at 5 kHz
+    // with nine formants, so they go on, wider and wider, up to 10 kHz; the air branch does the rest)
+    const step = male ? 950 : 1050;
+    for (let F = fm[4][0] + step; F < 10500; F += step) out.push([F, 250 + 0.08 * F]);
+    const ag = AIR * (airOf[vowel] || 1), a0 = male ? fm[4][0] + 900 : fm[3][0] + 700;
+    return { cascade: out, air: [[a0, 900, ag], [a0 + 1400, 1600, ag * 0.5], [a0 + 3600, 3000, ag * 0.18]] };
+  }
+  // one singer's sustained vowel on note n: a cached loop. K: the instrument's defaults, P: the part's params
+  // one singer (variant) singing note n: his render options and the cache key. K: the instrument, P: the part
+  function voiceSpec(E, n, P, K, variant) {
+    const vowel = P.vowel || K.vowel || "a", male = P.male != null ? !!P.male : K.male != null ? K.male : n < 60;
+    const vib = P.vib != null ? P.vib : K.vib, breath = P.breath != null ? P.breath : K.breath, Rd = P.Rd || K.Rd;
+    const key = [K.name, n, vowel, male ? 1 : 0, vib, breath, Rd, variant].join("/");
+    const r = rng(hash(key)), sr = E.ctx.sampleRate, f = mtof(n), k = 0.94 + r() * 0.12;
+    const fm = vowelAt(n, vowel, male).map(([F, BW]) => [F * k * (0.97 + r() * 0.06), BW * (0.85 + r() * 0.3)]);
+    if (!male && fm[0][0] < f * 1.08) fm[0][0] = f * 1.08;     // sopranos tune the first formant above the pitch
+    const rd = Math.round(Math.max(0.4, Math.min(2.6, Rd + (r() - 0.5) * 0.3)) * 20) / 20;
+    return { key, o: { sr, f, mode: "loop", A: 0.3, L0: 1.5 + r() * 0.35, src: lfSource(rd), srcKey: "lf" + rd, tract: tractFor(fm, f, male, vowel),
+      vib: { rate: (K.vibRate || 5) * (0.88 + r() * 0.24), depth: vib * (0.7 + r() * 0.6), at: 0.12, ramp: 0.18 }, drift: K.drift || 4, flutter: 1.2, jitter: K.jitter || 6,
+      shimmer: 0.35, swell: 0.4, fdrift: 0.025, scoop: { cents: (K.scoop || 30) * (0.6 + r() * 0.8), tau: 0.045 }, onset: 0.07,
+      noise: { level: breath, hp: 1100, lp: 6000, am: 0.8, burst: 1.5, burstT: 0.05 }, seed: hash(key + "!"), rms: 0.2 } };
+  }
+  function voiceTone(E, n, P, K, variant) {
+    const sp = voiceSpec(E, n, P, K, variant);
+    return toneBuffer(E, sp.key, () => renderTone(sp.o));
+  }
+  // the same singer's slide from note `from` into note n, rendered whole (the pitch glides, the vowel stays put):
+  // the first `len` seconds of the new note, which then cross-fades into its loop
+  function voiceSlide(E, n, P, K, variant, from, len, glideT) {
+    const sp = voiceSpec(E, n, P, K, variant);
+    return renderTone(Object.assign({}, sp.o, { mode: "note", dur: len, rel: 0.002, glide: { from: mtof(from), time: glideT }, scoop: { cents: 0 }, onset: 0.004,
+      vib: Object.assign({}, sp.o.vib, { at: 0, ramp: 0.001 }), noise: Object.assign({}, sp.o.noise, { burst: 0 }), seed: hash(sp.key + "/" + from) })).data;
+  }
+  // an ensemble of singers (or players): every note is N of them, each with his own take (variant), a few cents and
+  // milliseconds apart, spread across the stereo field; consecutive single notes join legato (each singer slides
+  // from his last note into the next one, the old note fading as the new one comes in)
+  function ensemble(E, ch, t, n, d, v, P, K, toneOf, slideOf) {
+    const c = E.ctx, N = Math.max(1, P.voices || K.voices), rev = !!P.revive;
+    const a = rev ? 0.12 : P.a != null ? P.a : K.a, rel = P.r != null ? P.r : K.r;
+    const ens = ch.ens || (ch.ens = { t: -1, n: 0, end: -1, count: 0, voices: [] });
+    if (Math.abs(t - ens.t) < 0.012) ens.count++;     // another note of a chord
+    // (short, detached notes, a spiccato or a stab, are each played afresh, never slurred)
+    const legato = !rev && K.legato && P.legato !== 0 && a >= 0.04 && d >= 0.2 && ens.count === 1 && Math.abs(t - ens.end) < 0.09 && Math.abs(n - ens.n) <= 9 && Math.abs(t - ens.t) >= 0.012;
+    const prevN = ens.n, prevVoices = ens.voices;
+    if (Math.abs(t - ens.t) >= 0.012) { ens.t = t; ens.count = 1; ens.n = n; ens.end = t + d; ens.voices = []; }
+    else ens.voices = [];
+    const Kv = K.variants || 4, base = Math.floor(E.r() * Kv), spread = P.spread != null ? P.spread : K.spread, ragged = P.ragged != null ? P.ragged : K.ragged;
+    // live, the singers sing the takes that are ready; a pitch with none ready gets one now and the rest come from
+    // the warmer a moment later (a start or a seek waits for one take a note, not four). Offline every take is made.
+    let avail = null;
+    if (!E.offline) {
+      E.peek = true; avail = [];
+      try { for (let k = 0; k < Kv; k++) { const b = toneOf(n, (base + k) % Kv); if (b) avail.push(b); } } finally { E.peek = false; }
+      if (!avail.length) avail.push(toneOf(n, base));
+    }
+    const takes = avail ? avail.length : Kv;
+    const width = P.width != null ? P.width : K.width, end = t + d + rel * 1.25 + 0.05, glideT = K.glideT || 0.09;
+    const slideLen = 0.16, legatoSlide = legato && slideOf && d > slideLen + 0.08;
+    const post = K.post ? K.post(c, t, d, v, P, legato) : null, dest = post ? post.in : ch.in;
+    if (post) { post.out.connect(ch.in); setTimeoutish(E, end + 0.4, () => { try { post.in.disconnect(); post.out.disconnect(); } catch (e) { /* gone */ } }); }
+    for (let j = 0; j < N; j++) {
+      const vj = (base + j) % Kv, b = avail ? avail[j % avail.length] : toneOf(n, vj);
+      const s = c.createBufferSource(), g = G(c, 0), pn = c.createStereoPanner();
+      s.buffer = b; s.loop = true; s.loopStart = b.loopA; s.loopEnd = b.loopB;
+      const lean = N === 1 ? 0 : ((j * 0.618034 + 0.5) % 1) * 2 - 1;     // each singer leans sharp or flat a little, the same every note (the first one dead on)
+      const rate = Math.pow(2, (spread * (0.6 * lean + 0.8 * (E.r() - 0.5))) / 1200);
+      pn.pan.value = Math.max(-1, Math.min(1, width * (N === 1 ? 0 : (j / (N - 1)) * 2 - 1) + (E.r() - 0.5) * 0.15));
+      const lv = (v * (0.85 + E.r() * 0.3) * (K.gain || 1) * (K.shortGain && a < 0.04 ? K.shortGain : 1)) / Math.sqrt(N);
+      const pv = legato && prevVoices[j];
+      let st = t + (legato || rev ? 0 : E.r() * ragged), off = 0;
+      if (legato || rev || j >= takes) off = b.loopA + E.r() * (b.loopB - b.loopA);     // already singing (or sharing a take): skip the onset
+      const gp = g.gain;
+      s.playbackRate.value = rate;
+      if (pv) { const q = pv.g.gain; if (q.cancelAndHoldAtTime) q.cancelAndHoldAtTime(st); else q.cancelScheduledValues(st); q.setTargetAtTime(0, st + 0.005, 0.02); try { pv.s.stop(st + 0.2); } catch (e) { /* stopped */ } }
+      if (legatoSlide) {
+        // the slide itself, rendered with the glide inside (the formants stay where they are), then into the loop
+        const sl = slideOf(n, vj, prevN, slideLen, glideT), sb = c.createBuffer(1, sl.length, c.sampleRate), ss = c.createBufferSource(), sg = G(c, 0);
+        sb.getChannelData(0).set(sl);
+        ss.buffer = sb; ss.playbackRate.value = rate;
+        sg.gain.setValueAtTime(0, st); sg.gain.linearRampToValueAtTime(lv, st + 0.025);
+        sg.gain.setValueAtTime(lv, st + slideLen - 0.045); sg.gain.linearRampToValueAtTime(0, st + slideLen - 0.005);
+        chain(ss, sg, pn);
+        ss.start(st); ss.stop(st + slideLen);
+        ss.onended = () => { try { ss.disconnect(); sg.disconnect(); } catch (e) { /* gone */ } };
+        st += slideLen - 0.045;
+        gp.setValueAtTime(0, st);
+        gp.linearRampToValueAtTime(lv, st + 0.04);
+      } else if (legato) {
+        gp.setValueAtTime(0, st);
+        gp.linearRampToValueAtTime(lv, st + 0.05);
+      } else {
+        gp.setValueAtTime(0, st);
+        gp.linearRampToValueAtTime(lv, st + Math.max(0.02, off ? Math.max(a, 0.08) : a));
+      }
+      const relT = Math.max(st + 0.03, t + d);
+      gp.setTargetAtTime(0, relT, Math.max(0.01, rel / 4));
+      if (K.sag) s.playbackRate.setTargetAtTime(rate * Math.pow(2, -K.sag / 1200), relT, rel / 2);     // the pitch sags a little as the breath runs out
+      chain(s, g, pn, dest);
+      if (off) s.start(st, off); else s.start(st);
+      s.stop(end + 0.3);
+      s.onended = () => { try { s.disconnect(); g.disconnect(); pn.disconnect(); } catch (e) { /* gone */ } };
+      ens.voices.push({ s, g });
+    }
+    return N;
+  }
+  // monks: a few men singing one line (or a chord) in a stone hall, nearly straight tone (chant), a little breath,
+  // each with his own slow drift; consecutive notes slide into each other
+  const MONKS = { name: "monks", voices: 4, a: 0.3, r: 1.0, spread: 7, ragged: 0.035, width: 0.5, vib: 9, vibRate: 4.9, Rd: 1.15, breath: 0.035, male: true,
+    scoop: 28, drift: 5, jitter: 6, legato: true, glideT: 0.1, sag: 12, gain: 1.05 };
+  INST.monks = function (E, ch, t, n, d, v, P) { return ensemble(E, ch, t, n, d, v, P, MONKS, (m, k) => voiceTone(E, m, P, MONKS, k), (m, k, fr, len, gt) => voiceSlide(E, m, P, MONKS, k, fr, len, gt)); };
+  INST.monks.warm = (E, n, P) => [0, 1, 2, 3].map((k) => () => voiceTone(E, n, P, MONKS, k));
+  // a choir: men below middle C, women above (P.male forces men), a gentle choral vibrato
+  const CHOIR = { name: "voices", voices: 6, a: 0.45, r: 0.9, spread: 9, ragged: 0.05, width: 0.85, vib: 20, vibRate: 5.3, Rd: 1.0, breath: 0.05,
+    scoop: 22, drift: 4, jitter: 5, legato: true, glideT: 0.09, sag: 8, gain: 1.6 };
+  INST.voices = function (E, ch, t, n, d, v, P) { return ensemble(E, ch, t, n, d, v, P, CHOIR, (m, k) => voiceTone(E, m, P, CHOIR, k), (m, k, fr, len, gt) => voiceSlide(E, m, P, CHOIR, k, fr, len, gt)); };
+  INST.voices.warm = (E, n, P) => [0, 1, 2, 3].map((k) => () => voiceTone(E, n, P, CHOIR, k));
+  // a solo voice, every note rendered whole: it slides in from the last note (or scoops up from below), a vibrato
+  // that grows through the note, a cry that falls at the end of a long note. P.male, P.vowel, P.vib (cents)
+  const SOLO = { name: "solo", Rd: 0.85, breath: 0.07, vib: 45, vibRate: 5.6, scoop: 90, gain: 2 };
+  INST.solo = function (E, ch, t, n, d, v, P) {
+    const c = E.ctx, sr = c.sampleRate, f = mtof(n), vowel = P.vowel || "a", male = P.male != null ? !!P.male : n < 60;
+    const legato = !P.revive && ch.lastF && Math.abs(t - ch.lastEnd) < 0.1;
+    if (ch.last && legato) choke(ch, t + 0.02, 0.025);
+    const rel = Math.max(0.15, P.r || 0.45), dur = Math.max(0.08, d), r = rng(hash("solo" + n + "/" + Math.round(t * 1000)));
+    const fm = vowelAt(n, vowel, male).map(([F, BW]) => [F * (0.99 + r() * 0.02), BW]);
+    if (!male && fm[0][0] < f * 1.08) fm[0][0] = f * 1.08;
+    const vib = P.vib != null ? P.vib : SOLO.vib;
+    const o = renderTone({ sr, f, mode: "note", dur, rel, src: lfSource(P.Rd || SOLO.Rd), srcKey: "lf" + Math.round(Math.max(0.4, Math.min(2.6, P.Rd || SOLO.Rd)) * 20) / 20,
+      tract: tractFor(fm, f, male, vowel),
+      vib: { rate: (P.vibRate || SOLO.vibRate) * (0.95 + r() * 0.1), depth: vib, at: legato ? 0.12 : 0.22, ramp: Math.min(0.6, dur * 0.5), wob: 0.25 },
+      drift: 5, flutter: 1.5, jitter: 5, shimmer: 0.35, swell: 0.6, fdrift: 0.03,
+      scoop: legato || P.revive ? { cents: 0 } : { cents: (P.scoop != null ? P.scoop : SOLO.scoop) * (0.7 + r() * 0.6), tau: 0.06 },
+      glide: legato ? { from: ch.lastF, time: 0.11 } : null, fall: dur > 1.2 ? { cents: 60 } : null, onset: legato ? 0.03 : 0.09,
+      noise: { level: P.breath != null ? P.breath : SOLO.breath, hp: 1200, lp: 6500, am: 0.8, burst: legato ? 0 : 1.2, burstT: 0.06 }, seed: hash("solo/" + t), rms: 0.2 });
+    const b = c.createBuffer(1, o.data.length, sr);
+    b.getChannelData(0).set(o.data);
+    const s = c.createBufferSource(), g = G(c, 0);
+    s.buffer = b;
+    const lv = v * (P.gain || SOLO.gain), a = legato ? 0.02 : P.revive ? 0.12 : P.a || 0.02;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(lv, t + a);
+    chain(s, g, ch.in);
+    const end = t + b.duration + 0.02;
+    run(E, s, t, end, [g]);
+    ch.lastF = f; ch.lastEnd = t + d; ch.last = { g, end };
+    return 2;
+  };
+
+  // ---- bowed strings: the bow drags the string into Helmholtz motion (a sawtooth at the bridge, with the harmonics
+  // that have a node at the bow point missing, and the corner rounded by the bow's grip), the body's wood and air
+  // resonances colour it (the A0 air mode, the B1 wood modes, the "bridge hill" around 2-3 kHz on a violin), and
+  // the bow hair hisses once per cycle as the string slips. Vibrato sweeps the harmonics across the body's narrow
+  // peaks, which is what makes a real string's tone shimmer. Body tables in Hz: [frequency, bandwidth, gain].
+  const BODY = {
+    violin: { lp: [[4200, 6500], [7000, 11000]], direct: 0.25, peaks: [[280, 35, 1.6], [410, 60, 0.8], [470, 45, 2.2], [545, 50, 2.6], [650, 90, 1], [800, 110, 1.2], [1050, 140, 1], [2400, 900, 1.3], [3200, 1200, 0.6]] },
+    viola: { lp: [[3800, 6000], [6000, 9500]], direct: 0.25, peaks: [[230, 30, 1.6], [340, 55, 0.8], [390, 40, 2.2], [450, 45, 2.6], [540, 80, 1], [670, 100, 1.2], [880, 130, 1], [2000, 850, 1.3], [2700, 1100, 0.6]] },
+    cello: { lp: [[3200, 5000], [5000, 8000]], direct: 0.25, peaks: [[110, 20, 1.6], [190, 35, 2], [220, 40, 2.4], [290, 60, 1], [400, 80, 1.2], [600, 120, 0.9], [1600, 900, 1.1], [2400, 1200, 0.5]] },
+    bass: { lp: [[2200, 3500], [3500, 5500]], direct: 0.3, peaks: [[60, 14, 1.5], [100, 25, 2], [120, 28, 2.2], [170, 40, 1], [250, 60, 1.1], [400, 100, 0.8], [900, 600, 1.2], [1500, 900, 0.6]] },
+  };
+  const bodyOf = (n, P) => P.body || (n >= 67 ? "violin" : n >= 55 ? "viola" : n >= 43 ? "cello" : "bass");
+  function stringSpec(E, n, P, K, variant) {
+    const short = (P.a != null ? P.a : K.a) < 0.04, body = bodyOf(n, P), vib = P.vib != null ? P.vib : K.vib;
+    const key = [K.name, n, body, short ? "s" : "l", vib, P.cut || 0, variant].join("/");
+    const r = rng(hash(key)), sr = E.ctx.sampleRate, f = mtof(n), B = BODY[body];
+    const beta = 1 / (7.5 + r() * 3.5), fc = (2400 + 0.4 * (P.cut || 3200)) * (0.9 + r() * 0.25);
+    const sk = "bow" + Math.round(beta * 1000) + "/" + Math.round(fc / 100) + "/" + n;
+    const src = harmSource(sk, (k) => (Math.abs(Math.sin(k * Math.PI * beta)) / (k * Math.sin(Math.PI * beta))) / Math.sqrt(1 + Math.pow((k * f) / fc, 2)));
+    if (!src.flow) {     // the slip: a short pulse once per cycle, for the bow noise
+      src.flow = new Float32Array(src.N + 1);
+      for (let i = 0; i <= src.N; i++) { const ph = i / src.N; src.flow[i] = ph < beta ? Math.sin((Math.PI * ph) / beta) : 0; }
+    }
+    const kb = 0.96 + r() * 0.08;     // every instrument's body a little different
+    const peaks = B.peaks.map(([F, BW, g]) => [F * kb * (0.97 + r() * 0.06), BW, g * (0.8 + r() * 0.4)]);
+    return { key, o: { sr, f, mode: "loop", A: short ? 0.16 : 0.26, L0: 1.3 + r() * 0.3, src, srcKey: sk, tract: { cascade: B.lp, peaks, direct: B.direct },
+      vib: { rate: (K.vibRate || 5.8) * (body === "cello" || body === "bass" ? 0.9 : 1) * (0.9 + r() * 0.2), depth: vib * (0.6 + r() * 0.8), at: short ? 0.05 : 0.14, ramp: 0.16, wob: 0.25 },
+      drift: 3, flutter: 1, jitter: K.jitter || 3, shimmer: 0.25, swell: 0.5, scoop: { cents: short ? 4 : 8, tau: 0.03 }, onset: short ? 0.012 : 0.06,
+      noise: { level: (K.bow || 0.035) * Math.max(0.45, Math.min(1, (n - 36) / 30)), hp: 1500, lp: 9000, am: 0.9, burst: short ? 2 : 1.6, burstT: short ? 0.02 : 0.05 }, seed: hash(key + "!"), rms: 0.2 } };
+  }
+  function stringTone(E, n, P, K, variant) { const sp = stringSpec(E, n, P, K, variant); return toneBuffer(E, sp.key, () => renderTone(sp.o)); }
+  function stringSlide(E, n, P, K, variant, from, len, glideT) {
+    const sp = stringSpec(E, n, P, K, variant);
+    return renderTone(Object.assign({}, sp.o, { mode: "note", dur: len, rel: 0.002, glide: { from: mtof(from), time: glideT }, scoop: { cents: 0 }, onset: 0.004,
+      vib: Object.assign({}, sp.o.vib, { at: 0, ramp: 0.001 }), noise: Object.assign({}, sp.o.noise, { burst: 0.6 }), seed: hash(sp.key + "/" + from) })).data;
+  }
+  // a string section (P.voices players a note, by default 4; the body follows the range: violins, violas, cellos,
+  // basses) or, with P.solo, one player whose every note is rendered whole, shifting into it from the last one
+  const BOWED = { name: "bowed", voices: 4, a: 0.25, r: 0.35, spread: 6, ragged: 0.025, width: 0.7, vib: 14, vibRate: 5.8, jitter: 3, bow: 0.035,
+    variants: 3, legato: true, glideT: 0.03, sag: 0, gain: 1.8, shortGain: 1.25, soloGain: 0.45 };
+  INST.bowed = function (E, ch, t, n, d, v, P) {
+    if (!P.solo) return ensemble(E, ch, t, n, d, v, P, BOWED, (m, k) => stringTone(E, m, P, BOWED, k), (m, k, fr, len, gt) => stringSlide(E, m, P, BOWED, k, fr, len, gt));
+    const c = E.ctx, sr = c.sampleRate, legato = !P.revive && P.glide !== 0 && ch.lastF && Math.abs(t - ch.lastEnd) < 0.08;
+    if (ch.last && legato) choke(ch, t + 0.015, 0.02);
+    const sp = stringSpec(E, n, Object.assign({}, P, { a: 0.1 }), BOWED, 0), dur = Math.max(0.06, d), rel = Math.max(0.12, P.r || 0.35);
+    const leap = legato ? Math.abs(1200 * Math.log2(mtof(n) / ch.lastF)) : 0;
+    const o = renderTone(Object.assign({}, sp.o, { mode: "note", dur, rel, glide: legato ? { from: ch.lastF, time: leap > 250 ? 0.08 : 0.035 } : null, scoop: legato ? { cents: 0 } : sp.o.scoop,
+      vib: Object.assign({}, sp.o.vib, { at: legato ? 0.12 : (P.vibAt != null ? P.vibAt : 0.25), ramp: 0.3, depth: (P.vib != null ? P.vib : 16) * 1.1 }),
+      onset: legato ? 0.02 : Math.min(0.12, P.a || 0.08), noise: Object.assign({}, sp.o.noise, { level: (P.bow != null ? P.bow * 0.8 : 0.04), burst: legato ? 0.5 : 2 }), seed: hash("bowed/" + n + "/" + Math.round(t * 1000)) }));
+    // a bass line (the part on the bass stem, or P.dbl) is doubled an octave down by a double bass, as orchestras do
+    const dbl = P.dbl != null ? P.dbl : ch.stem === "bass" ? 0.9 : 0;
+    if (dbl && n - 12 >= 28) {
+      const sb = stringSpec(E, n - 12, Object.assign({}, P, { a: 0.1, body: "bass" }), BOWED, 1);
+      const o2 = renderTone(Object.assign({}, sb.o, { mode: "note", dur, rel, glide: legato ? { from: ch.lastF / 2, time: leap > 250 ? 0.08 : 0.035 } : null, scoop: legato ? { cents: 0 } : sb.o.scoop,
+        vib: Object.assign({}, sb.o.vib, { at: 0.3, ramp: 0.3, depth: (P.vib != null ? P.vib : 16) * 0.6 }), onset: legato ? 0.02 : Math.min(0.14, (P.a || 0.08) * 1.2),
+        noise: Object.assign({}, sb.o.noise, { level: 0.02, burst: legato ? 0.4 : 1.5 }), seed: hash("bowed2/" + n + "/" + Math.round(t * 1000)) }));
+      const m = Math.min(o.data.length, o2.data.length);
+      for (let i = 0; i < m; i++) o.data[i] += dbl * o2.data[i];
+    }
+    const b = c.createBuffer(1, o.data.length, sr);
+    b.getChannelData(0).set(o.data);
+    const s = c.createBufferSource(), g = G(c, 0);
+    s.buffer = b;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(v * (P.gain || BOWED.gain) * (BOWED.soloGain || 1) / (1 + dbl * 0.35), t + (legato ? 0.015 : 0.01));
+    chain(s, g, ch.in);
+    const end = t + b.duration + 0.02;
+    run(E, s, t, end, [g]);
+    ch.lastF = mtof(n); ch.lastEnd = t + d; ch.last = { g, end };
+    return 2;
+  };
+  INST.bowed.warm = (E, n, P) => (P.solo ? [] : [0, 1, 2].map((k) => () => stringTone(E, n, P, BOWED, k)));
+
+  // ---- brass: the lips buzz into the horn, which passes few harmonics when soft and many when loud (a brass tone's
+  // brightness grows with its loudness: the bell filter here opens with the velocity and during the attack, as the
+  // higher harmonics arrive a few tens of milliseconds after the low ones); the pitch locks in from slightly flat,
+  // with a puff of tongue noise. French horn: round and dark (the hand in the bell), a broad body near 400 Hz.
+  // Trumpet: brighter, its formant near 1.2-1.5 kHz. Players a few cents apart, almost no vibrato.
+  function brassSpec(E, n, P, K, variant) {
+    const vib = P.vib != null ? P.vib : K.vib, key = [K.name, n, vib, variant].join("/");
+    const r = rng(hash(key)), sr = E.ctx.sampleRate, f = mtof(n), fb = K.fb * (0.92 + r() * 0.16);
+    const sk = K.name + Math.round(fb / 50) + "/" + n;
+    const src = harmSource(sk, (k) => Math.pow(k, -0.45) / Math.pow(1 + Math.pow((k * f) / fb, 2), 0.9));
+    return { key, o: { sr, f, mode: "loop", A: 0.22, L0: 1.3 + r() * 0.3, src, srcKey: sk, tract: { peaks: K.peaks, direct: 0.6 },
+      vib: { rate: 5 * (0.9 + r() * 0.2), depth: vib * (0.6 + r() * 0.8), at: 0.3, ramp: 0.3 }, drift: 3, flutter: 1, jitter: 2.5, shimmer: 0.2, swell: 0.4,
+      scoop: { cents: (K.scoop || 35) * (0.6 + r() * 0.8), tau: 0.025 }, onset: 0.025, noise: { level: K.breath || 0.012, hp: 600, lp: 5000, am: 0, burst: 4, burstT: 0.025 },
+      seed: hash(key + "!"), rms: 0.2 } };
+  }
+  function brassTone(E, n, P, K, variant) { const sp = brassSpec(E, n, P, K, variant); return toneBuffer(E, sp.key, () => renderTone(sp.o)); }
+  function brassSlide(E, n, P, K, variant, from, len, glideT) {
+    const sp = brassSpec(E, n, P, K, variant);
+    return renderTone(Object.assign({}, sp.o, { mode: "note", dur: len, rel: 0.002, glide: { from: mtof(from), time: glideT }, scoop: { cents: 0 }, onset: 0.004,
+      vib: Object.assign({}, sp.o.vib, { at: 0, ramp: 0.001 }), noise: Object.assign({}, sp.o.noise, { burst: 1 }), seed: hash(sp.key + "/" + from) })).data;
+  }
+  // the bell filter of a note: a low-pass that opens with the velocity and blooms open during the attack
+  const bell = (K) => (c, t, d, v, P, legato) => {
+    const lp = F(c, "lowpass", 400, 0.6), top = (P.cut ? P.cut * 1.2 : K.open) * (0.35 + 0.9 * v * v), a = legato ? 0.03 : Math.max(0.03, P.a != null ? P.a : K.a);
+    lp.frequency.setValueAtTime(Math.max(200, top * 0.25), t);
+    lp.frequency.linearRampToValueAtTime(top * 1.15, t + a * 1.4);
+    lp.frequency.setTargetAtTime(top * 0.85, t + a * 1.4, 0.25);
+    return { in: lp, out: lp };
+  };
+  const FHORN = { name: "fhorn", voices: 3, a: 0.08, r: 0.3, spread: 5, ragged: 0.02, width: 0.5, vib: 3, fb: 1150,
+    peaks: [[420, 500, 0.9], [1000, 700, 0.4], [2300, 1000, 0.2]], open: 2600, scoop: 40, breath: 0.012, variants: 3, legato: true, glideT: 0.05, gain: 1.35 };
+  FHORN.post = bell(FHORN);
+  INST.fhorn = function (E, ch, t, n, d, v, P) { return ensemble(E, ch, t, n, d, v, P, FHORN, (m, k) => brassTone(E, m, P, FHORN, k), (m, k, fr, len, gt) => brassSlide(E, m, P, FHORN, k, fr, len, gt)); };
+  INST.fhorn.warm = (E, n, P) => [0, 1, 2].map((k) => () => brassTone(E, n, P, FHORN, k));
+  const TPT = { name: "tpt", voices: 2, a: 0.03, r: 0.2, spread: 4, ragged: 0.012, width: 0.4, vib: 4, fb: 2600,
+    peaks: [[1300, 700, 1], [2600, 900, 0.5], [3800, 1300, 0.25]], open: 6000, scoop: 30, breath: 0.015, variants: 3, legato: true, glideT: 0.035, gain: 1.7 };
+  TPT.post = bell(TPT);
+  INST.tpt = function (E, ch, t, n, d, v, P) { return ensemble(E, ch, t, n, d, v, P, TPT, (m, k) => brassTone(E, m, P, TPT, k), (m, k, fr, len, gt) => brassSlide(E, m, P, TPT, k, fr, len, gt)); };
+  INST.tpt.warm = (E, n, P) => [0, 1, 2].map((k) => () => brassTone(E, n, P, TPT, k));
+
+  // ---- woodwinds: every note rendered whole, slurred from the last one. Flute: nearly a sine with a few soft
+  // harmonics (more of them when it is blown harder), a breath that sings at the tube's own harmonics, a chiff at
+  // the start, a vibrato that is as much loudness as pitch. Oboe: a reedy, nasal tone, a weak fundamental and strong
+  // formants near 1.1 and 2.9 kHz, a singer's vibrato. Clarinet: odd harmonics in the low register. Duduk: dark,
+  // breathy, a wide slow vibrato.
+  const WINDS = {
+    flute2: { amp: (k, f, dyn) => Math.pow(k, -(2.4 - 0.9 * dyn)) / (1 + Math.pow((k * f) / 5000, 2)), peaks: [[1500, 2500, 0.3]], direct: 1, vib: 12, vibRate: 5, vibAM: 0.12,
+      breath: 0.09, comb: 0.75, hp: 900, lp: 7000, onset: 0.06, burst: 2.5, burstT: 0.035, scoop: -12, glide: 0.04, rel: 0.18, gain: 3 },
+    oboe: { amp: (k, f) => (k === 1 ? 0.45 : 1) * Math.pow(k, -0.7) / (1 + Math.pow((k * f) / 4500, 2)), peaks: [[1100, 350, 2.5], [2900, 700, 1.2], [4300, 1200, 0.5]], direct: 0.25,
+      vib: 16, vibRate: 5.5, vibAM: 0.04, breath: 0.012, comb: 0, hp: 1200, lp: 6000, onset: 0.03, burst: 3, burstT: 0.02, scoop: 18, glide: 0.035, rel: 0.12, gain: 3.2 },
+    clarinet: { amp: (k, f) => (k * f < 1800 ? (k % 2 ? 1 / k : 0.12 / Math.pow(k, 1.3)) : 0.6 * Math.pow(k, -1.8)) / (1 + Math.pow((k * f) / 5000, 2)), peaks: [[1500, 1500, 0.4]], direct: 0.9,
+      vib: 4, vibRate: 5, vibAM: 0.02, breath: 0.015, comb: 0, hp: 1000, lp: 5000, onset: 0.04, burst: 2, burstT: 0.02, scoop: 10, glide: 0.035, rel: 0.12, gain: 3.9 },
+    reed2: { amp: (k, f) => Math.pow(k, -1.2) / (1 + Math.pow((k * f) / 2200, 2)), peaks: [[700, 400, 2], [1600, 700, 0.6]], direct: 0.4,
+      vib: 24, vibRate: 5, vibAM: 0.06, breath: 0.04, comb: 0.3, hp: 700, lp: 4500, onset: 0.08, burst: 1.5, burstT: 0.04, scoop: 30, glide: 0.07, rel: 0.25, gain: 3.5 },
+  };
+  function windNote(E, ch, t, n, d, v, P, name) {
+    const W = WINDS[name], c = E.ctx, sr = c.sampleRate, f = mtof(n), dyn = Math.round(Math.max(0, Math.min(1, v)) * 3) / 3;
+    const legato = !P.revive && P.glide !== 0 && ch.lastF && Math.abs(t - ch.lastEnd) < 0.08;
+    if (ch.last && legato) choke(ch, t + 0.012, 0.015);
+    const sk = name + "/" + n + "/" + dyn, src = harmSource(sk, (k) => W.amp(k, f, dyn)), r = rng(hash(name + n + "/" + Math.round(t * 1000)));
+    const dur = Math.max(0.05, d), rel = Math.max(0.06, P.r != null ? Math.min(P.r, 0.6) : W.rel), vib = P.vib != null ? P.vib : W.vib;
+    const o = renderTone({ sr, f, mode: "note", dur, rel, src, srcKey: sk, tract: { peaks: W.peaks, direct: W.direct },
+      vib: { rate: (P.vibRate || W.vibRate) * (0.95 + r() * 0.1), depth: vib, at: legato ? 0.1 : P.vibAt != null ? P.vibAt : 0.22, ramp: Math.min(0.4, dur * 0.4), wob: 0.2 }, vibAM: W.vibAM,
+      drift: 3, flutter: 1, jitter: 2, shimmer: 0.2, swell: 0.6, scoop: legato || P.revive ? { cents: 0 } : { cents: W.scoop, tau: 0.04 },
+      glide: legato ? { from: ch.lastF, time: W.glide } : null, onset: legato ? 0.015 : P.revive ? 0.1 : Math.max(W.onset, Math.min(0.15, (P.a || 0) * 0.8)),
+      noise: { level: (P.breath != null ? Math.min(0.15, P.breath * 0.3) : W.breath), comb: W.comb, hp: W.hp, lp: W.lp, am: 0, burst: legato ? 0.4 : W.burst, burstT: W.burstT },
+      seed: hash(sk + "/" + t), rms: 0.2 });
+    const b = c.createBuffer(1, o.data.length, sr);
+    b.getChannelData(0).set(o.data);
+    const s = c.createBufferSource(), g = G(c, 0);
+    s.buffer = b;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(v * W.gain * (P.gain || 1), t + 0.008);
+    chain(s, g, ch.in);
+    const end = t + b.duration + 0.02;
+    run(E, s, t, end, [g]);
+    ch.lastF = f; ch.lastEnd = t + d; ch.last = { g, end };
+    return 2;
+  }
+  for (const name in WINDS) INST[name] = (E, ch, t, n, d, v, P) => windNote(E, ch, t, n, d, v, P, name);
+
+  // ---- harp: two Karplus-Strong strings a note (a string swings in two planes that die at different rates and beat
+  // a little: the quick first fall, then the long ring), the bass strings ringing longest, a finger's soft thump,
+  // through a soundboard (its low resonances and a gentle top roll-off, shared by the channel's notes)
+  INST.harp = function (E, ch, t, n, d, v, P) {
+    const c = E.ctx, f = mtof(n) * (P.tune || 1);
+    if (!ch.board) {
+      const a = F(c, "peaking", 190, 2.5), b = F(c, "peaking", 420, 1.8), m = F(c, "peaking", 950, 1.4), hs = F(c, "highshelf", 3000, 0.7);
+      a.gain.value = 4; b.gain.value = 3; m.gain.value = 1.5; hs.gain.value = -9;
+      chain(a, b, m, hs, ch.in);
+      ch.nodes.push(a, b, m, hs);
+      ch.board = a;
+    }
+    const t60 = Math.max(0.8, Math.min(8, (P.t60 || 3) * Math.pow(262 / f, 0.4))), bright = P.bright == null ? 0.22 : P.bright, pick = P.pick == null ? 0.2 : P.pick, soft = P.soft == null ? 0.3 : P.soft;
+    const b1 = ksBuffer(E, f, { t60, bright, pick, soft, dur: Math.min(6, t60 * 1.1) }), b2 = ksBuffer(E, f, { t60: t60 * 2.3, bright: bright * 0.6, pick: Math.min(0.45, pick * 0.7 + 0.08), soft: Math.min(0.9, soft + 0.2), dur: Math.min(7, t60 * 2.4) });
+    const rel = Math.max(t + 0.02, t + d), g = G(c, 1);
+    g.connect(ch.board);
+    let end = t;
+    [[b1, 1, 0.72], [b2, Math.pow(2, 0.9 / 1200), 0.32]].forEach(([b, det, amp]) => {
+      const s = c.createBufferSource(), sg = G(c, v * amp * (P.gain || 1.5));
+      s.buffer = b; s.playbackRate.value = b.ksRate * det;
+      let e = t + b.duration / (b.ksRate * det) + 0.02;
+      if (P.damp) { sg.gain.setValueAtTime(v * amp * (P.gain || 1.5), rel); sg.gain.setTargetAtTime(0, rel, P.damp / 4); e = Math.min(e, rel + P.damp * 1.3 + 0.02); }
+      chain(s, sg, g);
+      run(E, s, t, e, [sg]);
+      end = Math.max(end, e);
+    });
+    const ns = noiseSrc(E), lp = F(c, "lowpass", 900 + 900 * v, 0.7), ng = G(c, 0), ne = perc(ng.gain, t, 0.001, 0.012, v * 0.05);
+    chain(ns, lp, ng, g);
+    run(E, ns, t, ne, [lp, ng], E.r());
+    setTimeoutish(E, end + 0.05, () => { try { g.disconnect(); } catch (e) { /* gone */ } });
+    ch.lastF = f; ch.lastEnd = t + d;
+    return 3;
+  };
+
+  // ---- war drums and timpani, each hit rendered from the drumhead's own modes (a circular membrane rings at
+  // inharmonic ratios; a timpani's air and bowl pull its modes towards 1 : 1.5 : 2 : 2.44 : 2.9 so it has a pitch),
+  // the low modes ringing longest, a harder hit waking more of the high ones, the pitch sliding down a little as the
+  // head relaxes after the blow, and the stick or felt mallet's contact noise. Cached per note, strength and decay.
+  const TAIKO_MODES = [[1, 1, 1], [1.59, 0.55, 0.6], [2.14, 0.38, 0.42], [2.3, 0.3, 0.5], [2.65, 0.22, 0.3], [2.92, 0.18, 0.32], [3.16, 0.14, 0.24], [3.5, 0.11, 0.22], [4.06, 0.07, 0.16]];
+  const TIMP_MODES = [[0.6, 0.5, 0.12], [1, 1, 1], [1.5, 0.5, 0.55], [1.98, 0.32, 0.4], [2.44, 0.2, 0.3], [2.9, 0.12, 0.22], [3.37, 0.07, 0.16], [3.8, 0.04, 0.12]];
+  function drumBuffer(E, kind, f, vel, dec) {
+    const vb = Math.round(Math.max(0.1, Math.min(1, vel)) * 4) / 4, key = kind + "/" + f.toFixed(1) + "/" + vb + "/" + dec;
+    const cache = E.drums || (E.drums = new Map());
+    let b = cache.get(key);
+    if (b) return b;
+    const c = E.ctx, sr = c.sampleRate, taiko = kind === "taiko", r = rng(hash(key)), modes = (taiko ? TAIKO_MODES : TIMP_MODES).slice();
+    // above the named modes the head has hundreds more, ever denser: they carry the slap and the skin
+    for (let i = 0; i < (taiko ? 44 : 24); i++) { const ratio = 4.2 + i * (taiko ? 0.85 : 1.1) + r() * 0.6; modes.push([ratio, (taiko ? 0.06 : 0.03) * Math.pow(ratio / 4, -1.1), (taiko ? 0.13 : 0.1) * Math.pow(4 / ratio, 0.5)]); }
+    const len = Math.floor(sr * Math.min(6, dec * (taiko ? 1.6 : 1.3) + 0.2)), d = new Float32Array(len);
+    const bend = taiko ? 0.09 + 0.06 * vb : 0.02 + 0.015 * vb, bendT = taiko ? 0.06 : 0.12;
+    for (const [ratio, amp0, decay] of modes) {
+      const fm = f * ratio;
+      if (fm > 9000) continue;
+      const amp = amp0 * Math.pow(vb, taiko ? 0.6 * (ratio - 1) : 0.8 * Math.max(0, ratio - 1)) * (0.9 + r() * 0.2);
+      const t60 = Math.max(0.05, dec * decay), k = Math.exp(-6.91 / (t60 * sr));
+      let ph = r() * 0.3, a = amp, i = 0;
+      const settle = Math.min(len, Math.floor(sr * bendT * 6));
+      for (; i < settle; i++) {
+        const tt = i / sr, fi = fm * (1 + bend * Math.exp(-tt / bendT));
+        ph += fi / sr;
+        d[i] += a * Math.sin(2 * Math.PI * ph);
+        a *= k;
+        if (a < 1e-5) break;
+      }
+      if (a >= 1e-5 && i < len) {     // the bend is over: a phasor turning at the mode's own frequency
+        const w = (2 * Math.PI * fm * (1 + bend * Math.exp(-(i / sr) / bendT))) / sr, cw = Math.cos(w) * k, sw = Math.sin(w) * k;
+        let re = a * Math.cos(2 * Math.PI * ph), im = a * Math.sin(2 * Math.PI * ph);
+        for (; i < len; i++) {
+          const nr = re * cw - im * sw; im = re * sw + im * cw; re = nr;
+          d[i] += im;
+          if ((i & 1023) === 0 && Math.abs(re) + Math.abs(im) < 1e-5) break;
+        }
+      }
+    }
+    // the contact: a stick's crack (taiko) or a felt mallet's soft thud (timpani), low-passed noise
+    const nl = Math.floor(sr * (taiko ? 0.025 : 0.012)), lpk = Math.exp((-2 * Math.PI * (taiko ? 1000 + 1500 * vb : 500 + 900 * vb)) / sr);
+    let y = 0;
+    for (let i = 0; i < nl; i++) { y = y * lpk + (r() * 2 - 1) * (1 - lpk); d[i] += y * (taiko ? 1.1 : 0.8) * vb * Math.exp(-i / (nl / 4)); }
+    // attack: the first millisecond rises (no click)
+    const at = Math.floor(sr * (taiko ? 0.0012 : 0.003));
+    for (let i = 0; i < at && i < len; i++) d[i] *= i / at;
+    let pk = 1e-9;
+    for (let i = 0; i < len; i++) pk = Math.max(pk, Math.abs(d[i]));
+    for (let i = 0; i < len; i++) d[i] /= pk;
+    b = c.createBuffer(1, len, sr);
+    b.getChannelData(0).set(d);
+    if (cache.size > 120) cache.delete(cache.keys().next().value);
+    cache.set(key, b);
+    return b;
+  }
+  INST.wardrum = function (E, ch, t, n, d, v, P) {
+    const c = E.ctx, f = mtof(n != null ? n : 31), b = drumBuffer(E, "taiko", f, v, P.decay || 1), s = c.createBufferSource(), g = G(c, v * (P.gain || 1.8));
+    s.buffer = b;
+    chain(s, g, ch.in);
+    run(E, s, t, t + b.duration + 0.01, [g]);
+    return 1;
+  };
+  INST.wardrum.warm = (E, n, P, v) => [() => drumBuffer(E, "taiko", mtof(n != null ? n : 31), v, P.decay || 1)];
+  INST.wardrum.warmV = true;
+  INST.kettle = function (E, ch, t, n, d, v, P) {
+    const c = E.ctx, f = mtof(n != null ? n : 38), b = drumBuffer(E, "timp", f, v, P.decay || 2.4), s = c.createBufferSource(), g = G(c, v * (P.gain || 1.15));
+    s.buffer = b;
+    chain(s, g, ch.in);
+    run(E, s, t, t + b.duration + 0.01, [g]);
+    return 1;
+  };
+
+  INST.kettle.warm = (E, n, P, v) => [() => drumBuffer(E, "timp", mtof(n != null ? n : 38), v, P.decay || 2.4)];
+  INST.kettle.warmV = true;
 
   // ---- a part's channel: inserts, volume, pan, sends ----------------------------------------------------------
   function stemFor(pd) {
@@ -4413,8 +5148,9 @@ HW.SHAPE_FIT = {
     if (isKick(pd, ch.stem)) { ch.kick = out = link(add(G(c, dbLin(E.kickDb)))); E.kickGains.add(ch.kick); }
     const st = E.stems[ch.stem];
     out.connect(pd.duck ? st.duckIn : st.bus);
-    if (pd.rev) { const s = add(G(c, pd.rev)); out.connect(s); s.connect(st.rev); }
-    if (pd.dly) { const s = add(G(c, pd.dly)); out.connect(s); s.connect(st.dly); }
+    ch.sends = [];
+    if (pd.rev) { const s = add(G(c, pd.rev)); out.connect(s); s.connect(st.rev); ch.sends.push(s); }
+    if (pd.dly) { const s = add(G(c, pd.dly)); out.connect(s); s.connect(st.dly); ch.sends.push(s); }
     for (const l of ch.lfos) l.start();
     return ch;
   }
@@ -4425,6 +5161,8 @@ HW.SHAPE_FIT = {
   function killChannel(E, ch, t) {
     ch.vol.gain.cancelScheduledValues(t);
     ch.vol.gain.setTargetAtTime(0, t, 0.012);
+    // (round three) the sends go at once: the fading voices must not reach the fresh reverb and delay that take over
+    for (const s of ch.sends || []) { try { s.disconnect(); } catch (e) { /* gone */ } }
     if (ch.kick) E.kickGains.delete(ch.kick);
     setTimeout(() => {
       for (const l of ch.lfos) { try { l.stop(); } catch (e) { /* not started */ } }
@@ -4459,18 +5197,29 @@ HW.SHAPE_FIT = {
     clip.oversample = "none";
     chain(E.mix, subsonic, glue, E.trim, lim, pre, clip, E.out);
     E.glue = glue; E.lim = lim;
-    // reverb and delay (shared). Both are rebuilt on stop / track change, which empties their tails.
+    // reverb and delay (shared). Both are rebuilt on stop / pause / seek / track change, which empties their tails:
+    // (round three) the new one takes over at once and the old one only fades out (no new sound reaches it), so
+    // a seek has no gap in the room and no echo of the old spot.
     E.revIn = G(c, 1);
     E.revOut = G(c, 0.3);
     const revHp = F(c, "highpass", 190, 0.7), revLp = F(c, "lowpass", 9500, 0.7);
     chain(revHp, revLp, E.revOut, E.mix);
+    E.revHp = revHp; E.revLp = revLp;
     E.conv = null;
+    const retire = (input, inNode, out, nodes) => {     // cut the input now, fade the output, free the nodes later
+      try { input.disconnect(inNode); } catch (e) { /* gone */ }
+      const t = c.currentTime;
+      out.gain.cancelScheduledValues(t);
+      out.gain.setTargetAtTime(0, t, 0.01);
+      const free = () => { for (const n of nodes) { try { n.disconnect(); } catch (e) { /* gone */ } } };
+      if (E.offline) free(); else setTimeout(free, 250);
+    };
     E.newConv = function (buf) {
-      const old = E.conv, cv = c.createConvolver();
+      const old = E.conv, oldOut = E.convOut, cv = c.createConvolver(), og = G(c, 1);
       cv.buffer = buf;
-      E.revIn.connect(cv); cv.connect(revHp);
-      E.conv = cv;
-      if (old) { try { E.revIn.disconnect(old); old.disconnect(); } catch (e) { /* gone */ } }
+      E.revIn.connect(cv); cv.connect(og); og.connect(revHp);
+      E.conv = cv; E.convOut = og;
+      if (old) retire(E.revIn, old, oldOut, [old, oldOut]);
     };
     E.dlyIn = G(c, 1);
     const dHp = F(c, "highpass", 280, 0.7);
@@ -4479,17 +5228,18 @@ HW.SHAPE_FIT = {
     E.dlyOut.connect(E.mix);
     const d2r = G(c, 0.18);
     E.dlyOut.connect(d2r); d2r.connect(E.revIn);
+    E.d2r = d2r;
     E.dlySec = 0.4; E.fbAmt = 0.38; E.dl = null;
     E.newDelay = function () {
       const old = E.dl;
       const dA = c.createDelay(4), dB = c.createDelay(4), fb = G(c, E.fbAmt), fbLp = F(c, "lowpass", 3800, 0.6);
-      const pL = c.createStereoPanner(), pR = c.createStereoPanner();
+      const pL = c.createStereoPanner(), pR = c.createStereoPanner(), og = G(c, 1);
       pL.pan.value = -0.7; pR.pan.value = 0.7;
       dA.delayTime.value = E.dlySec; dB.delayTime.value = E.dlySec;
-      dHp.connect(dA); chain(dA, pL, E.dlyOut); chain(dA, dB, pR, E.dlyOut); chain(dB, fb, fbLp, dA);
-      E.dl = { dA, dB, fb, fbLp, pL, pR };
+      dHp.connect(dA); chain(dA, pL, og); chain(dA, dB, pR, og); chain(dB, fb, fbLp, dA); og.connect(E.dlyOut);
+      E.dl = { dA, dB, fb, fbLp, pL, pR, og };
       E.dA = dA; E.dB = dB; E.fb = fb;
-      if (old) { try { dHp.disconnect(old.dA); } catch (e) { /* gone */ } for (const k in old) { try { old[k].disconnect(); } catch (e) { /* gone */ } } }
+      if (old) retire(dHp, old.dA, old.og, Object.values(old));
     };
     E.newDelay();
     // stems
@@ -4527,9 +5277,10 @@ HW.SHAPE_FIT = {
     };
     E.setFx = function (def, t) {
       const fx = def.fx || {}, rv = fx.reverb || {}, dl = fx.delay || {};
-      const key = (rv.seconds || 2.5) + "/" + (rv.damp == null ? 0.5 : rv.damp);
-      if (!E.irCache[key]) E.irCache[key] = makeIR(c, rv.seconds || 2.5, rv.damp == null ? 0.5 : rv.damp, hash(key));
-      E.irWanted = E.irCache[key];
+      const key = (rv.seconds || 2.5) + "/" + (rv.damp == null ? 0.5 : rv.damp), kkey = key + (rv.kind ? "/" + rv.kind : "");
+      if (!E.irCache[kkey]) E.irCache[kkey] = rv.kind ? makeHallIR(c, rv.seconds || 2.5, rv.damp == null ? 0.5 : rv.damp, hash(key), rv.kind) : makeIR(c, rv.seconds || 2.5, rv.damp == null ? 0.5 : rv.damp, hash(key));
+      const key2 = kkey;
+      E.irWanted = E.irCache[key2];
       E.revMix = rv.mix == null ? 0.3 : rv.mix;
       E.dlyMix = dl.mix == null ? 0.5 : dl.mix;
       E.fbAmt = dl.fb == null ? 0.38 : dl.fb;
@@ -4542,6 +5293,7 @@ HW.SHAPE_FIT = {
     };
     E.applyFx = function (t) {
       if (!E.conv || E.conv.buffer !== E.irWanted) E.newConv(E.irWanted);
+      revHp.frequency.setValueAtTime(E.irWanted.hp || 190, t);     // a stone hall keeps more of its low end
       E.setDelayTime(t, E.bpm);
       E.fb.gain.setTargetAtTime(E.fbAmt, t, 0.02);
       E.revOut.gain.cancelScheduledValues(t);
@@ -4554,18 +5306,15 @@ HW.SHAPE_FIT = {
       E.dA.delayTime.setTargetAtTime(E.dlySec, t, 0.03);
       E.dB.delayTime.setTargetAtTime(E.dlySec, t, 0.03);
     };
-    E.flushTails = function (t) {     // stop / pause / track change: fade the echoes and reverb out, then empty them
-      E.revOut.gain.cancelScheduledValues(t);
-      E.revOut.gain.setTargetAtTime(0, t, 0.012);
-      E.dlyOut.gain.cancelScheduledValues(t);
-      E.dlyOut.gain.setTargetAtTime(0, t, 0.012);
-      E.flushing = true;
-      setTimeout(() => {
-        E.flushing = false;
-        E.newConv(E.irWanted || E.conv.buffer);
-        E.newDelay();
-        if (E.bpm) E.applyFx(c.currentTime);
-      }, 90);
+    E.flushTails = function () {     // stop / pause / seek / track change: fresh, empty reverb and delay at once; the old ones fade out
+      E.newConv(E.irWanted || E.conv.buffer);
+      E.newDelay();
+      // the old echoes fade through the delay's output for a few ms: keep them out of the fresh reverb meanwhile
+      // (the new music's first echo comes later than this)
+      const t = c.currentTime;
+      d2r.gain.cancelScheduledValues(t);
+      d2r.gain.setValueAtTime(0, t);
+      d2r.gain.setValueAtTime(0.18, t + 0.08);
     };
     E.resetStems = function (t) {
       for (const name of M.stems) {
@@ -4645,11 +5394,36 @@ HW.SHAPE_FIT = {
         S.resumed = false;
         S.applySection(si, sec, bi, t0, barDur);
       }
+      for (const pe of S.eventsOfBar(S.bar, beat, meter, stretch, barDur)) {
+        const ch = pe.ch, hum = pe.hum;
+        for (const ev of pe.evs) {
+          let b = ev[0];
+          if (b < skip - 1e-6) continue;
+          b = S.swung(b);
+          let t = t0 + b * beat * stretch;
+          if (def.hum && !ch.def.tight) t += (hum() - 0.5) * def.hum * 0.002;
+          const v = (ev[3] == null ? 0.8 : ev[3]) * pe.vm * (def.hum && !ch.def.tight ? 0.94 + hum() * 0.12 : 1);
+          S.queue.push({ t, ch, n: ev[1] == null ? ev[1] : ev[1] + pe.semis, d: (ev[2] == null ? 0.25 : ev[2]) * beat * stretch, v, x: ev[4] });
+        }
+      }
+      S.queue.sort((a, b) => a.t - b.t);
+      S.barLog.push({ bar: S.bar, t0, dur: barDur, si });
+      if (S.barLog.length > 24) S.barLog.shift();
+      S.nextBarTime = t0 + barDur;
+      S.bar++;
+      S.skipBeats = 0;
+      S.prepared = true;
+      if (!E.offline) S.warmBars(S.bar + 11, S.bar + 12);
+    };
+    // every part's events for one song bar, straight from the patterns (no scheduling): [{ ch, evs, vm, semis, hum }]
+    // in the order the parts play. prepareBar schedules them; revive() reads earlier bars to find held notes.
+    S.eventsOfBar = function (songBar, beat, meter, stretch, barDur) {
+      const si = secOf(def, songBar), sec = def.sections[si], bi = songBar - def._secStart[si], out = [];
       const chords = chordsFor(def, sec, bi);
       const nextBi = bi + 1 < sec.bars ? bi + 1 : 0;
       const nsec = bi + 1 < sec.bars ? sec : def.sections[Math.min(si + 1, def.sections.length - 1)];
       const cx = {
-        bar: bi, bars: sec.bars, songBar: S.bar, si, sec, kind: sec.kind, name: sec.name, pass: def._pass[si],
+        bar: bi, bars: sec.bars, songBar, si, sec, kind: sec.kind, name: sec.name, pass: def._pass[si],
         prog: bi / sec.bars, last: bi === sec.bars - 1, chord: chords[0].chord, chords,
         next: chordsFor(def, nsec, nextBi)[0].chord, def, beat, nextSec: def.sections[si + 1] || null,
         meter, stretch, barSec: barDur,
@@ -4660,9 +5434,10 @@ HW.SHAPE_FIT = {
         if (!ch) { if (!S.warned[part]) { S.warned[part] = 1; console.warn("music: " + def.id + " has no part " + part); } continue; }
         let fns = sec.play[part];
         if (!Array.isArray(fns)) fns = [fns];
-        cx.rng = rng(hash(def.id + "/" + part) ^ Math.imul(S.bar + 1, 2654435761));
-        const hum = rng(hash(part) + S.bar * 31);
+        cx.rng = rng(hash(def.id + "/" + part) ^ Math.imul(songBar + 1, 2654435761));
+        const hum = rng(hash(part) + songBar * 31);
         const vm = mixv[part] == null ? 1 : mixv[part];
+        const semis = ch.stem === "drums" ? 0 : sec.tr || 0;
         for (let fn of fns) {
           if (typeof fn === "string") fn = def.pat[fn];
           if (!fn) continue;
@@ -4671,32 +5446,94 @@ HW.SHAPE_FIT = {
             if (!S.warned[part + "!"]) { S.warned[part + "!"] = 1; console.error("music: pattern error in " + def.id + "/" + part, e); }
             continue;
           }
-          if (!evs) continue;
-          const semis = ch.stem === "drums" ? 0 : sec.tr || 0;
-          for (const ev of evs) {
-            let b = ev[0];
-            if (b < skip - 1e-6) continue;
-            if (def.swing) {
-              const s16 = b * 4, fl = Math.floor(s16 + 1e-6);
-              if (Math.abs(s16 - fl) < 1e-3 && fl % 2 === 1) b += def.swing * 0.25;
-            }
-            if (def.swing8) {     // swung eighths (jazz): the off-beat eighth moves late
-              const e8 = b * 2, f8 = Math.floor(e8 + 1e-6);
-              if (Math.abs(e8 - f8) < 1e-3 && f8 % 2 === 1) b += def.swing8 * 0.5;
-            }
-            let t = t0 + b * beat * stretch;
-            if (def.hum && !ch.def.tight) t += (hum() - 0.5) * def.hum * 0.002;
-            const v = (ev[3] == null ? 0.8 : ev[3]) * vm * (def.hum && !ch.def.tight ? 0.94 + hum() * 0.12 : 1);
-            S.queue.push({ t, ch, n: ev[1] == null ? ev[1] : ev[1] + semis, d: (ev[2] == null ? 0.25 : ev[2]) * beat * stretch, v, x: ev[4] });
+          if (evs) out.push({ ch, evs, vm, semis, hum });
+        }
+      }
+      return out;
+    };
+    S.swung = function (b) {
+      if (def.swing) {
+        const s16 = b * 4, fl = Math.floor(s16 + 1e-6);
+        if (Math.abs(s16 - fl) < 1e-3 && fl % 2 === 1) b += def.swing * 0.25;
+      }
+      if (def.swing8) {     // swung eighths (jazz): the off-beat eighth moves late
+        const e8 = b * 2, f8 = Math.floor(e8 + 1e-6);
+        if (Math.abs(e8 - f8) < 1e-3 && f8 % 2 === 1) b += def.swing8 * 0.5;
+      }
+      return b;
+    };
+    // (round three) a seek, a jump or a resume starts mid-song: the notes that began before the restart point and
+    // are still meant to be sounding there (held pads, drones, choir chords, long melody notes, ambiences) start
+    // again at once with what is left of their length and a short fade-in. Struck and plucked sounds and drums
+    // are not restarted (they would be heard as a new hit). Looks back up to 24 bars.
+    S.revived = [];
+    S.revive = function (bar, skip, tStart) {
+      const meter = def.meter || 4, beat = 60 / (def.bpm * E.factor);
+      const stretchAt = (b) => (def._stretched ? def._barBeats[b] / meter : 1);
+      const target = def._cumBeats[bar] + skip * stretchAt(bar);     // in real beats from the song start
+      for (let b = Math.max(0, bar - 24); b <= bar; b++) {
+        const st = stretchAt(b), barDur = beat * meter * st;
+        for (const pe of S.eventsOfBar(b, beat, meter, st, barDur)) {
+          if (!REVIVE.has(pe.ch.def.i) || pe.ch.stem === "drums") continue;
+          for (const ev of pe.evs) {
+            const at = def._cumBeats[b] + S.swung(ev[0]) * st, len = (ev[2] == null ? 0.25 : ev[2]) * st;
+            const left = (at + len - target) * beat;
+            if (at >= target - 1e-6 || left < 0.2) continue;
+            const v = (ev[3] == null ? 0.8 : ev[3]) * pe.vm;
+            S.queue.push({ t: tStart, ch: pe.ch, n: ev[1] == null ? ev[1] : ev[1] + pe.semis, d: left, v, x: Object.assign({}, ev[4], { a: 0.12, revive: 1 }) });
+            S.revived.push({ part: pe.ch.name, n: ev[1] == null ? null : ev[1] + pe.semis, left: +left.toFixed(2), started: +((at - target) * beat).toFixed(2) });
           }
         }
       }
       S.queue.sort((a, b) => a.t - b.t);
-      S.barLog.push({ bar: S.bar, t0, dur: barDur, si });
-      if (S.barLog.length > 24) S.barLog.shift();
-      S.nextBarTime = t0 + barDur;
-      S.bar++;
-      S.skipBeats = 0;
+    };
+    // (round three) the rendered instruments' tones are made ahead of time, a few at a time between the scheduler's
+    // ticks, from the bar playing to 12 bars ahead, so a note seldom waits for its sound to be computed. The first
+    // bars' and the revived notes' tones are made before the clock starts (begin), so a start or a seek stays in time.
+    S.warmed = new Set(); S.warmQ = []; S.warmTimer = 0;
+    S.urgent = [];
+    const warmJob = (ch, n, P, urgent, v) => {
+      if (!ch.inst.warm || (n == null && !ch.inst.warmV)) return;
+      const vb = Math.round(Math.max(0.1, Math.min(1, v == null ? 0.8 : v)) * 4) / 4;     // drums: per strength too
+      const k = ch.name + "/" + n + (ch.inst.warmV ? "/" + vb : "") + (P === ch.p ? "" : JSON.stringify(P));
+      if (S.warmed.has(k)) return;
+      S.warmed.add(k);
+      const jobs = ch.inst.warm(E, n, P, vb);
+      if (urgent && jobs.length) S.urgent.push(jobs.shift());
+      for (const job of jobs) S.warmQ.push(job);
+    };
+    const anyWarm = Object.keys(S.chans).some((k) => S.chans[k].inst.warm);     // most tracks have no rendered instruments
+    S.warmBars = function (b0, b1) {
+      if (E.offline || !anyWarm) return;
+      const meter = def.meter || 4, beat = 60 / (def.bpm * E.factor);
+      for (let b = Math.max(0, b0); b < Math.min(def._bars, b1); b++) {
+        if (S.warmed.has("bar" + b)) continue;
+        S.warmed.add("bar" + b);
+        const st = def._stretched ? def._barBeats[b] / meter : 1;
+        for (const pe of S.eventsOfBar(b, beat, meter, st, beat * meter * st)) {
+          if (!pe.ch.inst.warm) continue;
+          for (const ev of pe.evs) warmJob(pe.ch, ev[1] == null ? null : ev[1] + pe.semis + (pe.ch.p.tr || 0), ev[4] ? Object.assign({}, pe.ch.p, ev[4]) : pe.ch.p, false, (ev[3] == null ? 0.8 : ev[3]) * pe.vm);
+        }
+      }
+      if (S.warmQ.length && !S.warmTimer && !S.dead) S.warmTimer = setTimeout(S.warmRun, 0);
+    };
+    S.warmRun = function () {
+      S.warmTimer = 0;
+      if (S.dead) return;
+      const t0 = performance.now();
+      while (S.warmQ.length && performance.now() - t0 < 10) S.warmQ.shift()();
+      if (S.warmQ.length) S.warmTimer = setTimeout(S.warmRun, 5);
+    };
+    S.warmNow = function (bar, skip) {     // before the clock starts: one take of the revived notes and the first beat's, at once
+      for (const q of S.queue) warmJob(q.ch, q.n == null ? null : q.n + ((q.x && q.x.tr) || q.ch.p.tr || 0), q.x ? Object.assign({}, q.ch.p, q.x) : q.ch.p, true);
+      if (!E.offline && anyWarm && bar < def._bars) {
+        const meter = def.meter || 4, beat = 60 / (def.bpm * E.factor), st = def._stretched ? def._barBeats[bar] / meter : 1;
+        for (const pe of S.eventsOfBar(bar, beat, meter, st, beat * meter * st)) {
+          if (!pe.ch.inst.warm) continue;
+          for (const ev of pe.evs) if (ev[0] >= skip - 1e-6 && ev[0] < skip + 1) warmJob(pe.ch, ev[1] == null ? null : ev[1] + pe.semis + (pe.ch.p.tr || 0), ev[4] ? Object.assign({}, pe.ch.p, ev[4]) : pe.ch.p, true, (ev[3] == null ? 0.8 : ev[3]) * pe.vm);
+        }
+      }
+      while (S.urgent.length) S.urgent.shift()();
     };
     S.applySection = function (si, sec, bi, t0, barDur) {
       const sw = sec.sweep || {};
@@ -4714,7 +5551,7 @@ HW.SHAPE_FIT = {
     S.play = function (ev, now) {
       const ch = ev.ch;
       let t = ev.t;
-      if (!E.offline && t < now) { if (t < now - 0.08) return; t = now + 0.005; }
+      if (!E.offline && t < now) { if (t < now - 0.08) { E.dropped = (E.dropped || 0) + 1; return; } E.late = (E.late || 0) + 1; t = now + 0.005; }     // (counted for the tests)
       if (E.offline && t < 0.001) t = 0.001;     // a humanized first note can land before the render starts
       const P = ev.x ? Object.assign({}, ch.p, ev.x) : ch.p;
       let n = ev.n;
@@ -4733,7 +5570,8 @@ HW.SHAPE_FIT = {
     };
     S.tick = function (now, horizon) {
       horizon = horizon == null ? now + LOOK : horizon;
-      if (!E.offline && S.nextBarTime < now - 0.25 && !S.done) {     // the timer stalled: resync, don't burst
+      // the timer stalled: resync, don't burst (not before the first bar: a mid-bar start begins that bar in the past)
+      if (!E.offline && S.prepared && S.nextBarTime < now - 0.25 && !S.done) {
         S.nextBarTime = now + 0.05;
       }
       while (!S.done && S.nextBarTime < horizon) S.prepareBar();
@@ -4748,7 +5586,7 @@ HW.SHAPE_FIT = {
       for (const x of L) if (x.t0 <= now + 1e-4) e = x;
       return { bar: e.bar, frac: Math.min(0.9999, Math.max(0, (now - e.t0) / e.dur)), si: e.si };
     };
-    S.kill = function (t) { for (const k in S.chans) killChannel(E, S.chans[k], t); };
+    S.kill = function (t) { S.dead = true; clearTimeout(S.warmTimer); for (const k in S.chans) killChannel(E, S.chans[k], t); };
     return S;
   }
 
@@ -4806,25 +5644,56 @@ HW.SHAPE_FIT = {
       }
     }
   }
-  // start sounding at song bar `bar`, `skipBeats` beats into it
-  function begin(id, bar, skipBeats, resumed) {
+  // start sounding at song bar `bar`, `skipBeats` (nominal, may be fractional) beats into it; `quiet`: don't announce
+  // the section (a resume, or a seek inside the section already playing). Notes that should already be sounding
+  // there start again at once (Session.revive).
+  function begin(id, bar, skipBeats, quiet) {
     const def = DEFS[id];
-    const now = E.ctx.currentTime, t0 = now + 0.06;
-    E.setFx(def, now);
-    E.resetStems(now);
-    S = Session(E, def, 0, t0, skipBeats || 0);
+    E.setFx(def, E.ctx.currentTime);
+    E.resetStems(E.ctx.currentTime);
+    S = Session(E, def, 0, 0, skipBeats || 0);
     S.bar = bar;
-    S.resumed = !!resumed;
+    S.resumed = !!quiet;
+    if (bar > 0 || skipBeats) S.revive(bar, skipBeats || 0, 0);
+    S.warmNow(bar, skipBeats || 0);     // the rendered tones the first notes need, before the clock starts
+    const t0 = E.ctx.currentTime + 0.06;
+    S.nextBarTime = t0;
+    for (const q of S.queue) q.t = t0;
     if (skipBeats) S.nextBarTime = t0 - skipBeats * (60 / (def.bpm * E.factor)) * (def._barBeats[Math.min(bar, def._bars - 1)] / (def.meter || 4));
+    S.warmBars(bar, bar + 12);     // then the next 12 bars in the background (prepareBar keeps it 12 bars ahead)
     playing = true;
     startTimer();
     pump();
   }
+  // silence what is playing: every voice fades out in a few milliseconds (time constant 12 ms) and the reverb and
+  // the echoes are swapped for empty ones (the old tails fade just as fast)
   function halt(now) {
     if (!S) return;
     S.kill(now);
     E.flushTails(now);
+    E.ends = [];     // the old voices no longer count against the voice budget
     for (const name of ["bass", "music"]) { const p = E.stems[name].duck.gain; p.cancelScheduledValues(now); p.setTargetAtTime(1, now, 0.02); }
+  }
+  // seconds (at the current tempo) -> { bar, skip (nominal beats into it), si }
+  function posOf(def, seconds) {
+    const beatSec = 60 / (def.bpm * E.factor), meter = def.meter || 4;
+    const beats = Math.max(0, Math.min(def._totalBeats - 1e-3, (+seconds || 0) / beatSec));
+    let lo = 0, hi = def._bars - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (def._cumBeats[mid] <= beats + 1e-9) lo = mid; else hi = mid - 1; }
+    return { bar: lo, skip: (beats - def._cumBeats[lo]) / (def._barBeats[lo] / meter), si: secOf(def, lo) };
+  }
+  // move the song to a new point: while playing, everything sounding stops at once and the music carries on from
+  // the new point straight away (no waiting for a bar line), held notes included; while paused, resume starts there
+  function moveTo(def, p, announce) {
+    const cur = M.state(), same = cur.section && cur.section.index === p.si;
+    if (playing && S) {
+      halt(E.ctx.currentTime);
+      begin(curId, p.bar, p.skip, !announce && same);
+    } else {
+      paused = { bar: p.bar, beat: p.skip, si: p.si, jumped: !!announce || !same || !!(paused && paused.jumped) };
+    }
+    const beatSec = 60 / (def.bpm * E.factor);
+    emit({ type: "seek", id: curId, time: (def._cumBeats[p.bar] + p.skip * (def._barBeats[p.bar] / (def.meter || 4))) * beatSec, index: p.si, playing });
   }
 
   M.init = function (ctx) {
@@ -4850,7 +5719,7 @@ HW.SHAPE_FIT = {
   M.pause = function () {
     if (!E || !S || !playing) return;
     const now = E.ctx.currentTime, pos = S.position(now);
-    const beatIn = Math.floor(pos.frac * (DEFS[S.id].meter || 4));
+    const beatIn = pos.frac * (DEFS[S.id].meter || 4);     // (round three) the exact point, not the beat before it
     paused = { bar: pos.bar, beat: beatIn, si: pos.si };
     playing = false;
     stopTimer();
@@ -4874,11 +5743,17 @@ HW.SHAPE_FIT = {
     if (id) emit({ type: "stop", id });
   };
   M.isPlaying = () => playing;
+  // jump to the start of section `index` at once (round three: no longer on the next bar line), announcing it
   M.jump = function (index) {
-    if (!curId) return;
+    if (!E || !curId) return;
     const def = DEFS[curId], i = Math.max(0, Math.min(def.sections.length - 1, index | 0));
-    if (playing && S) S.jump = i;
-    else if (paused) paused = { bar: def._secStart[i], beat: 0, si: i, jumped: true };
+    moveTo(def, { bar: def._secStart[i], skip: 0, si: i }, true);
+  };
+  // go to `seconds` into the song (at the current tempo); a section event comes only if the section changes
+  M.seek = function (seconds) {
+    if (!E || !curId) return;
+    const def = DEFS[curId];
+    moveTo(def, posOf(def, seconds), false);
   };
   M.setTempo = function (f) {
     if (!E) return;
@@ -4899,7 +5774,8 @@ HW.SHAPE_FIT = {
     const def = curId ? DEFS[curId] : null;
     if (!def || !E) return { id: null, playing: false, time: 0, duration: 0, bar: 0, beat: 0, bpm: 0, section: null, sections: [] };
     const bpm = def.bpm * E.factor, meter = def.meter || 4, beatSec = 60 / bpm;
-    const sections = def.sections.map((s, i) => ({ name: s.name, kind: s.kind, startBar: def._secStart[i], bars: s.bars }));
+    const sections = def.sections.map((s, i) => ({ name: s.name, kind: s.kind, startBar: def._secStart[i], bars: s.bars,
+      start: def._cumBeats[def._secStart[i]] * beatSec, secs: (i + 1 < def.sections.length ? def._cumBeats[def._secStart[i + 1]] : def._totalBeats) * beatSec - def._cumBeats[def._secStart[i]] * beatSec }));
     let bar, frac, si;
     if (paused) { bar = paused.bar; frac = paused.beat / meter; si = paused.si; }
     else if (S && S.ended) { bar = def._bars - 1; frac = 0.9999; si = def.sections.length - 1; }
@@ -4949,6 +5825,7 @@ HW.SHAPE_FIT = {
   M._INST = INST;
   M._chordsFor = chordsFor;     // for verify/music/measure.js (the score dump and the event dump)
   M._Session = Session; M._Engine = Engine;
+  M._session = () => S;     // the live session, for verify/music/seek.test.mjs (its revived notes, its bar log)
 })();
 
 </script>
@@ -7751,18 +8628,18 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 3, preview: 3,
       blurb: "Monks chant in a vast stone hall; strings bloom, drums roll in, a voice wails over driving triplets, a guitar joins the charge, and the chant returns.",
       prog: ["Em"], voice: 60, hum: 4,
-      fx: { reverb: { seconds: 6.5, damp: 0.35, mix: 0.42 }, delay: { beats: 0.75, fb: 0.2, mix: 0.1 }, duck: 0.1, duckRel: 0.5 },
+      fx: { reverb: { seconds: 6.5, damp: 0.35, mix: 0.42, kind: "stone" }, delay: { beats: 0.75, fb: 0.2, mix: 0.1 }, duck: 0.1, duckRel: 0.5 },
       parts: {
         monks: { i: "monks", vol: 0.42, rev: 0.6, pan: 0, p: { vowel: "o", a: 0.3, r: 1.6, voices: 4 } },
         monks2: { i: "monks", vol: 0.26, rev: 0.65, pan: 0.3, p: { vowel: "a", a: 0.35, r: 1.6, voices: 3, det: 9 } },
         drone: { i: "bowedglass", vol: 0.2, rev: 0.5, pan: -0.2, p: { a: 1.5, r: 3, breath: 0.04 } },
         sub: { i: "sub", vol: 0.3, p: { a: 1.5, r: 2.5, s: 1, harm: 0.1 } },
-        cello: { i: "cello", vol: 0.26, pan: -0.25, rev: 0.5, p: { a: 0.2, r: 0.6, vib: 9, vibAt: 0.4, bow: 0.05 } },
-        strings: { i: "strings", vol: 0.18, rev: 0.55, pan: 0.15, p: { a: 1, r: 1.6, cut: 3200 } },
-        lowStr: { i: "strings", stem: "bass", vol: 0.3, pan: -0.1, rev: 0.3, p: { a: 0.012, r: 0.08, cut: 2200, vib: 0, hp: 60 } },
-        highStr: { i: "strings", vol: 0.2, pan: 0.25, rev: 0.4, p: { a: 0.015, r: 0.1, cut: 4500, vib: 0 } },
-        wail: { i: "choir", vol: 0.3, pan: 0.05, rev: 0.6, dly: 0.2, p: { vowel: "a", a: 0.1, r: 0.6, q: 10, vib: 22, breath: 0.06 } },
-        taiko: { i: "taiko", vol: 0.8, side: true, rev: 0.4, p: { decay: 0.9 } },
+        cello: { i: "bowed", vol: 0.26, pan: -0.25, rev: 0.5, p: { solo: 1, body: "cello", a: 0.2, r: 0.6, vib: 9, vibAt: 0.4, bow: 0.05 } },
+        strings: { i: "bowed", vol: 0.18, rev: 0.55, pan: 0.15, p: { a: 1, r: 1.6, cut: 3200 } },
+        lowStr: { i: "bowed", stem: "bass", vol: 0.3, pan: -0.1, rev: 0.3, p: { a: 0.012, r: 0.08, cut: 2200, vib: 0, hp: 60 } },
+        highStr: { i: "bowed", vol: 0.2, pan: 0.25, rev: 0.4, p: { a: 0.015, r: 0.1, cut: 4500, vib: 0 } },
+        wail: { i: "solo", vol: 0.3, pan: 0.05, rev: 0.6, dly: 0.2, p: { vowel: "a", a: 0.08, r: 0.5 } },
+        taiko: { i: "wardrum", vol: 0.8, side: true, rev: 0.4, p: { decay: 0.9 } },
         toms: { i: "tom", vol: 0.42, rev: 0.35, pan: 0.25, p: { decay: 0.35 } },
         tomsLo: { i: "tom", vol: 0.4, rev: 0.35, pan: -0.25, p: { decay: 0.45 } },
         snare: { i: "snare", vol: 0.3, rev: 0.4, p: { tone: 230, decay: 0.14 } },
@@ -7814,8 +8691,8 @@ HW.SHAPE_FIT = {
         bass: { i: "bass", vol: 0.44, duck: true, tight: true, p: { wave: "sawtooth", wave2: "square", cut: 260, env: 2.2, fdec: 0.08, d: 0.15, s: 0.4, q: 3, sub: 0.6 }, fx: { lp: 2500 } },
         synth: { i: "lead", vol: 0.26, pan: 0.1, rev: 0.5, dly: 0.35, p: { wave: "triangle", uni: 2, det: 7, a: 0.08, r: 0.6, vib: 6, vibRate: 4.5, cut: 2200, glide: 0.1, s: 0.95 }, fx: { chorus: 0.3 } },
         synth2: { i: "lead", vol: 0.16, pan: -0.3, rev: 0.55, dly: 0.4, p: { wave: "sine", uni: 1, a: 0.1, r: 0.8, vib: 4, cut: 3000, s: 0.95 } },
-        strings: { i: "strings", vol: 0.16, rev: 0.55, pan: 0.2, p: { a: 1.2, r: 1.8, cut: 2600 } },
-        tremStr: { i: "strings", vol: 0.14, rev: 0.5, pan: -0.2, p: { a: 0.01, r: 0.06, cut: 4000, vib: 0 } },
+        strings: { i: "bowed", vol: 0.16, rev: 0.55, pan: 0.2, p: { a: 1.2, r: 1.8, cut: 2600 } },
+        tremStr: { i: "bowed", vol: 0.14, rev: 0.5, pan: -0.2, p: { a: 0.01, r: 0.06, cut: 4000, vib: 0 } },
         monks: { i: "monks", vol: 0.24, rev: 0.65, pan: 0, p: { vowel: "u", a: 0.6, r: 1.8, voices: 4 } },
         pad: { i: "pad", vol: 0.1, rev: 0.6, p: { cut: 800, a: 2.5, r: 3.5 } },
         wind: { i: "wind", vol: 0.12, rev: 0.4, p: { lo: 200, hi: 1400, q: 3 } },
@@ -7855,21 +8732,21 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 4, preview: 2,
       blurb: "Tribal drums and low strings drive an eighth-note pulse; horns carry the theme, the choir hits, a guitar takes the charge.",
       prog: ["Dm", "Bb", "Gm", "A", "Dm", "F", "C", "A"], voice: 60, hum: 3,
-      fx: { reverb: { seconds: 3.2, damp: 0.4, mix: 0.3 }, delay: { beats: 0.5, fb: 0.2, mix: 0.1 }, duck: 0.2, duckRel: 0.4 },
+      fx: { reverb: { seconds: 3.2, damp: 0.4, mix: 0.3, kind: "hall" }, delay: { beats: 0.5, fb: 0.2, mix: 0.1 }, duck: 0.2, duckRel: 0.4 },
       parts: {
-        taiko: { i: "taiko", vol: 0.8, side: true, rev: 0.35, p: { decay: 0.6 } },
+        taiko: { i: "wardrum", vol: 0.8, side: true, rev: 0.35, p: { decay: 0.6 } },
         toms: { i: "tom", vol: 0.42, rev: 0.3, pan: 0.25, p: { decay: 0.3 } },
         snare: { i: "snare", vol: 0.36, rev: 0.35, p: { tone: 220, decay: 0.15 } },
         hat: { i: "hat", vol: 0.12, pan: 0.3, p: { decay: 0.03, tone: 7000 } },
         crash: { i: "crash", vol: 0.24, rev: 0.45 },
-        timp: { i: "timpani", vol: 0.5, rev: 0.45, pan: -0.2 },
-        low: { i: "strings", stem: "bass", vol: 0.32, pan: -0.1, rev: 0.25, p: { a: 0.012, r: 0.06, cut: 2000, vib: 0, hp: 50 } },
+        timp: { i: "kettle", vol: 0.5, rev: 0.45, pan: -0.2 },
+        low: { i: "bowed", stem: "bass", vol: 0.32, pan: -0.1, rev: 0.25, p: { a: 0.012, r: 0.06, cut: 2000, vib: 0, hp: 50 } },
         sub: { i: "sub", vol: 0.3, duck: true, p: { a: 0.01, r: 0.1 } },
-        horns: { i: "horn", vol: 0.3, rev: 0.45, pan: 0.1, p: { a: 0.06, r: 0.3, vib: 5 } },
-        horns2: { i: "horn", vol: 0.2, rev: 0.45, pan: -0.25, p: { a: 0.06, r: 0.3, vib: 4 } },
-        brass: { i: "brass", vol: 0.26, rev: 0.4, p: { cut: 2800, a: 0.025, scoop: 30 } },
-        choir: { i: "choir", vol: 0.26, rev: 0.55, pan: 0.15, p: { vowel: "a", a: 0.05, r: 0.5, breath: 0.04 } },
-        strings: { i: "strings", vol: 0.18, rev: 0.5, pan: 0.2, p: { a: 0.3, r: 0.8, cut: 3600 } },
+        horns: { i: "fhorn", vol: 0.3, rev: 0.45, pan: 0.1, p: { a: 0.06, r: 0.3, vib: 5 } },
+        horns2: { i: "fhorn", vol: 0.2, rev: 0.45, pan: -0.25, p: { a: 0.06, r: 0.3, vib: 4 } },
+        brass: { i: "tpt", vol: 0.26, rev: 0.4, p: { cut: 2800, a: 0.025, scoop: 30 } },
+        choir: { i: "voices", vol: 0.26, rev: 0.55, pan: 0.15, p: { vowel: "a", a: 0.05, r: 0.5, breath: 0.04 } },
+        strings: { i: "bowed", vol: 0.18, rev: 0.5, pan: 0.2, p: { a: 0.3, r: 0.8, cut: 3600 } },
         gtr: { i: "lead", vol: 0.24, pan: -0.1, rev: 0.35, dly: 0.2, p: { wave: "sawtooth", uni: 2, det: 7, a: 0.015, r: 0.25, vib: 14, vibRate: 5.5, cut: 3000, glide: 0.04 }, fx: { drive: 5, lp: 4500, eq: [["peaking", 700, 3, 1], ["peaking", 2600, 2, 1.2]] } },
         gtrChug: { i: "ks", vol: 0.26, pan: 0.2, p: { t60: 0.6, bright: 0.5, pick: 0.15, soft: 0, damp: 0.06 }, fx: { drive: 6, lp: 4000, eq: [["peaking", 160, 3, 1], ["highpass", 80, 0, 0.7]] } },
         impact: { i: "impact", vol: 0.5, rev: 0.5, p: { decay: 2.5 } },
@@ -7911,22 +8788,22 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 3, preview: 4,
       blurb: "A three-note call on harp and flute grows through oboe, horns and the whole orchestra over rolling timpani.",
       prog: P, voice: 62, hum: 5,
-      fx: { reverb: { seconds: 4.8, damp: 0.4, mix: 0.4 }, delay: { beats: 1, fb: 0.15, mix: 0.08 }, duck: 0.05 },
+      fx: { reverb: { seconds: 4.8, damp: 0.4, mix: 0.4, kind: "hall" }, delay: { beats: 1, fb: 0.15, mix: 0.08 }, duck: 0.05 },
       parts: {
-        harp: { i: "ks", vol: 0.26, pan: -0.3, rev: 0.45, dly: 0.15, p: { t60: 3, bright: 0.22, pick: 0.2, soft: 0.3 } },
-        harpHi: { i: "ks", vol: 0.18, pan: 0.35, rev: 0.5, p: { t60: 2.5, bright: 0.3, pick: 0.15, soft: 0.2 } },
-        flute: { i: "flute", vol: 0.24, pan: 0.1, rev: 0.5, p: { breath: 0.3, vib: 10, a: 0.06, r: 0.25 } },
-        oboe: { i: "duduk", vol: 0.24, pan: -0.1, rev: 0.5, p: { formant: 1100, vib: 14, vibAt: 0.3, a: 0.06, r: 0.2, breath: 0.03 } },
-        horns: { i: "horn", vol: 0.3, rev: 0.5, pan: 0.1, p: { a: 0.1, r: 0.4, vib: 5 } },
-        horns2: { i: "horn", vol: 0.2, rev: 0.5, pan: -0.3, p: { a: 0.1, r: 0.4, vib: 4 } },
-        brass: { i: "brass", vol: 0.24, rev: 0.45, p: { cut: 2800, a: 0.03, scoop: 25 } },
-        strings: { i: "strings", vol: 0.2, rev: 0.55, pan: 0.15, p: { a: 0.6, r: 1.2, cut: 3400 } },
-        stringsHi: { i: "strings", vol: 0.14, rev: 0.6, pan: 0.3, p: { a: 0.4, r: 1, cut: 4500 } },
-        ost: { i: "strings", vol: 0.18, pan: -0.2, rev: 0.3, p: { a: 0.012, r: 0.08, cut: 3200, vib: 0 } },
-        cello: { i: "cello", stem: "bass", vol: 0.36, pan: -0.2, rev: 0.45, p: { a: 0.15, r: 0.5, vib: 8, vibAt: 0.4, bow: 0.05, cutRatio: 3.5 } },
-        choir: { i: "choir", vol: 0.22, rev: 0.6, pan: 0.1, p: { vowel: "a", a: 0.6, r: 1.4, breath: 0.05 } },
-        timp: { i: "timpani", vol: 0.55, rev: 0.5, pan: -0.15, p: { decay: 1.2 } },
-        taiko: { i: "taiko", vol: 0.6, side: true, rev: 0.4, p: { decay: 0.8 } },
+        harp: { i: "harp", vol: 0.26, pan: -0.3, rev: 0.45, dly: 0.15, p: { t60: 3, bright: 0.22, pick: 0.2, soft: 0.3 } },
+        harpHi: { i: "harp", vol: 0.18, pan: 0.35, rev: 0.5, p: { t60: 2.5, bright: 0.3, pick: 0.15, soft: 0.2 } },
+        flute: { i: "flute2", vol: 0.24, pan: 0.1, rev: 0.5, p: { breath: 0.3, vib: 10, a: 0.06, r: 0.25 } },
+        oboe: { i: "oboe", vol: 0.24, pan: -0.1, rev: 0.5, p: { formant: 1100, vib: 14, vibAt: 0.3, a: 0.06, r: 0.2, breath: 0.03 } },
+        horns: { i: "fhorn", vol: 0.3, rev: 0.5, pan: 0.1, p: { a: 0.1, r: 0.4, vib: 5 } },
+        horns2: { i: "fhorn", vol: 0.2, rev: 0.5, pan: -0.3, p: { a: 0.1, r: 0.4, vib: 4 } },
+        brass: { i: "tpt", vol: 0.24, rev: 0.45, p: { cut: 2800, a: 0.03, scoop: 25 } },
+        strings: { i: "bowed", vol: 0.2, rev: 0.55, pan: 0.15, p: { a: 0.6, r: 1.2, cut: 3400 } },
+        stringsHi: { i: "bowed", vol: 0.14, rev: 0.6, pan: 0.3, p: { a: 0.4, r: 1, cut: 4500 } },
+        ost: { i: "bowed", vol: 0.18, pan: -0.2, rev: 0.3, p: { a: 0.012, r: 0.08, cut: 3200, vib: 0 } },
+        cello: { i: "bowed", stem: "bass", vol: 0.36, pan: -0.2, rev: 0.45, p: { solo: 1, body: "cello", a: 0.15, r: 0.5, vib: 8, vibAt: 0.4, bow: 0.05, cutRatio: 3.5 } },
+        choir: { i: "voices", vol: 0.22, rev: 0.6, pan: 0.1, p: { vowel: "a", a: 0.6, r: 1.4, breath: 0.05 } },
+        timp: { i: "kettle", vol: 0.55, rev: 0.5, pan: -0.15, p: { decay: 1.2 } },
+        taiko: { i: "wardrum", vol: 0.6, side: true, rev: 0.4, p: { decay: 0.8 } },
         snare: { i: "snare", vol: 0.26, rev: 0.4, pan: 0.2, p: { tone: 230, decay: 0.14 } },
         crash: { i: "crash", vol: 0.24, rev: 0.5, p: { decay: 2.8 } },
         wind: { i: "wind", vol: 0.12, rev: 0.4, p: { lo: 300, hi: 2200, q: 2.5 } },
@@ -7967,23 +8844,23 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 4, preview: 4,
       blurb: "War drums and a hall of men chanting an anthem; horns answer, strings churn, a trumpet fanfare, the last verse with everything.",
       prog: PA, voice: 62, hum: 4,
-      fx: { reverb: { seconds: 5, damp: 0.4, mix: 0.4 }, delay: { beats: 0.75, fb: 0.15, mix: 0.08 }, duck: 0.15, duckRel: 0.5 },
+      fx: { reverb: { seconds: 5, damp: 0.4, mix: 0.4, kind: "stone" }, delay: { beats: 0.75, fb: 0.15, mix: 0.08 }, duck: 0.15, duckRel: 0.5 },
       parts: {
-        taiko: { i: "taiko", vol: 0.85, side: true, rev: 0.4, p: { decay: 1 } },
-        taiko2: { i: "taiko", vol: 0.5, rev: 0.4, pan: 0.3, p: { decay: 0.5 } },
+        taiko: { i: "wardrum", vol: 0.85, side: true, rev: 0.4, p: { decay: 1 } },
+        taiko2: { i: "wardrum", vol: 0.5, rev: 0.4, pan: 0.3, p: { decay: 0.5 } },
         snare: { i: "snare", vol: 0.3, rev: 0.4, pan: -0.2, p: { tone: 240, decay: 0.14 } },
         crash: { i: "crash", vol: 0.26, rev: 0.5, p: { decay: 3 } },
-        timp: { i: "timpani", vol: 0.5, rev: 0.5, pan: -0.2 },
+        timp: { i: "kettle", vol: 0.5, rev: 0.5, pan: -0.2 },
         monks: { i: "monks", vol: 0.42, rev: 0.6, pan: 0, p: { vowel: "a", a: 0.15, r: 1, voices: 4, det: 8 } },
         monks2: { i: "monks", vol: 0.28, rev: 0.6, pan: 0.3, p: { vowel: "o", a: 0.2, r: 1, voices: 3 } },
-        choir: { i: "choir", vol: 0.24, rev: 0.6, pan: -0.2, p: { vowel: "a", a: 0.3, r: 1.2, breath: 0.04 } },
-        horns: { i: "horn", vol: 0.28, rev: 0.5, pan: 0.1, p: { a: 0.08, r: 0.4, vib: 5 } },
-        horns2: { i: "horn", vol: 0.2, rev: 0.5, pan: -0.3, p: { a: 0.08, r: 0.4, vib: 4, cut: 900, sub: 0.3 } },
-        trumpet: { i: "brass", vol: 0.26, rev: 0.45, pan: 0.2, p: { cut: 3200, a: 0.025, scoop: 25 } },
-        ost: { i: "strings", vol: 0.2, pan: -0.25, rev: 0.3, p: { a: 0.012, r: 0.08, cut: 3200, vib: 0 } },
-        strings: { i: "strings", vol: 0.18, rev: 0.55, pan: 0.15, p: { a: 0.6, r: 1.2, cut: 3200 } },
-        woods: { i: "woodwind", vol: 0.16, pan: 0.3, rev: 0.5, p: { a: 0.08, r: 0.3, vib: 6 } },
-        cello: { i: "cello", stem: "bass", vol: 0.3, pan: -0.15, rev: 0.4, p: { a: 0.1, r: 0.4, vib: 6, vibAt: 0.5, bow: 0.05, cutRatio: 3.5 } },
+        choir: { i: "voices", vol: 0.24, rev: 0.6, pan: -0.2, p: { vowel: "a", a: 0.3, r: 1.2, breath: 0.04, male: 1 } },
+        horns: { i: "fhorn", vol: 0.28, rev: 0.5, pan: 0.1, p: { a: 0.08, r: 0.4, vib: 5 } },
+        horns2: { i: "fhorn", vol: 0.2, rev: 0.5, pan: -0.3, p: { a: 0.08, r: 0.4, vib: 4, cut: 900, sub: 0.3 } },
+        trumpet: { i: "tpt", vol: 0.26, rev: 0.45, pan: 0.2, p: { cut: 3200, a: 0.025, scoop: 25 } },
+        ost: { i: "bowed", vol: 0.2, pan: -0.25, rev: 0.3, p: { a: 0.012, r: 0.08, cut: 3200, vib: 0 } },
+        strings: { i: "bowed", vol: 0.18, rev: 0.55, pan: 0.15, p: { a: 0.6, r: 1.2, cut: 3200 } },
+        woods: { i: "clarinet", vol: 0.16, pan: 0.3, rev: 0.5, p: { a: 0.08, r: 0.3, vib: 6 } },
+        cello: { i: "bowed", stem: "bass", vol: 0.3, pan: -0.15, rev: 0.4, p: { solo: 1, body: "cello", a: 0.1, r: 0.4, vib: 6, vibAt: 0.5, bow: 0.05, cutRatio: 3.5 } },
         sub: { i: "sub", vol: 0.3, p: { a: 0.02, r: 0.3 } },
         impact: { i: "impact", vol: 0.5, rev: 0.6, p: { decay: 3 } },
       },
@@ -8021,16 +8898,16 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 2, preview: 3,
       blurb: "Harp arpeggios and a flute that asks and answers; an oboe, strings and a horn join on each return; the road is open.",
       prog: P, voice: 62, hum: 6,
-      fx: { reverb: { seconds: 4.5, damp: 0.4, mix: 0.4 }, delay: { beats: 1, fb: 0.2, mix: 0.1 }, duck: 0 },
+      fx: { reverb: { seconds: 4.5, damp: 0.4, mix: 0.4, kind: "hall" }, delay: { beats: 1, fb: 0.2, mix: 0.1 }, duck: 0 },
       parts: {
-        harp: { i: "ks", vol: 0.28, pan: -0.25, rev: 0.45, dly: 0.15, p: { t60: 3, bright: 0.22, pick: 0.2, soft: 0.3 } },
-        harp2: { i: "ks", vol: 0.18, pan: 0.35, rev: 0.5, p: { t60: 2.5, bright: 0.3, pick: 0.15, soft: 0.2 } },
-        flute: { i: "flute", vol: 0.24, pan: 0.1, rev: 0.5, p: { breath: 0.3, vib: 10, a: 0.07, r: 0.3 } },
-        oboe: { i: "duduk", vol: 0.22, pan: -0.15, rev: 0.5, p: { formant: 1100, vib: 12, vibAt: 0.3, a: 0.06, r: 0.25, breath: 0.03 } },
-        cello: { i: "cello", stem: "bass", vol: 0.26, pan: -0.2, rev: 0.45, p: { a: 0.2, r: 0.6, vib: 7, vibAt: 0.5, bow: 0.05, cutRatio: 3.5 } },
-        strings: { i: "strings", vol: 0.18, rev: 0.55, pan: 0.15, p: { a: 0.8, r: 1.4, cut: 3200 } },
-        stringsHi: { i: "strings", vol: 0.12, rev: 0.6, pan: 0.3, p: { a: 0.6, r: 1.2, cut: 4200 } },
-        horn: { i: "horn", vol: 0.26, rev: 0.5, pan: 0.05, p: { a: 0.12, r: 0.5, vib: 5 } },
+        harp: { i: "harp", vol: 0.28, pan: -0.25, rev: 0.45, dly: 0.15, p: { t60: 3, bright: 0.22, pick: 0.2, soft: 0.3 } },
+        harp2: { i: "harp", vol: 0.18, pan: 0.35, rev: 0.5, p: { t60: 2.5, bright: 0.3, pick: 0.15, soft: 0.2 } },
+        flute: { i: "flute2", vol: 0.24, pan: 0.1, rev: 0.5, p: { breath: 0.3, vib: 10, a: 0.07, r: 0.3 } },
+        oboe: { i: "oboe", vol: 0.22, pan: -0.15, rev: 0.5, p: { formant: 1100, vib: 12, vibAt: 0.3, a: 0.06, r: 0.25, breath: 0.03 } },
+        cello: { i: "bowed", stem: "bass", vol: 0.26, pan: -0.2, rev: 0.45, p: { solo: 1, body: "cello", a: 0.2, r: 0.6, vib: 7, vibAt: 0.5, bow: 0.05, cutRatio: 3.5 } },
+        strings: { i: "bowed", vol: 0.18, rev: 0.55, pan: 0.15, p: { a: 0.8, r: 1.4, cut: 3200 } },
+        stringsHi: { i: "bowed", vol: 0.12, rev: 0.6, pan: 0.3, p: { a: 0.6, r: 1.2, cut: 4200 } },
+        horn: { i: "fhorn", vol: 0.26, rev: 0.5, pan: 0.05, p: { a: 0.12, r: 0.5, vib: 5 } },
         glock: { i: "fmbell", vol: 0.1, rev: 0.6, dly: 0.3, pan: 0.4, p: { ratio: 3, index: 1.2, decay: 1.8 } },
         birds: { i: "birds", vol: 0.08 },
         wind: { i: "wind", vol: 0.1, rev: 0.4, p: { lo: 400, hi: 2500, q: 2 } },
@@ -8069,17 +8946,17 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 2, preview: 2,
       blurb: "A hammered dulcimer and a lute in quiet streets, a cello's warm tune, a soft clarinet, a church bell on the hour.",
       prog: P, voice: 62, hum: 8,
-      fx: { reverb: { seconds: 3.6, damp: 0.5, mix: 0.34 }, delay: { beats: 1, fb: 0.2, mix: 0.1 }, duck: 0 },
+      fx: { reverb: { seconds: 3.6, damp: 0.5, mix: 0.34, kind: "hall" }, delay: { beats: 1, fb: 0.2, mix: 0.1 }, duck: 0 },
       parts: {
         dulc: { i: "ks", vol: 0.26, pan: 0.3, rev: 0.4, dly: 0.2, p: { t60: 2.2, bright: 0.5, pick: 0.12, soft: 0, damp: 0.6 } },
         lute: { i: "ks", vol: 0.26, pan: -0.3, rev: 0.35, p: { t60: 1.6, bright: 0.12, pick: 0.25, soft: 0.45, damp: 0.5 }, fx: { eq: [["peaking", 200, 2, 1]] } },
         bass: { i: "ks", stem: "bass", vol: 0.34, p: { t60: 1.6, bright: 0.04, pick: 0.3, soft: 0.8, sub: 0.5, subLen: 2, damp: 0.6 } },
-        cello: { i: "cello", vol: 0.28, pan: -0.1, rev: 0.45, p: { a: 0.18, r: 0.5, vib: 10, vibAt: 0.35, bow: 0.05 } },
-        clar: { i: "woodwind", vol: 0.2, pan: 0.2, rev: 0.5, p: { a: 0.08, r: 0.3, vib: 5, breath: 0.05 } },
-        strings: { i: "strings", vol: 0.14, rev: 0.55, pan: 0.1, p: { a: 1, r: 1.6, cut: 2800 } },
+        cello: { i: "bowed", vol: 0.28, pan: -0.1, rev: 0.45, p: { solo: 1, body: "cello", a: 0.18, r: 0.5, vib: 10, vibAt: 0.35, bow: 0.05 } },
+        clar: { i: "clarinet", vol: 0.2, pan: 0.2, rev: 0.5, p: { a: 0.08, r: 0.3, vib: 5, breath: 0.05 } },
+        strings: { i: "bowed", vol: 0.14, rev: 0.55, pan: 0.1, p: { a: 1, r: 1.6, cut: 2800 } },
         bell: { i: "fmbell", vol: 0.16, rev: 0.65, dly: 0.3, pan: 0.4, p: { ratio: 2.4, index: 3, decay: 5 } },
         crickets: { i: "crickets", vol: 0.07 },
-        flute: { i: "flute", vol: 0.16, pan: 0.15, rev: 0.5, p: { breath: 0.35, vib: 8, a: 0.1, r: 0.3 } },
+        flute: { i: "flute2", vol: 0.16, pan: 0.15, rev: 0.5, p: { breath: 0.35, vib: 8, a: 0.1, r: 0.3 } },
       },
       sections: [
         { name: "Lamps", kind: "intro", bars: 8, mix: { lute: 2, bell: 1.5, dulc: 1.6, crickets: 1.5 }, sweep: { "music.lp": [1500, 8000] },
@@ -8112,16 +8989,16 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 1, preview: 2,
       blurb: "Slow strings that resolve late, a piano and a harp with a few notes each, a horn far off, crickets and wind.",
       prog: P, voice: 62, hum: 14,
-      fx: { reverb: { seconds: 6, damp: 0.35, mix: 0.45 }, delay: { beats: 1.5, fb: 0.3, mix: 0.18 }, duck: 0 },
+      fx: { reverb: { seconds: 6, damp: 0.35, mix: 0.45, kind: "hall" }, delay: { beats: 1.5, fb: 0.3, mix: 0.18 }, duck: 0 },
       parts: {
-        strings: { i: "strings", vol: 0.2, rev: 0.6, pan: 0.1, p: { a: 1.6, r: 2.4, cut: 2800 } },
-        stringsHi: { i: "strings", vol: 0.12, rev: 0.65, pan: 0.3, p: { a: 1.4, r: 2.2, cut: 3800 } },
-        cello: { i: "cello", stem: "bass", vol: 0.24, pan: -0.25, rev: 0.5, p: { a: 0.5, r: 1.2, vib: 6, vibAt: 0.8, bow: 0.03, cutRatio: 3.5 } },
+        strings: { i: "bowed", vol: 0.2, rev: 0.6, pan: 0.1, p: { a: 1.6, r: 2.4, cut: 2800 } },
+        stringsHi: { i: "bowed", vol: 0.12, rev: 0.65, pan: 0.3, p: { a: 1.4, r: 2.2, cut: 3800 } },
+        cello: { i: "bowed", stem: "bass", vol: 0.24, pan: -0.25, rev: 0.5, p: { solo: 1, body: "cello", a: 0.5, r: 1.2, vib: 6, vibAt: 0.8, bow: 0.03, cutRatio: 3.5 } },
         piano: { i: "piano", vol: 0.3, pan: -0.1, rev: 0.5, fx: { lp: 3000 } },
-        harp: { i: "ks", vol: 0.2, pan: 0.35, rev: 0.55, dly: 0.3, p: { t60: 3.5, bright: 0.2, pick: 0.2, soft: 0.3 } },
+        harp: { i: "harp", vol: 0.2, pan: 0.35, rev: 0.55, dly: 0.3, p: { t60: 3.5, bright: 0.2, pick: 0.2, soft: 0.3 } },
         glass: { i: "bowedglass", vol: 0.14, rev: 0.65, pan: -0.3, p: { a: 2.5, r: 3.5 } },
-        horn: { i: "horn", vol: 0.18, rev: 0.6, dly: 0.2, pan: 0.2, p: { a: 0.2, r: 0.8, vib: 4 } },
-        choir: { i: "choir", vol: 0.14, rev: 0.7, pan: 0.1, p: { vowel: "u", a: 2, r: 3, breath: 0.06 } },
+        horn: { i: "fhorn", vol: 0.18, rev: 0.6, dly: 0.2, pan: 0.2, p: { a: 0.2, r: 0.8, vib: 4 } },
+        choir: { i: "voices", vol: 0.14, rev: 0.7, pan: 0.1, p: { vowel: "u", a: 2, r: 3, breath: 0.06 } },
         crickets: { i: "crickets", vol: 0.08 },
         wind: { i: "wind", vol: 0.1, rev: 0.4, p: { lo: 300, hi: 1800, q: 2.5 } },
       },
@@ -8159,15 +9036,15 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 3, preview: 2,
       blurb: "A lute by the fire, a fiddle and a wooden flute trading the tune, a frame drum and a tambourine, a hurdy-gurdy drone.",
       prog: P, voice: 62, hum: 7,
-      fx: { reverb: { seconds: 2.2, damp: 0.5, mix: 0.26 }, delay: { beats: 0.75, fb: 0.15, mix: 0.08 }, duck: 0.05 },
+      fx: { reverb: { seconds: 2.2, damp: 0.5, mix: 0.26, kind: "room" }, delay: { beats: 0.75, fb: 0.15, mix: 0.08 }, duck: 0.05 },
       parts: {
         frame: { i: "taiko", stem: "drums", vol: 0.5, side: true, rev: 0.3, p: { decay: 0.3 }, fx: { lp: 2500 } },
         tamb: { i: "shaker", vol: 0.18, pan: 0.35, p: { tone: 8000, a: 0.01, decay: 0.07 } },
         click: { i: "rim", vol: 0.14, pan: -0.3, p: { tone: 2600, decay: 0.025 } },
         lute: { i: "ks", vol: 0.3, pan: -0.3, rev: 0.25, p: { t60: 1.5, bright: 0.15, pick: 0.25, soft: 0.4, damp: 0.3 }, fx: { eq: [["peaking", 220, 2, 1]] } },
         bass: { i: "ks", stem: "bass", vol: 0.36, p: { t60: 1.2, bright: 0.05, pick: 0.3, soft: 0.75, sub: 0.5, subLen: 0.8, damp: 0.25, mono: 1 } },
-        fiddle: { i: "cello", vol: 0.24, pan: 0.2, rev: 0.35, p: { a: 0.05, r: 0.15, vib: 11, vibAt: 0.2, cutRatio: 5, bow: 0.08, glide: 0.04 }, fx: { eq: [["peaking", 2500, 3, 1.2]] } },
-        flute: { i: "flute", vol: 0.24, pan: -0.1, rev: 0.4, p: { breath: 0.4, vib: 9, a: 0.04, r: 0.12 } },
+        fiddle: { i: "bowed", vol: 0.24, pan: 0.2, rev: 0.35, p: { solo: 1, body: "violin", a: 0.05, r: 0.15, vib: 11, vibAt: 0.2, cutRatio: 5, bow: 0.08, glide: 0.04 }, fx: { eq: [["peaking", 2500, 3, 1.2]] } },
+        flute: { i: "flute2", vol: 0.24, pan: -0.1, rev: 0.4, p: { breath: 0.4, vib: 9, a: 0.04, r: 0.12 } },
         gurdy: { i: "reedorgan", vol: 0.14, pan: 0.3, rev: 0.3, p: { det: 9, oct: 0.3, cut: 2200, a: 0.5, r: 0.5, bellows: 0.05 } },
         fire: { i: "crackle", vol: 0.16 },
         clap: { i: "clap", vol: 0.2, pan: 0.2, rev: 0.3, p: { decay: 0.1 } },
@@ -8205,12 +9082,12 @@ HW.SHAPE_FIT = {
       category: "legends", energy: 1, preview: 2,
       blurb: "Held string chords that don't quite agree, a deep drone, a double reed's old lament, monks far off in the mist.",
       prog: P, chordBars: 2, voice: 60, hum: 12,
-      fx: { reverb: { seconds: 7, damp: 0.35, mix: 0.46 }, delay: { beats: 2, fb: 0.35, mix: 0.2 }, duck: 0 },
+      fx: { reverb: { seconds: 7, damp: 0.35, mix: 0.46, kind: "stone" }, delay: { beats: 2, fb: 0.35, mix: 0.2 }, duck: 0 },
       parts: {
-        strings: { i: "strings", vol: 0.2, rev: 0.6, pan: 0.1, p: { a: 2, r: 3, cut: 2600 } },
-        sus: { i: "strings", vol: 0.14, rev: 0.65, pan: -0.2, p: { a: 2.5, r: 3, cut: 3200 } },
+        strings: { i: "bowed", vol: 0.2, rev: 0.6, pan: 0.1, p: { a: 2, r: 3, cut: 2600 } },
+        sus: { i: "bowed", vol: 0.14, rev: 0.65, pan: -0.2, p: { a: 2.5, r: 3, cut: 3200 } },
         drone: { i: "sub", vol: 0.34, p: { a: 2, r: 3, s: 1, harm: 0.15 } },
-        reed: { i: "duduk", vol: 0.26, pan: 0.05, rev: 0.6, dly: 0.25, p: { vib: 24, vibAt: 0.5, a: 0.15, r: 0.6, breath: 0.06 } },
+        reed: { i: "reed2", vol: 0.26, pan: 0.05, rev: 0.6, dly: 0.25, p: { vib: 24, vibAt: 0.5, a: 0.15, r: 0.6, breath: 0.06 } },
         monks: { i: "monks", vol: 0.2, rev: 0.7, pan: -0.1, p: { vowel: "u", a: 1.5, r: 2.5, voices: 4 } },
         bowl: { i: "bowl", vol: 0.18, rev: 0.5, pan: 0.3, p: { decay: 8 } },
         glass: { i: "bowedglass", vol: 0.12, rev: 0.65, pan: -0.3, p: { a: 3, r: 4 } },
@@ -10476,8 +11353,16 @@ HW.win.define("source", {
         tb("next", "Next track", () => HW.musicStep(1)));
       P.time = el("span", { class: "mono" });
       P.sectionName = el("span", { class: "np-section" });
-      P.timeline = el("div", { class: "timeline", "data-tip": "The track's sections. Click one to jump to it (on the next bar line). The marker shows where the music is." });
+      P.timeline = el("div", { class: "timeline", "data-tip": "The track's sections. Click one to jump to its start: what is playing stops at once and the section starts. The marker shows where the music is." });
       P.marker = el("div", { class: "tl-marker" });
+      // the time slider (Jon, 2026-10-22): drag to any point; the time shows while dragging, the music moves there on
+      // release (everything sounding stops at once, the notes that belong at the new point start again)
+      P.seekFill = el("div", { class: "sl-fill" });
+      P.seekThumb = el("div", { class: "sl-thumb" });
+      P.seekMarks = el("div", { class: "seek-marks" });
+      P.seek = el("div", { class: "sl seek", tabindex: "0", role: "slider", "aria-label": "Position in the song",
+        "data-tip": "Where the song is. Drag to move to any point (it moves when you let go); arrow keys step 5 seconds (Shift: 15). The ticks are the section starts." }, P.seekMarks, P.seekFill, P.seekThumb);
+      seekSlider(P);
       const stemBox = el("div", { class: "row stems" });
       P.stems = {};
       for (const [k, label] of [["drums", "Drums"], ["bass", "Bass"], ["music", "Music"], ["fx", "FX"]]) {
@@ -10494,7 +11379,7 @@ HW.win.define("source", {
       const listBtn = el("button", { type: "button", class: "btn", html: HW.icon("list") + "<span>Playlist</span>", "data-tip": "Open the playlist: every song by category, energy and beat.", on: { click: () => HW.win.open("playlist") } });
       body.append(
         el("section", { class: "sec now" }, el("h3", { text: "Now playing" }), P.name, P.info, P.blurb, transport,
-          el("div", { class: "row" }, P.sectionName, P.time), P.timeline,
+          el("div", { class: "row" }, P.sectionName, P.time), P.timeline, P.seek,
           el("div", { class: "row" }, el("span", { class: "ctl-label", text: "Mute parts" }), stemBox)),
         ui.section("Playback", "", ["music.mode", "music.tempo", "music.kick", "src.monitor", "src.listen"]),
         ui.section("Visuals follow the song", "The demo tracks tell the visuals where their sections start, so the picture can hit the drops with the music. The two Autopilot switches here are off unless you turn them on; while either is on, the Autopilot button in the top bar is lit, and clicking it turns them off.", ["music.dropShape", "music.dropFlash", "music.sectionPalette"]),
@@ -10512,18 +11397,33 @@ HW.win.define("source", {
       P.blurb.textContent = t ? t.blurb || "" : "";
       const pi = s && s.playing ? "pause" : "play";   // only on change: redrawing it every frame swallowed mouse clicks
       if (P.playBtn.dataset.icon !== pi) { P.playBtn.dataset.icon = pi; P.playBtn.innerHTML = HW.icon(pi); }
-      P.time.textContent = s ? HW.mmss(s.time) + " / " + HW.mmss(s.duration) : "";
-      P.sectionName.textContent = s && s.section ? s.section.name + (s.section.kind ? " (" + s.section.kind + ")" : "") : "";
+      const pv = P.seekDrag && s ? P.seekDrag.to : null;     // while the slider is dragged: the time it points at
+      P.time.textContent = s ? (pv != null ? "→ " + HW.mmss(pv) : HW.mmss(s.time)) + " / " + HW.mmss(s.duration) : "";
+      const pvSec = pv != null && s.sections.length ? s.sections.reduce((a, x, i) => (x.start <= pv + 1e-6 ? i : a), 0) : -1;
+      P.sectionName.textContent = pvSec >= 0 ? "→ " + s.sections[pvSec].name + " (" + s.sections[pvSec].kind + ")"
+        : s && s.section ? s.section.name + (s.section.kind ? " (" + s.section.kind + ")" : "") : "";
+      P.seek.classList.toggle("off", !s || !s.duration);
+      if (s && s.duration) {
+        const f = HW.clamp((pv != null ? pv : s.time) / s.duration, 0, 1);
+        P.seekThumb.style.left = f * 100 + "%";
+        P.seekFill.style.left = "0%";
+        P.seekFill.style.width = f * 100 + "%";
+        P.seek.setAttribute("aria-valuetext", HW.mmss(pv != null ? pv : s.time) + " of " + HW.mmss(s.duration));
+        P.seekDur = s.duration; P.seekNow = s.time;
+      }
       // timeline of sections
       const key = s ? s.id + ":" + s.sections.length : "";
       if (P.tlKey !== key) {
         P.tlKey = key;
         P.timeline.replaceChildren();
+        P.seekMarks.replaceChildren();
         if (s && s.sections.length) {
           const total = s.sections.reduce((a, x) => a + x.bars, 0);
           s.sections.forEach((x, i) => {
             const tx = t && t.sections && t.sections[i] ? t.sections[i] : x;
-            P.timeline.appendChild(el("button", { type: "button", class: "tl-sec k-" + x.kind, style: "flex:" + x.bars, title: x.name,
+            if (i && s.duration) P.seekMarks.appendChild(el("i", { class: "k-" + x.kind, style: "left:" + (x.start / s.duration) * 100 + "%" }));
+            // (round three) each section as wide as it lasts, so the timeline lines up with the time slider under it
+            P.timeline.appendChild(el("button", { type: "button", class: "tl-sec k-" + x.kind, style: "flex:" + (x.secs > 0 ? x.secs.toFixed(2) : x.bars), title: x.name,
               "data-tip": x.name + " (" + x.kind + ", " + x.bars + " bars" + (tx.energy ? ", energy " + tx.energy : "") + (tx.beat && tx.beat !== "none" ? ", beat " + tx.beat : "") + "). Click to jump here.", on: { click: () => M().jump(i) } }, el("span", { text: x.name })));
           });
           P.timeline.appendChild(P.marker);
@@ -10534,6 +11434,47 @@ HW.win.define("source", {
       for (const b of P.timeline.children) if (b.classList.contains("tl-sec")) b.classList.toggle("on", s && s.section && b.title === s.section.name && [...P.timeline.children].indexOf(b) === s.section.index);
     },
   });
+
+  // ---- the time slider in Now playing: drag (or click) previews the time, letting go seeks there; arrow keys step
+  function seekSlider(P) {
+    const tr = P.seek;
+    const at = (x) => { const r = tr.getBoundingClientRect(); return HW.clamp((x - r.left) / Math.max(1, r.width), 0, 1) * (P.seekDur || 0); };
+    tr.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || !P.seekDur || !ready() || !M().seek) return;
+      e.preventDefault();
+      tr.focus();
+      tr.setPointerCapture(e.pointerId);
+      P.seekDrag = { to: at(e.clientX) };
+      HW.uiBusy = (HW.uiBusy || 0) + 1;
+    });
+    tr.addEventListener("pointermove", (e) => { if (P.seekDrag) P.seekDrag.to = at(e.clientX); });
+    const end = (go) => {
+      if (!P.seekDrag) return;
+      const to = P.seekDrag.to;
+      P.seekDrag = null;
+      HW.uiBusy = Math.max(0, (HW.uiBusy || 0) - 1);
+      if (go && isMusic()) M().seek(to);
+    };
+    tr.addEventListener("pointerup", (e) => { if (P.seekDrag) P.seekDrag.to = at(e.clientX); end(true); });
+    tr.addEventListener("pointercancel", () => end(false));
+    tr.addEventListener("lostpointercapture", () => end(true));
+    // keys: the target moves at once, the music follows when the keys rest (a held arrow doesn't restart it 30 times)
+    let keyTimer = 0;
+    tr.addEventListener("keydown", (e) => {
+      if (!P.seekDur || !isMusic() || !M().seek) return;
+      const step = e.shiftKey ? 15 : 5, cur = P.seekDrag ? P.seekDrag.to : P.seekNow || 0;
+      let to = null;
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") to = cur + step;
+      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") to = cur - step;
+      else if (e.key === "Home") to = 0;
+      else if (e.key === "End") to = P.seekDur - 1;
+      if (to == null) return;
+      e.preventDefault();
+      P.seekDrag = { to: HW.clamp(to, 0, P.seekDur), key: true };
+      clearTimeout(keyTimer);
+      keyTimer = setTimeout(() => { const d = P.seekDrag; P.seekDrag = null; if (d && isMusic()) M().seek(d.to); }, 300);
+    });
+  }
 
   // ---- the PLAYLIST window: every song, grouped by category, sorted and filtered by energy -----------------
   HW.win.define("playlist", {
