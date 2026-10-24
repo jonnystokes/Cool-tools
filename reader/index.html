@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.548 and 2026-10-23 7:29 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.552 and 2026-10-23 9:54 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.548</title>
+<title>Book reader V1.0.552</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.548";
-  window.APP_BUILT = "2026-10-23 7:29 PM";
-  window.APP_NOTE = "Tapping a paragraph sets where the reading starts at any time: the Play-start line now shows in the simple marks view";
+  window.APP_VERSION = "Book reader V1.0.552";
+  window.APP_BUILT = "2026-10-23 9:54 PM";
+  window.APP_NOTE = "Numbers to words: off by default, on when the benchmark picks Supertonic";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -1087,7 +1087,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     // Text (what the voice is given)
     spelling: [["qi", "chee"], ["-", " "], ["—", " "], ["–", " "], [",", " , "]],   // [word, how to say it]; dashes become a space, a comma gets room
     capsAsWords: true,             // "YOU DID WHAT" said normally; VIP, OK, Roman numerals, "9 AM" kept
-    numbersToWords: true,          // 2080 -> "two thousand and eighty"
+    numbersToWords: false,         // 2080 -> "two thousand and eighty"; off by default, the benchmark turns it on for Supertonic (Jon, 2026-10-23)
     joinShort: true,               // a piece of five words or fewer joins its neighbour
     // Sound group: Voice
     voice: "kokoro:af_heart",      // "engine:voice"
@@ -12978,6 +12978,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (pick.precision) v.precision = pick.precision;
     if (pick.engine === "supertonic") v.steps = pick.steps;
     if (pick.copies) v.copies = pick.copies < autoCopies(inp.threads) ? pick.copies : null;
+    v.numbersToWords = pick.engine === "supertonic";      // Jon, 2026-10-23: on for Supertonic only, off for every other voice
     // The word highlight is never part of the suggestion (Jon, 2026-10-20): it is Off by default and only
     // a choice in Settings → Word highlight turns it on. (BUGS 31's rule, Off under 2.5× on a card, is
     // moot while it is Off anyway.)
@@ -13624,7 +13625,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const D = SETTINGS.DEFAULTS;
     choose("default");
     close(true);
-    return SETTINGSWIN.choose({ voice: D.voice, runOn: D.runOn, precision: D.precision, steps: D.steps, copies: D.copies }, "The default: Kokoro af_heart, fp32, on the graphics card.");
+    return SETTINGSWIN.choose({ voice: D.voice, runOn: D.runOn, precision: D.precision, steps: D.steps, copies: D.copies, numbersToWords: D.numbersToWords }, "The default: Kokoro af_heart, fp32, on the graphics card.");
   }
 
   function open(opts = {}) {

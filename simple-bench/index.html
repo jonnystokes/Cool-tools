@@ -185,7 +185,7 @@ self.onmessage = function (ev) {
 </script>
 
 <script id="sb-rules">
-// Copied by build.py from the Book reader (Walker of Worlds/src/rules.js), reader version 341. Do not edit here: change the reader's file and run python build.py.
+// Copied by build.py from the Book reader (Walker of Worlds/src/rules.js), reader version 552. Do not edit here: change the reader's file and run python build.py.
 // rules.js: the benchmark's rules, pure (no page, no device: test/rules.mjs runs this file in Node).
 // RULES.predict(input) turns the light benchmark's scores into a prediction for every voice setup, in
 // the PLAN.md voice order (best-sounding first), each marked "runs well" / "barely" / "too slow" /
@@ -362,6 +362,7 @@ self.onmessage = function (ev) {
     if (pick.precision) v.precision = pick.precision;
     if (pick.engine === "supertonic") v.steps = pick.steps;
     if (pick.copies) v.copies = pick.copies < autoCopies(inp.threads) ? pick.copies : null;
+    v.numbersToWords = pick.engine === "supertonic";      // Jon, 2026-10-23: on for Supertonic only, off for every other voice
     // The word highlight is never part of the suggestion (Jon, 2026-10-20): it is Off by default and only
     // a choice in Settings → Word highlight turns it on. (BUGS 31's rule, Off under 2.5× on a card, is
     // moot while it is Off anyway.)
