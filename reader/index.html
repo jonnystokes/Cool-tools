@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.534 and 2026-10-23 2:34 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.540 and 2026-10-23 6:36 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.534</title>
+<title>Book reader V1.0.540</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.534";
-  window.APP_BUILT = "2026-10-23 2:34 AM";
-  window.APP_NOTE = "Offline package: Make logs every step and says the outcome beside the button; no save picker on phones \u00b7 testing, unchanged";
+  window.APP_VERSION = "Book reader V1.0.540";
+  window.APP_BUILT = "2026-10-23 6:36 PM";
+  window.APP_NOTE = "the chapter arrows follow the lock: playing = the reading goes to the new chapter's start, paused = the marker moves; quick presses count once; re-lock snaps back";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -3969,6 +3969,14 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     show(i, where);
   }
 
+  // A chapter picked by hand (‹ ›, ← →, the number box + Go, the Index): with the lock on, a reading in
+  // progress goes along (PLAYER.chapterPicked; Jon, 2026-10-23); with the lock off only the view moves.
+  function pick(i, where) {
+    if (i < 0 || i >= BOOK.count) return;
+    go(i, where);
+    if (globalThis.PLAYER && globalThis.PLAYBAR && PLAYBAR.locked && PLAYER.state !== "stopped") PLAYER.chapterPicked(i, where);
+  }
+
   // ---- The pieces to read (pieces.js), for the player ----------------------------------------------
   let curRec = null;          // the chapter record shown
   let pieces = [];            // its pieces, with the current settings
@@ -4042,13 +4050,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   document.addEventListener("click", () => { if (!chfull.hidden) toggleName(false); });
 
   // ---- Navigation: buttons, the number box, keys ---------------------------------------------------
-  prev.addEventListener("click", () => go(cur - 1));
-  next.addEventListener("click", () => go(cur + 1));
+  prev.addEventListener("click", () => pick(cur - 1));
+  next.addEventListener("click", () => pick(cur + 1));
   function jump() {
     const raw = num.value.trim();
     const n = /^\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : NaN;     // 12.5 is a chapter number too (an interlude)
     const i = numbered() ? BOOK.indexOf(n) : n >= 1 && n <= BOOK.count ? n - 1 : -1;
-    if (i >= 0) { go(i); num.blur(); return; }
+    if (i >= 0) { pick(i); num.blur(); return; }
     const first = BOOK.info(0), last = BOOK.info(BOOK.count - 1);
     say(first ? `${raw ? `There is no ${numbered() ? "chapter" : "part"} ${raw}. ` : ""}${numbered() ? `Chapters run ${first.c} to ${last.c}.` : `Parts run 1 to ${BOOK.count}.`}` : "No book is open. Tap Open to pick one.");
     num.select();
@@ -4066,8 +4074,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const t = e.target;
     if (t instanceof Element && (t.matches("input, textarea, select") || t.isContentEditable || t.closest(".float, .contents"))) return;
     if (globalThis.CONTENTS && CONTENTS.isOpen) return;
-    if (e.key === "ArrowLeft") { e.preventDefault(); go(cur - 1); }
-    else if (e.key === "ArrowRight") { e.preventDefault(); go(cur + 1); }
+    if (e.key === "ArrowLeft") { e.preventDefault(); pick(cur - 1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); pick(cur + 1); }
   });
 
   // ---- The contents panel (contents.js) is the chapter list now (the ▾ button and the list window are gone) ----
@@ -4175,7 +4183,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   globalThis.READER = {
-    start, applyLook, say, go, openBook, closeBook, refreshTitle, setAcross,
+    start, applyLook, say, go, pick, scrollToPara, openBook, closeBook, refreshTitle, setAcross,
     topPara,
     showImport: () => LIBRARY.open(),                              // the old name (Settings → Book, Storage)
     noteAdded: (list) => emit("added", list),
@@ -4460,8 +4468,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (!row) return;
     const i = Number(row.dataset.i);
     const heading = row.classList.contains("chead") ? row.querySelector(".ct").textContent : "";
-    if (heading) { const p = Number(row.dataset.p); READER.go(i, { p, top: p }); }
-    else READER.go(i);
+    if (heading) { const p = Number(row.dataset.p); READER.pick(i, { p, top: p }); }
+    else READER.pick(i);
     confirmJump(row, i, heading);
   });
   // The sign that a tap moved the place (the panel covers the page on a phone): a short buzz where the
@@ -8908,7 +8916,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     lockBtn.title = locked ? "Locked: the screen follows the reading (tap to unlock)" : "Unlocked: the screen stays put (tap to lock)";
     lockBtn.setAttribute("aria-pressed", locked ? "true" : "false");
     if (!quiet) log("playback", locked ? "lock on: the screen follows the reading" : "lock off: the screen stays put");
-    if (locked && !quiet && globalThis.PLAYER && PLAYER.state !== "stopped") PLAYER.show();
+    if (locked && !quiet && globalThis.PLAYER) PLAYER.show();     // the piece played now (any chapter), or the Play-start marker
   }
   setLock(locked, true);
   lockBtn.addEventListener("click", () => setLock(!locked));
@@ -10477,6 +10485,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     saveReading(playhead.ch, para);
     HIGHLIGHT.speak(piece, part);
     if (playhead.ch !== mediaCh) { mediaCh = playhead.ch; MEDIA.update(); }
+    if (picked) return;                          // a chapter picked by hand is on its way: the screen stays there
     if (playhead.ch !== READER.chapter) {
       if (PLAYBAR.locked) READER.go(playhead.ch, { p: Math.max(0, para), top: Math.max(0, para) });
       return;
@@ -10486,7 +10495,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
   // The screen back on the reading (the lock turned on, or the chapter drawn again).
   function show() {
-    if (!playhead) return;
+    if (state === "stopped") { READER.scrollToPara(READER.para); return; }   // nothing plays: the Play-start marker
+    if (!playhead || picked) return;
     const list = lists.get(playhead.ch), k = list ? QUEUE.indexOf(list, playhead.id) : -1;
     if (k >= 0) moved(list[k], playhead.part);
   }
@@ -10677,6 +10687,30 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // the reading paused once it is set up (P1), a Play goes on, and a tap or a step only records where
   // to start (wanted, P8). The checks after each await ask "stopped meanwhile?" (gen), not "paused?".
   let setup = -1, wanted = null;
+
+  // ---- A chapter picked by hand with the lock on (‹ ›, ← →, the number box + Go, the Index; Jon,
+  // 2026-10-23): playing, the reading goes to the start of that chapter (its title piece, else its first
+  // paragraph; a heading tap in the Index: that paragraph); paused, the reading moves there and stays
+  // paused, so Play starts there; while the voice loads, Play starts there (wanted). Presses within
+  // PICK_MS of each other count once: the last one wins. Until it lands, moved() leaves the screen alone.
+  const PICK_MS = 350;
+  let picked = null, pickTimer = 0;
+  function chapterPicked(ch, where) {
+    if (state === "stopped" || ch < 0 || ch >= BOOK.count) return;
+    const p = picked = { ch, para: where && typeof where.p === "number" ? where.p : -1 };
+    clearTimeout(pickTimer);
+    pickTimer = setTimeout(async () => {
+      if (picked !== p) return;
+      if (state === "stopped") { picked = null; return; }
+      const why = `chapter picked (${BOOK.label(ch).toLowerCase()}, lock on, ${state})`;
+      if (setup === gen) { picked = null; wanted = { ch, para: p.para }; log("playback", `${why} while the voice loads: the reading will start there`); return; }
+      try { await loadList(ch); } catch (e) { if (picked === p) picked = null; log("error", "the chapter could not be read", e); return; }
+      if (picked !== p) return;                    // a newer press
+      picked = null;
+      jumpToPara(ch, p.para, why);
+    }, PICK_MS);
+  }
+
   function play() {
     if (state === "playing") return;
     if (state === "paused") { resume(); return; }
@@ -10784,6 +10818,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return `summary: ${stats.pieces} pieces made${stats.chunks > stats.pieces ? ` in ${stats.chunks} chunks` : ""} (${stats.chars} chars → ${stats.sound.toFixed(0)} s of sound in ${synth.toFixed(1)} s${synth ? `, ${(stats.sound / synth).toFixed(1)}× real time${copiesNow() > 1 ? " per copy" : ""}` : ""}) · ${stats.failures} failed (${stats.timeouts} timed out) · ${stats.stalls} times the sound ran out · ${stats.pumpRestarts} pump restarts${stats.holds ? ` · ${stats.holds} holds while scrolling` : ""} · ${time} · frames ${STREAM.frames} (${played ? Math.round(STREAM.frames / (played / 60)) : 0}/min of playing)${engine && typeof engine.memory === "function" && engine.memory() ? " · " + engine.memory() : ""}`;
   }
   function stop(msg, isError) {
+    clearTimeout(pickTimer); picked = null;
     if (state !== "stopped" && stats.pieces) log("playback", summary());   // summary() counts the playing span still open (playedNow)
     if (state !== "stopped" && stats.chunks >= 3 && stats.chars && engineKey && onCard()) speeds.set(engineKey, measured());   // the next reading on this voice starts with the right chunk size
     if (lag) { const L = lag; lag = null; setTimeout(() => lagLine(L), 600); }
@@ -10964,7 +10999,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   PLAYBAR.update(state);
 
   globalThis.PLAYER = {
-    play, pause, resume, toggle, stop, step, jumpToPara, show, hooks, stats, activity, settingsChanged,
+    play, pause, resume, toggle, stop, step, jumpToPara, show, chapterPicked, hooks, stats, activity, settingsChanged,
     status: statusNow, detail,                     // what the status lines and the full-status window show (playbar.js)
     rebuild: () => { stop(); reset(); },           // everything made goes (the tests; Settings goes through settingsChanged)
     // The voice's workers were used by someone else (the full benchmark): load it afresh at the next Play.
