@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.552 and 2026-10-23 9:54 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.556 and 2026-10-24 12:08 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.552</title>
+<title>Book reader V1.0.556</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.552";
-  window.APP_BUILT = "2026-10-23 9:54 PM";
-  window.APP_NOTE = "Numbers to words: off by default, on when the benchmark picks Supertonic";
+  window.APP_VERSION = "Book reader V1.0.556";
+  window.APP_BUILT = "2026-10-24 12:08 AM";
+  window.APP_NOTE = "Long words wrap instead of widening the page (chapter 3311) \u00b7 testing, unchanged";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -143,6 +143,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   padding: 16px var(--gutter);
   font-size: var(--text);
   line-height: 1.55;
+  overflow-wrap: anywhere;     /* a very long word ("AHHHH…", chapter 3311) wraps instead of widening the page (Jon, 2026-10-24) */
 }
 .book .chno { margin: 0 0 0.3em; color: var(--muted); font-size: var(--ui); }
 .book h1 { margin: 0 0 0.8em; font-size: 1.35em; line-height: 1.25; }
