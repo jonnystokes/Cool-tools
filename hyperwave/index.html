@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-build="2.0.0 built October 22, 2026 8:23 PM">
+<html lang="en" data-build="2.0.0 built October 23, 2026 6:46 PM">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -543,6 +543,9 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .35rem; border
 .pl-name { font-weight: 700; white-space: nowrap; }
 .pl-name .ico-wrap { vertical-align: middle; margin-right: .35rem; opacity: .6; }
 .pl-name .ico { width: .95rem; height: .95rem; }
+/* your sound files: a small remove button after the name */
+.pl-del { margin-left: .5rem; padding: 0 .4rem; border: 0; border-radius: .3rem; background: none; color: var(--faint); font: inherit; font-size: 1.05rem; line-height: 1.2; cursor: pointer; }
+.pl-del:hover, .pl-del:focus-visible { color: var(--text, #fff); background: rgba(255,255,255,.12); }
 .pl-dim { color: var(--dim); }
 .pl-infl { color: var(--cyan); font-size: .76rem; }
 .pl-energy { color: var(--hot); letter-spacing: .05em; white-space: nowrap; font-size: .72rem; }
@@ -834,7 +837,7 @@ HW.glsl = {
   choice("src.listen", "Visuals react to", "internal", [["internal", "The sound itself"], ["mic", "Microphone"], ["screen", "PC or tab audio"]],
     "What the visuals listen to. The sound itself = what the studio is playing (demo music, an audio file or the test beat), fed straight in, perfectly clean. Microphone = whatever your microphone hears: play music out of your speakers and it reacts to the sound in your room, the real-world test. PC or tab audio = what this computer plays, shared from the screen. Changing it never stops the music.");
   choice("music.mode", "When a track ends", "all", [["all", "Next track"], ["cat", "Next in the same category"], ["shuffle", "Shuffle"], ["one", "Repeat it"], ["stop", "Stop"]],
-    "What the demo music does at the end of a track: play the next one in the list, the next one in the same category (so a calm track is followed by another calm one), a random one, the same one again, or stop.");
+    "What happens at the end of a song or one of your sound files: play the next one in the playlist, the next one in the same category (so a calm track is followed by another calm one; your files count as one category), a random one, the same one again, or stop.");
   num("music.tempo", "Music tempo", 1, 0.8, 1.25, 0.01, "Plays the demo music faster or slower (1.00\u00d7 = as written).", { fmt: (v) => v.toFixed(2) + "\u00d7" });
   num("music.kick", "Kick drum level", -8, -24, 6, 0.5, "How loud the kick drum (the steady boom) is in the demo tracks that have one. The factory value keeps it well behind the music (Jon: it should take backstage); 0 dB is how the tracks were first mixed.", { fmt: F.db });
   choice("music.sort", "Sort the tracks", "cat", [["cat", "By category"], ["calm", "Calm first"], ["wild", "Wild first"], ["beat", "By beat speed"]],
@@ -844,7 +847,8 @@ HW.glsl = {
   bool("music.sectionPalette", "Autopilot: new colors on new sections", false, "Part of Autopilot. Picks a new random palette each time a demo track moves to a new section (only while colors are Animated). While it is on, the Autopilot button in the top bar is lit; clicking it turns this off.");
   num("src.monitor", "Speaker volume", 0.8, 0, 1, 0.01,
     "How loud the demo music, an audio file or the test beat plays through your speakers. The microphone is never played back, so it can't howl.", { fmt: F.pct });
-  bool("src.loop", "Loop the audio file", true, "Start the file again from the top when it ends.");
+  // no longer used (2026-10-23): sound files are playlist entries and follow "When a track ends"; kept so old saves load
+  bool("src.loop", "Loop the audio file", true, "No longer used: sound files follow \"When a track ends\" in the Music window.", { hidden: true });
   num("src.testBpm", "Test beat tempo", 124, 60, 180, 1, "Speed of the built-in test beat, in beats per minute.", { fmt: F.bpm });
   choice("src.testStyle", "Test beat pattern", "house",
     [["house", "Four on the floor"], ["breaks", "Breakbeat"], ["half", "Half-time"], ["ambient", "Ambient pulse"]],
@@ -2630,7 +2634,9 @@ HW.SHAPE_FIT = {
   };
 
   // ---- players: an audio file, the test beat, demo music -------------------------------------------
-  A.startFile = async function (file) {
+  // fileId: the playlist entry it came from (win-music.js "Your files"); what happens at the end follows the
+  // playlist's "When a track ends" (Repeat it = loop here; the rest is handled on "file-ended")
+  A.startFile = async function (file, fileId) {
     const resumed = ensureContext();
     try {
       await resumed;
@@ -2639,13 +2645,15 @@ HW.SHAPE_FIT = {
         A.el.crossOrigin = "anonymous";
         A.elNode = A.ctx.createMediaElementSource(A.el);
         for (const ev of ["ended", "timeupdate", "play", "pause"]) A.el.addEventListener(ev, () => HW.emit("file-state"));
+        A.el.addEventListener("ended", () => { if (A.player && A.player.kind === "file") HW.emit("file-ended", { id: A.fileId }); });
         A.el.addEventListener("error", () => { if (A.player && A.player.kind === "file") fail({ name: "EncodingError" }, "file"); });
       }
       stopPlayer();
       if (A.el.src) URL.revokeObjectURL(A.el.src);
       A.el.src = URL.createObjectURL(file);
-      A.el.loop = cfg["src.loop"];
+      A.el.loop = cfg["music.mode"] === "one";
       A.fileName = file.name;
+      A.fileId = fileId || null;
       setPlayer(A.elNode, "file", file.name);
       await A.el.play();
       return true;
@@ -11204,7 +11212,7 @@ HW.win.define("source", {
     // ---- what's playing ----------------------------------------------------------------------
     const PLAY = [
       ["music", "Demo music", "music", "Built-in tracks in many genres, made to show off the visuals. Opens the Music window."],
-      ["file", "Audio file", "file", "Play a song from this computer (you can also drop a file anywhere on the page)."],
+      ["file", "Audio file", "file", "Play songs from this computer: pick one or several (or drop them anywhere on the page). They join the playlist as \"Your files\"."],
       ["test", "Test beat", "metronome", "A simple built-in beat, for setting up."],
     ];
     const playBtns = {};
@@ -11226,8 +11234,9 @@ HW.win.define("source", {
     const time = el("span", { class: "mono" });
     const fname = el("div", { class: "note" });
     const fileBox = el("div", { class: "sec" }, el("h3", { text: "Audio file" }), fname, el("div", { class: "row" }, play, seek, time),
-      el("div", { class: "grid" }, ui.control("src.loop")),
-      el("div", { class: "row" }, ui.button("Open another file…", "folder", () => HW.app.pickFile(), "Pick a different song on this computer.")));
+      el("div", { class: "grid" }, ui.control("music.mode")),
+      el("div", { class: "row" }, ui.button("Add sound files…", "folder", () => HW.app.pickFile(), "Add more songs from this computer to the playlist; the first one you pick starts playing."),
+        ui.button("Playlist", "list", () => HW.win.open("playlist"), "Open the playlist: your files at the top, then the built-in songs.")));
     function fileState() {
       if (!A.el) return;
       const pi = A.el.paused ? "play" : "pause";      // only on change (see win-music.js)
@@ -11390,10 +11399,71 @@ HW.win.define("source", {
   // the play order: the list as it is shown
   const ordered = () => tableRows(0).flatMap((g) => g.tracks);   // the play order follows the playlist table
 
+  // ---- YOUR SOUND FILES (Jon, 2026-10-23: "Instead of adding sound files, which would make the whole thing way too
+  // big, let's add the ability to load sound files."). Files you open or drop join the playlist as "Your files", at
+  // the top, and play in the Music player like the songs: play/pause, the time slider, next/previous and "When a
+  // track ends". Nothing is copied into the page or saved; the list lasts until the page is closed.
+  const FILES = [];       // { id: "file:n", n, name, fileName, file, length, category: "files", genre, style, blurb }
+  let fileSeq = 0;
+  const SOUND_EXT = /\.(wav|wave|mp3|ogg|oga|opus|flac|m4a|aac|weba|webm|mp4|m4v|mov)$/i;
+  const isFileId = (id) => typeof id === "string" && id.startsWith("file:");
+  const fileOf = (id) => FILES.find((f) => f.id === id);
+  const playingFile = () => (A() && A().player && A().player.kind === "file" ? fileOf(A().fileId) || null : null);
+  const curIdNow = () => (playingFile() ? A().fileId : ready() && isMusic() ? (M().state() || {}).id : null);
+  const refreshList = () => { const w = HW.win.get && HW.win.get("playlist"); if (w && w.parts) buildList(w); };
+  HW.files = FILES;
+  // add files (a FileList or array) to the playlist; opts.play plays the first one added
+  HW.addFiles = (list, opts = {}) => {
+    const all = [...(list || [])], added = [];
+    for (const file of all) {
+      if (!file || !(/^(audio|video)\//.test(file.type || "") || SOUND_EXT.test(file.name || ""))) continue;
+      const ext = (file.name.match(/\.([^.]+)$/) || ["", ""])[1].toUpperCase();
+      const f = { id: "file:" + ++fileSeq, n: fileSeq, name: file.name.replace(/\.[^.]+$/, "") || file.name, fileName: file.name, file, length: 0,
+        category: "files", genre: "Your file", style: ext, blurb: file.name + (file.size ? ", " + (file.size / 1048576).toFixed(1) + " MB" : "") + "." };
+      FILES.push(f);
+      added.push(f);
+      // its length, read from the file's header
+      const probe = new Audio(), url = URL.createObjectURL(file);
+      probe.preload = "metadata";
+      probe.addEventListener("loadedmetadata", () => { if (isFinite(probe.duration)) f.length = probe.duration; URL.revokeObjectURL(url); probe.removeAttribute("src"); refreshList(); }, { once: true });
+      probe.addEventListener("error", () => URL.revokeObjectURL(url), { once: true });
+      probe.src = url;
+    }
+    if (!added.length) {
+      if (all.length) HW.toast(all.length === 1 ? "\"" + all[0].name + "\" isn't a sound file." : "None of those are sound files.", "error");
+      return added;
+    }
+    refreshList();
+    HW.toast(added.length === 1 ? "Added \"" + added[0].name + "\" to the playlist." : "Added " + added.length + " sound files to the playlist.");
+    if (all.length > added.length) HW.toast((all.length - added.length) + " of the files weren't sound files and were left out.", "error");
+    if (opts.play) HW.playFile(added[0].id);
+    return added;
+  };
+  // play one of your files (from the start screen this also opens the studio)
+  HW.playFile = (id) => {
+    const f = fileOf(id);
+    if (!f) return Promise.resolve(false);
+    return document.body.classList.contains("gate-open") ? HW.app.start("file", f.file, id) : A().startFile(f.file, id);
+  };
+  HW.removeFile = (id) => {
+    const i = FILES.findIndex((f) => f.id === id);
+    if (i < 0) return;
+    if (playingFile() && A().fileId === id) A().stopPlayer();
+    FILES.splice(i, 1);
+    refreshList();
+  };
+  // a file that ends follows "When a track ends", like the songs ("Repeat it" loops it in audio.js)
+  HW.on("file-ended", (e) => {
+    if (!e || !fileOf(e.id)) return;
+    const mode = cfg["music.mode"];
+    if (mode === "stop") { A().stopPlayer(); return; }
+    HW.musicPlay(mode === "one" ? e.id : nextId(1));
+  });
+
   // ---- the playlist and the song's sections drive the visuals --------------------------------------
   function nextId(dir) {
     let list = ordered();
-    const curId = (M().state() || {}).id;
+    const curId = curIdNow();
     if (cfg["music.mode"] === "cat") {             // stay in the playing track's category
       const t = list.find((x) => x.id === curId);
       const same = t ? list.filter((x) => (t.category ? x.category === t.category : x.genre === t.genre)) : [];
@@ -11408,7 +11478,11 @@ HW.win.define("source", {
     }
     return list[(cur + dir + list.length) % list.length].id;
   }
-  HW.musicPlay = (id, opts) => { HW.set("music.last", id, { undo: false, source: "load" }); return A().startMusic(id, opts); };
+  HW.musicPlay = (id, opts) => {
+    if (isFileId(id)) return HW.playFile(id);
+    HW.set("music.last", id, { undo: false, source: "load" });
+    return A().startMusic(id, opts);
+  };
   HW.musicStep = (dir) => { if (ready()) HW.musicPlay(nextId(dir)); };
   const applyKick = () => { if (ready() && M().setKick && Number.isFinite(cfg["music.kick"])) M().setKick(cfg["music.kick"]); };
   HW.on("music", (e) => {
@@ -11429,6 +11503,7 @@ HW.win.define("source", {
   HW.on("cfg", ({ key }) => {
     if (key === "music.tempo" && ready() && M().setTempo) M().setTempo(cfg["music.tempo"]);
     if (key === "music.kick") applyKick();
+    if (key === "music.mode" && A() && A().el) A().el.loop = cfg["music.mode"] === "one";
     if (key === "music.table") { const w = HW.win.get && HW.win.get("playlist"); if (w && w.parts) buildList(w); }
   });
 
@@ -11444,6 +11519,11 @@ HW.win.define("source", {
       P.blurb = el("div", { class: "note" });
       const tb = (icon, tip, fn) => el("button", { type: "button", class: "btn tbtn", "data-tip": tip, html: HW.icon(icon), on: { click: fn } });
       P.playBtn = tb("play", "Play or pause", () => {
+        if (playingFile()) {                          // one of your sound files
+          const a = A().el;
+          if (a.paused) { if (A().ctx) A().ctx.resume(); a.play(); } else a.pause();
+          return;
+        }
         if (!ready()) return;
         if (!isMusic()) HW.musicPlay(cfg["music.last"] || M().tracks[0].id);
         else if (M().isPlaying()) M().pause();
@@ -11479,10 +11559,10 @@ HW.win.define("source", {
       }
       // (Jon, 2026-10-22: the player and the playlist are separate windows) the list lives in "playlist"
       const listBtn = el("button", { type: "button", class: "btn", html: HW.icon("list") + "<span>Playlist</span>", "data-tip": "Open the playlist: every song by category, energy and beat.", on: { click: () => HW.win.open("playlist") } });
+      P.stemRow = el("div", { class: "row" }, el("span", { class: "ctl-label", text: "Mute parts" }), stemBox);
       body.append(
         el("section", { class: "sec now" }, el("h3", { text: "Now playing" }), P.name, P.info, P.blurb, transport,
-          el("div", { class: "row" }, P.sectionName, P.time), P.timeline, P.seek,
-          el("div", { class: "row" }, el("span", { class: "ctl-label", text: "Mute parts" }), stemBox)),
+          el("div", { class: "row" }, P.sectionName, P.time), P.timeline, P.seek, P.stemRow),
         ui.section("Playback", "", ["music.mode", "music.tempo", "music.kick", "src.monitor", "src.listen"]),
         ui.section("Visuals follow the song", "The demo tracks tell the visuals where their sections start, so the picture can hit the drops with the music. The two Autopilot switches here are off unless you turn them on; while either is on, the Autopilot button in the top bar is lit, and clicking it turns them off.", ["music.dropShape", "music.dropFlash", "music.sectionPalette"]),
         el("section", { class: "sec" }, listBtn));
@@ -11490,6 +11570,9 @@ HW.win.define("source", {
     },
     tick(w) {
       const P = w.parts;
+      const pf = playingFile();
+      P.timeline.hidden = P.stemRow.hidden = !!pf;      // sections and parts belong to the built-in songs only
+      if (pf) { tickFile(P, pf); return; }
       if (!ready()) return;
       const s = isMusic() ? M().state() : null;
       const t = s && M().tracks.find((x) => x.id === s.id);
@@ -11537,12 +11620,38 @@ HW.win.define("source", {
     },
   });
 
+  // Now playing for one of your sound files: its name, the time and the slider (no sections, no parts to mute)
+  function tickFile(P, f) {
+    const a = A().el, d = a && isFinite(a.duration) ? a.duration : f.length || 0, now = a ? a.currentTime : 0;
+    P.name.textContent = f.name;
+    P.info.textContent = "Your file  •  " + f.fileName;
+    P.blurb.textContent = "";
+    const pi = a && !a.paused ? "pause" : "play";   // only on change (see above)
+    if (P.playBtn.dataset.icon !== pi) { P.playBtn.dataset.icon = pi; P.playBtn.innerHTML = HW.icon(pi); }
+    const pv = P.seekDrag ? P.seekDrag.to : null;
+    P.time.textContent = (pv != null ? "→ " + HW.mmss(pv) : HW.mmss(now)) + " / " + HW.mmss(d);
+    P.sectionName.textContent = "";
+    P.seek.classList.toggle("off", !d);
+    if (d) {
+      const x = HW.clamp((pv != null ? pv : now) / d, 0, 1);
+      P.seekThumb.style.left = x * 100 + "%";
+      P.seekFill.style.left = "0%";
+      P.seekFill.style.width = x * 100 + "%";
+      P.seek.setAttribute("aria-valuetext", HW.mmss(pv != null ? pv : now) + " of " + HW.mmss(d));
+      P.seekDur = d; P.seekNow = now;
+    }
+    if (P.tlKey !== f.id) { P.tlKey = f.id; P.timeline.replaceChildren(); P.seekMarks.replaceChildren(); }
+  }
+
   // ---- the time slider in Now playing: drag (or click) previews the time, letting go seeks there; arrow keys step
+  // (a song moves with the engine's seek; one of your files jumps straight there)
+  const canSeek = () => !!(playingFile() || (ready() && isMusic() && M().seek));
+  const seekTo = (t) => { if (playingFile()) A().fileSeek(t); else if (ready() && isMusic() && M().seek) M().seek(t); };
   function seekSlider(P) {
     const tr = P.seek;
     const at = (x) => { const r = tr.getBoundingClientRect(); return HW.clamp((x - r.left) / Math.max(1, r.width), 0, 1) * (P.seekDur || 0); };
     tr.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0 || !P.seekDur || !ready() || !M().seek) return;
+      if (e.button !== 0 || !P.seekDur || !canSeek()) return;
       e.preventDefault();
       tr.focus();
       tr.setPointerCapture(e.pointerId);
@@ -11555,7 +11664,7 @@ HW.win.define("source", {
       const to = P.seekDrag.to;
       P.seekDrag = null;
       HW.uiBusy = Math.max(0, (HW.uiBusy || 0) - 1);
-      if (go && isMusic()) M().seek(to);
+      if (go) seekTo(to);
     };
     tr.addEventListener("pointerup", (e) => { if (P.seekDrag) P.seekDrag.to = at(e.clientX); end(true); });
     tr.addEventListener("pointercancel", () => end(false));
@@ -11563,7 +11672,7 @@ HW.win.define("source", {
     // keys: the target moves at once, the music follows when the keys rest (a held arrow doesn't restart it 30 times)
     let keyTimer = 0;
     tr.addEventListener("keydown", (e) => {
-      if (!P.seekDur || !isMusic() || !M().seek) return;
+      if (!P.seekDur || !canSeek()) return;
       const step = e.shiftKey ? 15 : 5, cur = P.seekDrag ? P.seekDrag.to : P.seekNow || 0;
       let to = null;
       if (e.key === "ArrowRight" || e.key === "ArrowUp") to = cur + step;
@@ -11574,7 +11683,7 @@ HW.win.define("source", {
       e.preventDefault();
       P.seekDrag = { to: HW.clamp(to, 0, P.seekDur), key: true };
       clearTimeout(keyTimer);
-      keyTimer = setTimeout(() => { const d = P.seekDrag; P.seekDrag = null; if (d && isMusic()) M().seek(d.to); }, 300);
+      keyTimer = setTimeout(() => { const d = P.seekDrag; P.seekDrag = null; if (d) seekTo(d.to); }, 300);
     });
   }
 
@@ -11588,15 +11697,18 @@ HW.win.define("source", {
       P.chips = el("div", { class: "chips" });
       P.list = el("div", { class: "tracks" });
       P.missing = el("p", { class: "note", text: "The demo tracks are not in this build yet." });
+      P.addBtn = el("button", { type: "button", class: "btn", html: HW.icon("folder") + "<span>Add sound files…</span>",
+        "data-tip": "Add songs or recordings from this computer to the playlist (pick several at once, or drop them anywhere on the page). They play here like the built-in songs and stay until you close the page; nothing is copied into the studio.",
+        on: { click: () => HW.app.pickFile() } });
       P.energyNote = el("p", { class: "note", text: "Energy (the dots) is measured from the music: how much is going on, from 1 Sleepy (drones and space) through 2 Calm, 3 Steady and 4 Danceable to 5 Wild (hard hits, everything going). The beat is the felt one: how fast the steady boom hits, not the BPM the track is written in. Click a level to see only those tracks. The number before each name is the song's permanent number." });
-      body.append(el("section", { class: "sec" }, P.energyNote, P.sorts, P.chips, P.missing, P.list));
+      body.append(el("section", { class: "sec" }, el("div", { class: "row" }, P.addBtn), P.energyNote, P.sorts, P.chips, P.missing, P.list));
       w.built = false;
     },
     onOpen(w) { buildList(w); },
     tick(w) {
       if (!w.built) buildList(w);
-      const P = w.parts, s = ready() && isMusic() ? M().state() : null;
-      for (const row of P.list.querySelectorAll(".pl-row")) row.classList.toggle("on", !!(s && row.dataset.id === s.id));
+      const P = w.parts, cur = curIdNow();
+      for (const row of P.list.querySelectorAll(".pl-row")) row.classList.toggle("on", !!(cur && row.dataset.id === cur));
     },
   });
 
@@ -11619,8 +11731,12 @@ HW.win.define("source", {
     const st = tableState(), col = COLS.find((c) => c[0] === st.col) || COLS[0], key = col[2], dir = st.dir < 0 ? -1 : 1;
     const cmp = (a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * dir || numOf(a) - numOf(b); };
     let ts = M().tracks.filter((x) => !filter || energyOf(x) === filter).slice().sort(cmp);
-    if (!st.group) return [{ cat: null, tracks: ts }];
-    return cats().map((c) => ({ cat: c, tracks: ts.filter((x) => x.category === c.id) })).concat([{ cat: { id: "", name: "Other" }, tracks: ts.filter((x) => !catOf(x)) }]).filter((g) => g.tracks.length);
+    // your sound files: their own group at the top (in the order added, or by name or length when those are sorted);
+    // they have no measured energy, so an energy filter hides them
+    const own = filter ? [] : FILES.slice().sort((a, b) => (st.col === "name" || st.col === "len" ? cmp(a, b) : 0) || a.n - b.n);
+    const top = own.length ? [{ cat: { id: "files", name: "Your files", blurb: "Sound files you added. They stay until you close the page." }, tracks: own }] : [];
+    if (!st.group) return top.concat([{ cat: own.length ? { id: "songs", name: "Built-in songs", blurb: "" } : null, tracks: ts }]);
+    return top.concat(cats().map((c) => ({ cat: c, tracks: ts.filter((x) => x.category === c.id) })), [{ cat: { id: "", name: "Other" }, tracks: ts.filter((x) => !catOf(x)) }]).filter((g) => g.tracks.length);
   }
   function buildList(w) {
     const P = w.parts;
@@ -11650,6 +11766,18 @@ HW.win.define("source", {
       if (g.cat) body.appendChild(el("tr", { class: "pl-group" }, el("td", { colspan: String(COLS.length) },
         el("span", { class: "cat-name", text: g.cat.name }), g.cat.blurb ? el("span", { class: "cat-blurb", text: "  " + g.cat.blurb }) : null)));
       for (const x of g.tracks) {
+        if (isFileId(x.id)) {          // one of your sound files
+          const del = el("button", { type: "button", class: "pl-del", text: "×", "aria-label": "Remove " + x.name + " from the playlist",
+            "data-tip": "Remove it from the playlist (the file on your computer is not touched).", on: { click: (ev) => { ev.stopPropagation(); HW.removeFile(x.id); } } });
+          body.appendChild(el("tr", { class: "pl-row pl-file", "data-id": x.id, "data-tip": x.blurb, "data-tip-title": x.name, on: { click: () => HW.playFile(x.id) } },
+            el("td", { class: "pl-num" }),
+            el("td", { class: "pl-name" }, el("span", { class: "ico-wrap", html: HW.icon("play") }), el("span", { text: x.name }), del),
+            el("td", { class: "pl-dim", text: "Your file" + (x.style ? " • " + x.style : "") }),
+            el("td", { class: "pl-dim", text: "Your files" }),
+            el("td", { class: "pl-infl" }), el("td", { class: "pl-energy" }), el("td", { class: "pl-mono" }),
+            el("td", { class: "pl-mono", text: x.length ? HW.mmss(x.length) : "" })));
+          continue;
+        }
         const e = energyOf(x), c = catOf(x);
         body.appendChild(el("tr", { class: "pl-row", "data-id": x.id, "data-tip": (x.blurb || "") + " " + beatTip(x), "data-tip-title": x.name, on: { click: () => HW.musicPlay(x.id) } },
           el("td", { class: "pl-num", text: String(numOf(x) || "") }),
@@ -13270,16 +13398,16 @@ HW.win.define("guide", {
       if (b && e.detail > 0 && !b.closest(".hold")) b.blur();
     });
 
-    // drop an audio file anywhere
+    // drop sound files anywhere: they join the playlist ("Your files") and the first one plays
     const drop = HW.$("#drop");
     addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { e.preventDefault(); drop.hidden = false; } });
     addEventListener("dragleave", (e) => { if (e.target === drop || !e.relatedTarget) drop.hidden = true; });
     addEventListener("drop", (e) => {
       drop.hidden = true;
-      const f = e.dataTransfer && e.dataTransfer.files[0];
-      if (!f) return;
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || !files.length) return;
       e.preventDefault();
-      app.start("file", f);
+      addAndPlay(files);
     });
     // a context made without a click starts paused: any click wakes it
     addEventListener("pointerdown", () => { const c = HW.audio.ctx; if (c && c.state === "suspended") c.resume(); }, true);
@@ -13307,7 +13435,7 @@ HW.win.define("guide", {
     HW.win.reopenSaved();
   }
   // start a sound source; from the gate this also opens the studio
-  app.start = async function (kind, file) {
+  app.start = async function (kind, file, fileId) {
     gateErr.hidden = true;
     let ok = true;
     // from the start screen, each button also says what the visuals listen to
@@ -13315,7 +13443,7 @@ HW.win.define("guide", {
     if (kind === "music") ok = await HW.audio.startMusic(cfg["music.last"] || undefined);
     else if (kind === "mic") ok = await HW.audio.startMic();
     else if (kind === "screen") ok = await HW.audio.startScreen();
-    else if (kind === "file") ok = file ? await HW.audio.startFile(file) : false;
+    else if (kind === "file") ok = file ? await HW.audio.startFile(file, fileId) : false;
     else if (kind === "test") ok = await HW.audio.startTest();
     if (document.body.classList.contains("gate-open")) {
       if (ok || kind === "none") { closeGate(); if (kind === "music") HW.win.open("music"); }
@@ -13323,9 +13451,14 @@ HW.win.define("guide", {
     }
     return ok;
   };
+  // add sound files to the playlist and play the first (without the playlist code: just play the first file)
+  function addAndPlay(files) {
+    if (HW.addFiles) HW.addFiles(files, { play: true });
+    else if (files[0]) app.start("file", files[0]);
+  }
   app.pickFile = () => {
-    const input = HW.el("input", { type: "file", accept: "audio/*,video/*", style: "display:none" });
-    input.addEventListener("change", () => { if (input.files[0]) app.start("file", input.files[0]); input.remove(); });
+    const input = HW.el("input", { type: "file", accept: "audio/*,video/*", multiple: "", style: "display:none" });
+    input.addEventListener("change", () => { if (input.files.length) addAndPlay(input.files); input.remove(); });
     document.body.appendChild(input);
     input.click();
   };
