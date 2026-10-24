@@ -5,14 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Screen Peek</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: dark; }
   body { margin: 0; font: 16px system-ui, sans-serif; background: #111; color: #eee; }
   header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; position: sticky; top: 0; background: #222; }
-  button, select { min-height: 44px; padding: 0 14px; font-size: 1em; border-radius: 8px; border: 1px solid #555; background: #333; color: #eee; }
-  button.on { background: #2a6; border-color: #2a6; }
+  button, select, input { min-height: 44px; padding: 0 14px; font-size: 1em; border-radius: 8px; border: 1px solid #555; background: #333; color: #eee; }
+  button.on, button.go { background: #2a6; border-color: #2a6; }
   #stat { font-size: 0.85em; color: #aaa; }
   img { display: block; width: 100%; height: auto; }
   .err { color: #f77; }
+  #login { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0, 0, 0, 0.7); }
+  #login.show { display: grid; }
+  #login form { display: grid; gap: 10px; width: min(22rem, calc(100vw - 32px)); padding: 18px; border-radius: 12px; background: #222; border: 1px solid #444; }
+  #login h2 { margin: 0; font-size: 1.15em; }
+  #login p { margin: 0; color: #aaa; font-size: 0.9em; }
 </style>
 </head>
 <body>
@@ -23,37 +28,60 @@
   <select id="size" title="Picture width">
     <option value="640">640 px</option><option value="1280" selected>1280 px</option><option value="0">full</option>
   </select>
-  <button id="setup">PC / key…</button>
+  <button id="out">Sign out</button>
   <span id="stat">Ready.</span>
 </header>
 <img id="pic" alt="">
+<div id="login">
+  <form id="lf">
+    <h2>Screen Peek</h2>
+    <p>Enter the password set on the PC (tray icon → Set password). This browser stays signed in.</p>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
+    <button class="go" type="submit">Sign in</button>
+    <p id="lerr" class="err"></p>
+  </form>
+</div>
 <script>
-// The link after "#" is the key, or "pc=<address>&key=<key>" when this page is opened from Cool tools.
-// What comes after "#" never reaches any server; it is kept in this browser for next time.
+// Jon's PC (Tailscale Funnel). Opened from the PC itself (or its own address), the page talks to its own server.
+const PC = "https://desktop-krq9ti2.tail46434.ts.net";
+const own = location.hostname === "127.0.0.1" || location.hostname.endsWith(".ts.net");
+const BASE = own ? "" : PC + "/";
 const $ = (id) => document.getElementById(id);
-const h = new URLSearchParams(location.hash.slice(1).includes("=") ? location.hash.slice(1) : "key=" + location.hash.slice(1));
-const local = location.hostname === "127.0.0.1" || location.hostname.endsWith(".ts.net");
-let KEY = h.get("key") || "", PC = h.get("pc") || "";
-try { if (!KEY) KEY = localStorage.getItem("peek-key") || ""; if (!PC) PC = localStorage.getItem("peek-pc") || ""; } catch (e) {}
-if (!local && (!KEY || !PC)) {
-  PC = prompt("Your PC's address (for example https://desktop-krq9ti2.tail46434.ts.net):", PC) || "";
-  KEY = prompt("The key the server printed:", KEY) || "";
+const store = { get: (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
+                set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} } };
+let TOKEN = store.get("peek-token");
+// An older pairing link (#key=… or #pc=…&key=…) still works: the key is kept the same way.
+const h = new URLSearchParams(location.hash.slice(1));
+if (h.get("key")) { TOKEN = h.get("key"); store.set("peek-token", TOKEN); }
+if (location.hash) history.replaceState(null, "", location.pathname);
+let running = false, frames = 0, t0 = 0, url = null, waiting = null;
+
+function say(t, bad) { $("stat").innerHTML = ""; $("stat").textContent = t; $("stat").className = bad ? "err" : ""; }
+
+// Shows the password box; resolves once signed in.
+function signIn(msg) {
+  $("lerr").textContent = msg || "";
+  $("login").classList.add("show");
+  $("pw").value = ""; setTimeout(() => $("pw").focus(), 50);
+  return waiting || (waiting = new Promise((ok) => { $("lf").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await fetch(`${BASE}login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("pw").value }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { $("lerr").textContent = j.error || ("Sign-in failed (HTTP " + r.status + ")"); return; }
+      TOKEN = j.token; store.set("peek-token", TOKEN);
+      $("login").classList.remove("show"); waiting = null; ok();
+    } catch (err) { $("lerr").textContent = "The PC did not answer: is sharing switched on in the tray?"; }
+  }; }));
 }
-PC = PC.replace(/\/+$/, "");
-try { localStorage.setItem("peek-key", KEY); if (PC) localStorage.setItem("peek-pc", PC); } catch (e) {}
-history.replaceState(null, "", location.pathname);           // the key leaves the address bar
-const BASE = local ? "" : PC + "/";
-let running = false, frames = 0, t0 = 0, url = null;
-if (!KEY) $("stat").innerHTML = '<span class="err">No key: open the link the server printed (it ends with #…).</span>';
 
 async function grab() {
+  if (!TOKEN) await signIn();
   const s = performance.now();
-  const r = await fetch(`${BASE}shot?w=${$("size").value}&q=60&t=${Date.now()}`, { headers: { "X-Key": KEY }, cache: "no-store" });
-  if (r.status === 404) {                    // the server makes a new key every run: ask for the new one
-    const k = prompt("The key was not accepted (the server makes a new one each time it starts). Paste the key it printed now:", "");
-    if (k) { KEY = k.trim().replace(/^.*#/, ""); try { localStorage.setItem("peek-key", KEY); } catch (e) {} return grab(); }
-    throw new Error("wrong or missing key");
-  }
+  let r;
+  try { r = await fetch(`${BASE}shot?w=${$("size").value}&q=60&t=${Date.now()}`, { headers: { "X-Key": TOKEN }, cache: "no-store" }); }
+  catch (e) { throw new Error("The PC did not answer: is sharing switched on in the tray?"); }
+  if (r.status === 401) { TOKEN = ""; store.set("peek-token", ""); await signIn("Please sign in (new password, or signed out on the PC)."); return grab(); }
   if (!r.ok) throw new Error("HTTP " + r.status);
   const blob = await r.blob();
   if (url) URL.revokeObjectURL(url);
@@ -62,26 +90,21 @@ async function grab() {
   const ms = performance.now() - s;
   frames++;
   const fps = running ? (frames / ((performance.now() - t0) / 1000)).toFixed(1) + " per s · " : "";
-  $("stat").textContent = `${fps}${Math.round(blob.size / 1024)} KB · ${Math.round(ms)} ms round trip · PC grab ${r.headers.get("X-Grab-Ms")} ms · ${new Date().toLocaleTimeString("en-US")}`;
+  say(`${fps}${Math.round(blob.size / 1024)} KB · ${Math.round(ms)} ms round trip · PC grab ${r.headers.get("X-Grab-Ms")} ms · ${new Date().toLocaleTimeString("en-US")}`);
 }
 
-$("setup").onclick = () => {
-  if (!local) { const p = prompt("Your PC's address:", PC); if (p !== null) PC = p.trim().replace(/\/+$/, ""); }
-  const k = prompt("The key the server printed (the part after #, or the whole link):", KEY);
-  if (k !== null) KEY = k.trim().replace(/^.*#/, "");
-  try { localStorage.setItem("peek-key", KEY); if (PC) localStorage.setItem("peek-pc", PC); } catch (e) {}
-  location.reload();
-};
-$("one").onclick = () => grab().catch((e) => { $("stat").innerHTML = `<span class="err">${e.message}</span>`; });
+$("out").onclick = () => { TOKEN = ""; store.set("peek-token", ""); running = false; signIn(); };
+$("one").onclick = () => grab().catch((e) => say(e.message, true));
 $("cont").onclick = async () => {
   running = !running;
   $("cont").textContent = "Continuous: " + (running ? "on" : "off");
   $("cont").classList.toggle("on", running);
   frames = 0; t0 = performance.now();
   while (running) {
-    try { await grab(); } catch (e) { $("stat").innerHTML = `<span class="err">${e.message}</span>`; running = false; $("cont").textContent = "Continuous: off"; $("cont").classList.remove("on"); }
+    try { await grab(); } catch (e) { say(e.message, true); running = false; $("cont").textContent = "Continuous: off"; $("cont").classList.remove("on"); }
   }
 };
+if (!TOKEN) signIn();
 </script>
 </body>
 </html>
