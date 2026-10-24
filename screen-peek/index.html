@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen Peek</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font: 16px system-ui, sans-serif; background: #111; color: #eee; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; position: sticky; top: 0; background: #222; }
+  button, select { min-height: 44px; padding: 0 14px; font-size: 1em; border-radius: 8px; border: 1px solid #555; background: #333; color: #eee; }
+  button.on { background: #2a6; border-color: #2a6; }
+  #stat { font-size: 0.85em; color: #aaa; }
+  img { display: block; width: 100%; height: auto; }
+  .err { color: #f77; }
+</style>
+</head>
+<body>
+<header>
+  <b>Hello world</b>
+  <button id="one">Single</button>
+  <button id="cont">Continuous: off</button>
+  <select id="size" title="Picture width">
+    <option value="640">640 px</option><option value="1280" selected>1280 px</option><option value="0">full</option>
+  </select>
+  <span id="stat">Ready.</span>
+</header>
+<img id="pic" alt="">
+<script>
+// The link after "#" is the key, or "pc=<address>&key=<key>" when this page is opened from Cool tools.
+// What comes after "#" never reaches any server; it is kept in this browser for next time.
+const $ = (id) => document.getElementById(id);
+const h = new URLSearchParams(location.hash.slice(1).includes("=") ? location.hash.slice(1) : "key=" + location.hash.slice(1));
+const local = location.hostname === "127.0.0.1" || location.hostname.endsWith(".ts.net");
+let KEY = h.get("key") || "", PC = h.get("pc") || "";
+try { if (!KEY) KEY = localStorage.getItem("peek-key") || ""; if (!PC) PC = localStorage.getItem("peek-pc") || ""; } catch (e) {}
+if (!local && (!KEY || !PC)) {
+  PC = prompt("Your PC's address (for example https://desktop-krq9ti2.tail46434.ts.net):", PC) || "";
+  KEY = prompt("The key the server printed:", KEY) || "";
+}
+PC = PC.replace(/\/+$/, "");
+try { localStorage.setItem("peek-key", KEY); if (PC) localStorage.setItem("peek-pc", PC); } catch (e) {}
+history.replaceState(null, "", location.pathname);           // the key leaves the address bar
+const BASE = local ? "" : PC + "/";
+let running = false, frames = 0, t0 = 0, url = null;
+if (!KEY) $("stat").innerHTML = '<span class="err">No key: open the link the server printed (it ends with #…).</span>';
+
+async function grab() {
+  const s = performance.now();
+  const r = await fetch(`${BASE}shot?w=${$("size").value}&q=60&t=${Date.now()}`, { headers: { "X-Key": KEY }, cache: "no-store" });
+  if (!r.ok) throw new Error(r.status === 404 ? "wrong or missing key" : "HTTP " + r.status);
+  const blob = await r.blob();
+  if (url) URL.revokeObjectURL(url);
+  url = URL.createObjectURL(blob);
+  await new Promise((ok) => { $("pic").onload = ok; $("pic").src = url; });
+  const ms = performance.now() - s;
+  frames++;
+  const fps = running ? (frames / ((performance.now() - t0) / 1000)).toFixed(1) + " per s · " : "";
+  $("stat").textContent = `${fps}${Math.round(blob.size / 1024)} KB · ${Math.round(ms)} ms round trip · PC grab ${r.headers.get("X-Grab-Ms")} ms · ${new Date().toLocaleTimeString("en-US")}`;
+}
+
+$("one").onclick = () => grab().catch((e) => { $("stat").innerHTML = `<span class="err">${e.message}</span>`; });
+$("cont").onclick = async () => {
+  running = !running;
+  $("cont").textContent = "Continuous: " + (running ? "on" : "off");
+  $("cont").classList.toggle("on", running);
+  frames = 0; t0 = performance.now();
+  while (running) {
+    try { await grab(); } catch (e) { $("stat").innerHTML = `<span class="err">${e.message}</span>`; running = false; $("cont").textContent = "Continuous: off"; $("cont").classList.remove("on"); }
+  }
+};
+</script>
+</body>
+</html>
