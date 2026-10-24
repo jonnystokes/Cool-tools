@@ -5,106 +5,589 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Screen Peek</title>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; font: 16px system-ui, sans-serif; background: #111; color: #eee; }
-  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; position: sticky; top: 0; background: #222; }
-  button, select, input { min-height: 44px; padding: 0 14px; font-size: 1em; border-radius: 8px; border: 1px solid #555; background: #333; color: #eee; }
-  button.on, button.go { background: #2a6; border-color: #2a6; }
-  #stat { font-size: 0.85em; color: #aaa; }
-  img { display: block; width: 100%; height: auto; }
+  :root { color-scheme: dark; --bg: #111; --bar: #1d1d1d; --card: #222; --line: #444; --text: #eee; --dim: #9a9a9a;
+          --go: #2a6; --warn: #d9a400; --bad: #e05555; --off: #777; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; background: var(--bar); }
+  button, select { min-height: 48px; padding: 0 16px; font-size: 1em; border-radius: 10px; border: 1px solid #555; background: #333; color: var(--text); }
+  button.on { background: var(--go); border-color: var(--go); }
+  #cont { min-width: 11.5em; font-weight: 600; }
+  #conn { display: flex; align-items: center; gap: 8px; flex: 1 1 14em; min-width: 0; font-size: 0.92em; }
+  #dot { flex: none; width: 14px; height: 14px; border-radius: 50%; background: var(--off); }
+  #dot.live { background: var(--go); } #dot.wait { background: var(--warn); } #dot.bad { background: var(--bad); }
+  #conntext { overflow-wrap: anywhere; }
+  canvas { display: block; width: 100%; height: auto; background: #000; }
+  #stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5em, 1fr)); gap: 6px; padding: 8px; }
+  .s { background: var(--card); border-radius: 8px; padding: 6px 8px; }
+  .s b { display: block; font-size: 1.05em; font-variant-numeric: tabular-nums; }
+  .s span { font-size: 0.78em; color: var(--dim); }
+  details { margin: 8px; background: var(--card); border-radius: 10px; padding: 4px 10px 10px; }
+  summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12em, 1fr)); gap: 10px; }
+  label { display: grid; gap: 4px; font-size: 0.9em; color: var(--dim); }
+  label.chk { display: flex; align-items: center; gap: 10px; min-height: 48px; color: var(--text); }
+  label.chk input { width: 26px; height: 26px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  #log { max-height: 45vh; overflow: auto; margin: 6px 0 0; padding: 8px; background: #000; border-radius: 8px; font: 12px ui-monospace, Consolas, monospace; white-space: pre-wrap; }
   .err { color: #f77; }
-  #login { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0, 0, 0, 0.7); }
+  #login { position: fixed; inset: 0; z-index: 5; display: none; place-items: center; background: rgba(0, 0, 0, 0.75); }
   #login.show { display: grid; }
-  #login form { display: grid; gap: 10px; width: min(22rem, calc(100vw - 32px)); padding: 18px; border-radius: 12px; background: #222; border: 1px solid #444; }
+  #login form { display: grid; gap: 10px; width: min(22rem, calc(100vw - 32px)); padding: 18px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
   #login h2 { margin: 0; font-size: 1.15em; }
-  #login p { margin: 0; color: #aaa; font-size: 0.9em; }
+  #login p { margin: 0; color: var(--dim); font-size: 0.9em; }
+  #login input { min-height: 48px; padding: 0 12px; font-size: 1em; border-radius: 10px; border: 1px solid #555; background: #333; color: var(--text); }
+  #login button { background: var(--go); border-color: var(--go); }
 </style>
 </head>
 <body>
 <header>
-  <b>Hello world</b>
-  <button id="one">Single</button>
   <button id="cont">Continuous: off</button>
-  <select id="size" title="Picture width">
-    <option value="640">640 px</option><option value="1280" selected>1280 px</option><option value="0">full</option>
-  </select>
-  <button id="out">Sign out</button>
-  <span id="stat">Ready.</span>
+  <button id="one">Single</button>
+  <div id="conn"><span id="dot"></span><span id="conntext">Ready.</span></div>
 </header>
-<img id="pic" alt="">
+<canvas id="pic" width="16" height="9"></canvas>
+<div id="stats"></div>
+<details id="setbox">
+  <summary>Settings</summary>
+  <div class="grid">
+    <label>Transport<select id="transport">
+      <option value="ws" selected>TCP: WebSocket (one socket)</option>
+      <option value="stream">TCP: stream (one long response)</option>
+      <option value="pipe">TCP: pipelined requests</option>
+      <option value="pull">TCP: one request per frame</option>
+    </select></label>
+    <label>Picture width<select id="w">
+      <option value="640">640 px</option><option value="960">960 px</option><option value="1280" selected>1280 px</option><option value="0">full</option>
+    </select></label>
+    <label>Quality<select id="q">
+      <option value="40">40</option><option value="60" selected>60</option><option value="75">75</option><option value="85">85</option>
+    </select></label>
+    <label>Format<select id="fmt"><option value="jpeg" selected>JPEG</option><option value="webp">WebP (smaller, ~10× slower to make)</option></select></label>
+    <label>Frame-rate cap<select id="fps">
+      <option value="5">5 per s</option><option value="10">10 per s</option><option value="15">15 per s</option>
+      <option value="30" selected>30 per s</option><option value="60">60 per s</option><option value="0">no cap</option>
+    </select></label>
+    <label>Frames in flight (window)<select id="win">
+      <option value="1">1</option><option value="2" selected>2</option><option value="3">3</option>
+    </select></label>
+    <label>Full refresh (with partial updates)<select id="refresh">
+      <option value="5">every 5 s</option><option value="10" selected>every 10 s</option><option value="30">every 30 s</option>
+      <option value="60">every 60 s</option><option value="0">never</option>
+    </select></label>
+  </div>
+  <label class="chk"><input type="checkbox" id="partial" checked> Partial updates: send only the parts that changed</label>
+  <label class="chk"><input type="checkbox" id="force"> Send unchanged frames too (for measuring)</label>
+  <label class="chk"><input type="checkbox" id="wake" checked> Keep the screen on (Wake Lock): <span id="wakestate">…</span></label>
+  <div class="row"><button id="out">Sign out</button></div>
+</details>
+<details id="logbox" open>
+  <summary>Log</summary>
+  <div class="row"><button id="copy">Copy log</button><button id="save">Save log</button><button id="clear">Clear</button></div>
+  <pre id="log"></pre>
+</details>
 <div id="login">
   <form id="lf">
     <h2>Screen Peek</h2>
     <p>Enter the password set on the PC (tray icon → Set password). This browser stays signed in.</p>
     <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
-    <button class="go" type="submit">Sign in</button>
+    <button type="submit">Sign in</button>
     <p id="lerr" class="err"></p>
   </form>
 </div>
 <script>
+"use strict";
 // Jon's PC (Tailscale Funnel). Opened from the PC itself (or its own address), the page talks to its own server.
 const PC = "https://desktop-krq9ti2.tail46434.ts.net";
-const own = location.hostname === "127.0.0.1" || location.hostname.endsWith(".ts.net");
-const BASE = own ? "" : PC + "/";
+const own = ["127.0.0.1", "localhost"].includes(location.hostname) || location.hostname.endsWith(".ts.net");
+const BASE = (own ? location.origin : PC) + "/";
 const $ = (id) => document.getElementById(id);
 const store = { get: (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
                 set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} } };
+const now = () => performance.timeOrigin + performance.now();      // this device's clock, ms
+const dec = new TextDecoder();
+const VID = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
 let TOKEN = store.get("peek-token");
-// An older pairing link (#key=… or #pc=…&key=…) still works: the key is kept the same way.
-const h = new URLSearchParams(location.hash.slice(1));
+const h = new URLSearchParams(location.hash.slice(1));               // an old pairing link (#key=...) still works
 if (h.get("key")) { TOKEN = h.get("key"); store.set("peek-token", TOKEN); }
-if (location.hash) history.replaceState(null, "", location.pathname);
-let running = false, frames = 0, t0 = 0, url = null, waiting = null;
+if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 
-function say(t, bad) { $("stat").innerHTML = ""; $("stat").textContent = t; $("stat").className = bad ? "err" : ""; }
+// ---- Log: events with 12-hour times, plus a stats line every second while Continuous is on ----------
+const LOG = [], logEl = $("log");
+function clock12(ms, withMs = true) {
+  const d = new Date(ms), hr = d.getHours() % 12 || 12, p = (n, w = 2) => String(n).padStart(w, "0");
+  return `${hr}:${p(d.getMinutes())}:${p(d.getSeconds())}${withMs ? "." + p(d.getMilliseconds(), 3) : ""} ${d.getHours() < 12 ? "AM" : "PM"}`;
+}
+function log(msg) {
+  const line = `${clock12(now())}  ${msg}`;
+  LOG.push(line);
+  const nearEnd = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+  logEl.appendChild(document.createTextNode(line + "\n"));
+  if (LOG.length > 20000) { LOG.shift(); logEl.removeChild(logEl.firstChild); }
+  if (nearEnd) logEl.scrollTop = logEl.scrollHeight;
+}
+$("copy").onclick = async () => {
+  const text = LOG.join("\n");
+  try { await navigator.clipboard.writeText(text); log(`log copied (${LOG.length} lines)`); }
+  catch (e) {
+    const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy"); ta.remove(); log(ok ? `log copied (${LOG.length} lines)` : "copy failed: use Save log");
+  }
+};
+$("save").onclick = () => {
+  const a = document.createElement("a"), d = new Date();
+  a.href = URL.createObjectURL(new Blob([LOG.join("\n") + "\n"], { type: "text/plain" }));
+  a.download = `screen-peek-log-${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}-${clock12(now(), false).replace(/[: ]/g, "")}.txt`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+$("clear").onclick = () => { LOG.length = 0; logEl.textContent = ""; };
 
-// Shows the password box; resolves once signed in.
+// ---- Settings (remembered in this browser) ------------------------------------------------------------
+const KEYS = ["transport", "w", "q", "fmt", "fps", "win", "refresh"], CHECKS = ["partial", "force"];
+const S = {};
+function readSettings() {
+  for (const k of KEYS) S[k] = $(k).value;
+  for (const k of CHECKS) S[k] = $(k).checked;
+}
+try { const saved = JSON.parse(store.get("peek-settings") || "{}");
+      for (const k of KEYS) if (saved[k] != null && [...$(k).options].some((o) => o.value === saved[k])) $(k).value = saved[k];
+      for (const k of CHECKS) if (saved[k] != null) $(k).checked = !!saved[k];
+      if (saved.wake != null) $("wake").checked = !!saved.wake; } catch (e) {}
+readSettings();
+const qs = () => `w=${S.w}&q=${S.q}&fmt=${S.fmt}&fps=${S.fps}&win=${S.win}&force=${S.force ? 1 : 0}&partial=${S.partial ? 1 : 0}&refresh=${S.refresh}`;
+const settingsText = () => `${S.transport}, ${S.w === "0" ? "full" : S.w + " px"}, q${S.q}, ${S.fmt}, cap ${S.fps === "0" ? "none" : S.fps + "/s"}, ` +
+  `window ${S.win}, ${S.partial ? "partial updates (full every " + (S.refresh === "0" ? "never" : S.refresh + " s") + ")" : "full frames"}${S.force ? ", unchanged frames too" : ""}`;
+for (const k of [...KEYS, ...CHECKS]) $(k).addEventListener("change", () => {
+  const oldT = S.transport; readSettings();
+  store.set("peek-settings", JSON.stringify({ ...S, wake: $("wake").checked }));
+  log(`settings: ${settingsText()}`);
+  if (!conn.live) { if (S.transport === "ws" && TOKEN && !conn.down) open(); return; }   // keep a warm socket ready
+  if (S.transport === oldT && conn.live.kind === "ws") conn.live.set();   // same socket, new settings
+  else reopen("settings changed");
+});
+
+// ---- Clock sync with the PC (NTP-style: the sample with the shortest round trip wins) ---------------
+const sync = { samples: [], offset: 0, rtt: null, ok: false };
+function addSync(t0, srv, t1) {
+  sync.samples.push({ rtt: t1 - t0, off: srv - (t0 + t1) / 2 });
+  if (sync.samples.length > 10) sync.samples.shift();
+  const best = sync.samples.reduce((a, b) => (b.rtt < a.rtt ? b : a));
+  sync.offset = best.off; sync.rtt = t1 - t0; sync.best = best.rtt; sync.ok = true;
+}
+async function pingHttp() {
+  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 4000), t0 = now();
+  try { const j = await (await fetch(`${BASE}ping?t=${t0}`, { cache: "no-store", signal: ac.signal })).json(); addSync(t0, j.srv, now()); conn.lastData = now(); return true; }
+  catch (e) { return false; } finally { clearTimeout(timer); }
+}
+
+// ---- Applying updates: full frames, and partial updates (changed tiles) that must land in order ------
+// D.seq = the picture the canvas shows once the queue is drawn. A full frame replaces everything queued;
+// a partial update applies when base <= D.seq < seq (it holds every tile changed since its base);
+// one that arrives early (pipelined replies can overtake) waits; after 1 s of waiting we ask for a full frame.
+const canvas = $("pic"), ctx = canvas.getContext("2d", { alpha: false });
+const D = { ep: null, seq: 0, wait: [], waitSince: 0, askedAt: 0 }, Q = [];
+let drawing = false;
+function show(hdr, blob, ack) {
+  W.recv++; T.recv++; W.bytes += hdr.n; W.fullBytes += hdr.kind === "d" ? hdr.fn : hdr.n;
+  T.bytes += hdr.n; T.fullBytes += hdr.kind === "d" ? hdr.fn : hdr.n;
+  conn.lastData = now();
+  const it = { hdr, blob, ack, at: now() };
+  if (hdr.ep !== D.ep) { D.ep = hdr.ep; D.seq = 0; for (const w of D.wait.splice(0)) drop(w); }
+  if (hdr.kind !== "d") {
+    if (D.seq && hdr.seq <= D.seq) return drop(it);
+    for (const q of Q.splice(0)) drop(q, true);       // a full frame makes everything still queued unneeded
+    D.seq = hdr.seq; Q.push(it);
+  } else if (hdr.seq <= D.seq) return drop(it);
+  else if (hdr.base <= D.seq) { D.seq = hdr.seq; Q.push(it); }
+  else { D.wait.push(it); if (!D.waitSince) D.waitSince = now(); }
+  for (let moved = true; moved && D.wait.length; ) {  // early arrivals that can go now
+    moved = false;
+    for (const w of [...D.wait]) {
+      if (w.hdr.seq <= D.seq) { D.wait.splice(D.wait.indexOf(w), 1); drop(w); moved = true; }
+      else if (w.hdr.base <= D.seq) { D.wait.splice(D.wait.indexOf(w), 1); D.seq = w.hdr.seq; Q.push(w); moved = true; }
+    }
+  }
+  if (!D.wait.length) D.waitSince = 0;
+  paintQueue();
+}
+function drop(it, counted) { if (counted) { W.dropped++; T.dropped++; } if (it.ack) it.ack(); }
+function needFull() {                               // a partial update is missing: ask for a full frame
+  if (now() - D.askedAt < 2000 || !conn.live || !conn.live.full) return;
+  D.askedAt = now(); T.asked++;
+  log(`asked for a full frame (a partial update is missing for ${r0(now() - D.waitSince)} ms)`);
+  conn.live.full();
+}
+async function paintQueue() {
+  if (drawing) return;
+  drawing = true;
+  while (Q.length) {
+    const it = Q.shift();
+    try { await paint(it); } catch (e) { T.bad++; log(`an update did not decode: ${e.name}: ${e.message}`); }
+    if (it.ack) it.ack();
+  }
+  drawing = false;
+}
+async function paint(it) {
+  const h = it.hdr, t0 = now();
+  if (!h.n) return drawn(h, it, 0, 0);               // a forced frame with no changed tiles
+  const bmp = await createImageBitmap(it.blob);
+  const t1 = now();
+  if (h.kind !== "d") {
+    if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
+    ctx.drawImage(bmp, 0, 0);
+  } else {
+    for (const [x, y, w, hh, ax, ay] of h.rects) ctx.drawImage(bmp, ax, ay, w, hh, x, y, w, hh);
+  }
+  bmp.close();
+  drawn(h, it, t1 - t0, now() - t1);
+}
+
+// ---- Stats: this second (W), since Continuous went on (T) --------------------------------------------
+let W, T;
+function resetW() { W = { t: now(), recv: 0, drawn: 0, dropped: 0, bytes: 0, fullBytes: 0, iv: [], lat: [], idle: 0, dec: [], drw: [], net: [] }; }
+function resetT() { T = { t: now(), recv: 0, drawn: 0, dropped: 0, bad: 0, idle: 0, asked: 0, full: 0, part: 0, first: null, lastDraw: 0, h: null,
+                         bytes: 0, fullBytes: 0, ivs: [], lats: [], decs: [], nets: [] }; }
+resetW(); resetT();
+function drawn(hdr, it, dec, drw) {
+  const t = now();
+  W.drawn++; T.drawn++; hdr.kind === "d" ? T.part++ : T.full++;
+  if (T.lastDraw) { W.iv.push(t - T.lastDraw); T.ivs.push(t - T.lastDraw); }
+  T.lastDraw = t;
+  W.dec.push(dec); W.drw.push(drw); T.decs.push(dec);
+  if (sync.ok) {
+    const lat = t - (hdr.cap - sync.offset), net = it.at - (hdr.cap - sync.offset) - (hdr.r || 0) - (hdr.c || 0) - (hdr.e || 0);
+    W.lat.push(lat); W.net.push(net); T.lats.push(lat); T.nets.push(net);
+  }
+  T.h = hdr;
+  if (conn.onAt && T.first === null) {
+    T.first = t - conn.onAt;
+    log(`first frame ${Math.round(T.first)} ms after Continuous on (connection ${conn.warmAtOn ? "already open: warm" : "new: cold"})`);
+  }
+}
+const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+const sd = (a) => { const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) ** 2))); };
+const r0 = (x) => (x == null || !isFinite(x) ? "–" : Math.round(x));
+const statsEl = $("stats");
+const CELLS = ["fps", "interval", "latency", "ping", "breakdown", "size", "rate", "frames", "conn", "first"];
+const cell = {};
+for (const k of CELLS) { const d = document.createElement("div"); d.className = "s"; d.innerHTML = "<b>–</b><span></span>"; statsEl.appendChild(d); cell[k] = d; }
+cell.breakdown.style.gridColumn = cell.size.style.gridColumn = "span 2";
+function put(k, big, small) { cell[k].firstChild.textContent = big; cell[k].lastChild.textContent = small; }
+let lastTick = now();
+function tick() {                                   // once a second (browsers slow this down in background tabs)
+  const t = now(), gap = t - lastTick; lastTick = t;
+  const secs = (t - W.t) / 1000, fps = W.drawn / secs, iv = mean(W.iv), jit = sd(W.iv), lat = med(W.lat);
+  const kb = W.recv ? W.bytes / W.recv / 1024 : 0, fullKb = W.recv ? W.fullBytes / W.recv / 1024 : 0, mbps = W.bytes * 8 / secs / 1e6;
+  const h = T.h;
+  put("fps", fps.toFixed(1), `per s (${W.recv} in, ${W.dropped} dropped)`);
+  put("interval", W.iv.length ? `${r0(iv)} ± ${r0(jit)} ms` : "–", "frame interval ± jitter");
+  put("latency", lat == null ? "–" : `${r0(lat)} ms`, sync.ok ? "capture → on screen (est.)" : "waiting for clock sync");
+  put("ping", sync.rtt == null ? "–" : `${r0(sync.rtt)} ms`, `round trip (best ${r0(sync.best)}, clock ±${r0((sync.best || 0) / 2)})`);
+  put("breakdown", h ? `${h.g} + ${h.r} + ${h.c} + ${h.e} + ${r0(med(W.net))} + ${(med(W.dec) || 0).toFixed(1)} + ${(med(W.drw) || 0).toFixed(1)} ms` : "–",
+      `capture + scale + compare + encode (PC, ${h ? h.be : "?"}) + send + decode + draw (here)`);
+  put("size", W.recv ? `${kb.toFixed(1)} KB` : "–", W.recv && fullKb > kb * 1.05 ? `sent per frame; full frame would be ${r0(fullKb)} KB (${r0(100 - 100 * kb / fullKb)}% saved)` :
+      (h ? `per frame, ${h.w}×${h.h}${h.kind === "d" ? `, ${h.tiles} of ${h.of} tiles` : ""}` : "per frame"));
+  put("rate", `${mbps.toFixed(2)} Mbps`, "data rate");
+  put("frames", `${T.drawn}`, `drawn (${T.full} full, ${T.part} partial) · ${T.dropped} dropped · ${T.idle} no-change · ${T.bad} bad`);
+  put("conn", conn.live ? conn.live.kind : "–", `retries ${conn.retries} · up ${conn.upAt ? r0((t - conn.upAt) / 1000) + " s" : "–"}`);
+  put("first", T.first == null ? "–" : `${r0(T.first)} ms`, `first frame (${conn.warmAtOn ? "warm" : "cold"})`);
+  if (conn.want) {
+    log(`stats  fps ${fps.toFixed(1)}  interval ${r0(iv)}±${r0(jit)} ms  latency ${r0(lat)} ms  ${kb.toFixed(1)} KB (full ${r0(fullKb)})  ${mbps.toFixed(2)} Mbps  ` +
+        `in ${W.recv} drawn ${W.drawn} dropped ${W.dropped} no-change ${W.idle}  decode ${(med(W.dec) || 0).toFixed(1)} ms  ping ${r0(sync.rtt)} ms  ${document.visibilityState}` +
+        (gap > 1500 ? `  (timer late: ${(gap / 1000).toFixed(1)} s since last line)` : ""));
+  }
+  resetW();
+  if (D.waitSince && t - D.waitSince > 1000) needFull();
+  if (conn.down) setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((t - conn.down) / 1000)} s): ${conn.why}`);
+  if (conn.live && conn.live.ready && (conn.want || conn.live.kind === "ws") && t - conn.lastData > 7000)
+    conn.live.fail(`stalled: nothing from the PC for ${r0((t - conn.lastData) / 1000)} s`);
+  if (conn.live && conn.live.ready && t - lastPing > (conn.want ? 2000 : 10000)) { lastPing = t; conn.live.ping(); }
+}
+let lastPing = 0;
+setInterval(tick, 1000);
+
+// ---- Connection supervisor: one live transport; Continuous stays on through disconnects ---------------
+const conn = { want: false, live: null, gen: 0, attempt: 0, retries: 0, down: 0, why: "", timer: 0, lastData: 0, onAt: 0, warmAtOn: false, upAt: 0 };
+function setState(kind, text) { $("dot").className = kind; $("conntext").textContent = text; }
+function setCont(on) {
+  conn.want = on;
+  $("cont").textContent = "Continuous: " + (on ? "on" : "off");
+  $("cont").classList.toggle("on", on);
+  if (on) {
+    resetT(); resetW(); conn.onAt = now(); conn.warmAtOn = !!(conn.live && conn.live.ready);
+    log(`Continuous ON (${settingsText()})`);
+    if (!TOKEN) { signIn(); return; }
+    if (conn.live) conn.live.resume(); else open();
+  } else {
+    log("Continuous OFF");
+    clearTimeout(conn.timer); conn.down = 0; conn.attempt = 0;
+    if (conn.live) conn.live.pause();
+    setState(conn.live && conn.live.ready ? "wait" : "", conn.live && conn.live.ready ? "Connected, paused." : "Off.");
+  }
+}
+function open() {
+  clearTimeout(conn.timer);
+  const make = TRANSPORTS[S.transport];
+  conn.live = make(++conn.gen);
+  setState("wait", conn.attempt ? `Reconnecting (attempt ${conn.attempt})…` : "Connecting…");
+}
+function reopen(why) {
+  if (conn.live) conn.live.close(why);
+  conn.live = null;
+  if (conn.want || S.transport === "ws") open();
+}
+function onUp(gen, what) {
+  if (gen !== conn.gen) return;
+  if (conn.down) log(`reconnected after ${r0((now() - conn.down) / 1000)} s and ${conn.attempt} ${conn.attempt === 1 ? "try" : "tries"}`);
+  conn.attempt = 0; conn.down = 0; conn.lastData = now(); conn.upAt = now();
+  log(`connected: ${what}`);
+  setState(conn.want ? "live" : "wait", conn.want ? `Live (${S.transport}).` : "Connected, paused.");
+}
+function onFail(gen, why, kind) {
+  if (gen !== conn.gen) return;
+  conn.live = null;
+  if (kind === "auth") { log(`sign-in needed: ${why}`); setState("bad", "Sign in needed."); signIn("Please sign in (new password, or signed out on the PC)."); return; }
+  if (!conn.want) { log(`connection closed: ${why}`); setState("", "Off."); return; }
+  if (!conn.down) conn.down = now();
+  conn.attempt++; conn.retries++; conn.why = why;
+  const delay = Math.min(2500, 250 * 2 ** (conn.attempt - 1)) * (0.8 + Math.random() * 0.4);
+  log(`disconnected: ${why}; retry ${conn.attempt} in ${r0(delay)} ms`);
+  setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((now() - conn.down) / 1000)} s): ${why}`);
+  conn.timer = setTimeout(() => { if (conn.want && !conn.live) open(); }, delay);
+}
+function httpWhy(status) {
+  if (status === 502) return "the PC is reachable but sharing is off (502)";
+  if (status === 503 || status === 504) return `the Funnel or the PC did not answer in time (${status})`;
+  return `HTTP ${status}`;
+}
+
+// ---- Transports -------------------------------------------------------------------------------------
+const TRANSPORTS = {
+  ws(gen) {                                          // one WebSocket for frames, acks, pings and settings
+    const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ws");
+    ws.binaryType = "arraybuffer";
+    let failed = false;
+    const t = { kind: "ws", ready: false };
+    const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
+    t.fail = (why, kind) => { if (failed) return; failed = true; try { ws.close(); } catch (e) {} onFail(gen, why, kind); };
+    t.close = (why) => { failed = true; try { ws.close(1000, why); } catch (e) {} };
+    t.pause = () => send({ type: "pause", on: true });
+    t.resume = () => send({ type: "pause", on: false });
+    t.set = () => send({ type: "set", ...S, win: +S.win });
+    t.ping = () => send({ type: "ping", t: now() });
+    t.full = () => send({ type: "full" });
+    ws.onopen = () => send({ type: "hello", token: TOKEN, ...S, win: +S.win, paused: !conn.want });
+    ws.onmessage = (ev) => {
+      conn.lastData = now();
+      if (typeof ev.data === "string") {
+        const m = JSON.parse(ev.data);
+        if (m.type === "hello") { t.ready = true; onUp(gen, `WebSocket, PC capture ${m.be}`); for (let i = 0; i < 4; i++) setTimeout(t.ping, i * 150); }
+        else if (m.type === "pong") addSync(m.t, m.srv, now());
+        else if (m.type === "ka") { W.idle++; T.idle++; }
+        else if (m.type === "auth") t.fail("the PC refused the sign-in", "auth");
+        return;
+      }
+      const dv = new DataView(ev.data), hl = dv.getUint32(0);
+      const hdr = JSON.parse(dec.decode(new Uint8Array(ev.data, 4, hl)));
+      show(hdr, new Blob([new Uint8Array(ev.data, 4 + hl)], { type: "image/" + hdr.fmt }), () => send({ type: "ack" }));
+    };
+    ws.onclose = (ev) => {
+      if (failed) return;
+      failed = true;
+      if (ev.code === 4401) onFail(gen, "the PC refused the sign-in", "auth");
+      else if (ev.code === 1001) onFail(gen, `the PC said: ${ev.reason || "going away"}`);
+      else onFail(gen, t.ready ? `connection lost (code ${ev.code})` : `could not connect (code ${ev.code}): sharing off, or no network`);
+    };
+    return t;
+  },
+
+  stream(gen) {                                      // one long HTTP response; acks go back as small POSTs
+    const ac = new AbortController();
+    const t = { kind: "stream", ready: false };
+    let failed = false, sid = "";
+    t.fail = (why, kind) => { if (failed) return; failed = true; ac.abort(); onFail(gen, why, kind); };
+    t.close = () => { failed = true; ac.abort(); };
+    t.pause = () => { t.close(); if (conn.live === t) conn.live = null; };   // a stream can't idle: closed, reopened on resume
+    t.resume = () => {};
+    t.ping = pingHttp;
+    const post = (o) => fetch(`${BASE}ack`, { method: "POST", headers: { "X-Key": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ sid, ...o }) }).catch(() => {});
+    const ack = () => post({ n: 1 });
+    t.full = () => post({ n: 0, full: true });
+    (async () => {
+      let r;
+      try { r = await fetch(`${BASE}stream?${qs()}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal }); }
+      catch (e) { return t.fail(failed ? "" : "could not connect: sharing off, or no network"); }
+      if (r.status === 401) return t.fail("the PC refused the sign-in", "auth");
+      if (!r.ok) return t.fail(httpWhy(r.status));
+      const reader = r.body.getReader();
+      let buf = new Uint8Array(1 << 20), len = 0;
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) return t.fail("the stream ended");
+          conn.lastData = now();
+          if (len + value.length > buf.length) { const nb = new Uint8Array(Math.max(buf.length * 2, len + value.length)); nb.set(buf.subarray(0, len)); buf = nb; }
+          buf.set(value, len); len += value.length;
+          let off = 0;
+          while (len - off >= 8) {
+            const dv = new DataView(buf.buffer, off, 8), hl = dv.getUint32(0), pl = dv.getUint32(4);
+            if (len - off < 8 + hl + pl) break;
+            const hdr = JSON.parse(dec.decode(buf.subarray(off + 8, off + 8 + hl)));
+            if (pl) show(hdr, new Blob([buf.slice(off + 8 + hl, off + 8 + hl + pl)], { type: "image/" + hdr.fmt }), +S.win ? ack : null);
+            else if (hdr.type === "hello") { sid = hdr.sid; t.ready = true; onUp(gen, `stream, PC capture ${hdr.be}`); pingHttp(); }
+            else if (hdr.type === "ka") { W.idle++; T.idle++; }
+            else if (hdr.type === "auth") return t.fail("the PC refused the sign-in", "auth");
+            else if (hdr.type === "bye") return t.fail(`the PC said: ${hdr.why}`);
+            off += 8 + hl + pl;
+          }
+          if (off) { buf.copyWithin(0, off, len); len -= off; }
+        }
+      } catch (e) { if (!failed) t.fail(`connection lost (${e.name})`); }
+    })();
+    return t;
+  },
+
+  pull(gen) { return pullers(gen, 1, "pull"); },
+  pipe(gen) { return pullers(gen, Math.max(1, +S.win), "pipe"); },
+};
+
+function pullers(gen, n, kind) {                     // n requests in flight, each long-polls for the next new frame
+  const t = { kind, ready: false };
+  let failed = false, stopped = false, running = 0;
+  const acs = new Set();
+  t.fail = (why, k) => { if (failed) return; failed = true; for (const a of acs) a.abort(); onFail(gen, why, k); };
+  t.close = () => { failed = true; for (const a of acs) a.abort(); };
+  let wantFull = false;
+  t.pause = () => { stopped = true; };
+  t.resume = () => { stopped = false; while (running < n) loop(); };
+  t.ping = pingHttp;
+  t.full = () => { wantFull = true; };
+  async function loop() {
+    running++;
+    try { await loopBody(); } finally { running--; }
+  }
+  async function loopBody() {
+    while (!failed && !stopped) {
+      const ac = new AbortController(); acs.add(ac);
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; ac.abort(); }, 8000);
+      try {
+        const extra = wantFull ? "&full=1" : "";
+        wantFull = false;
+        const r = await fetch(`${BASE}frame?v=${VID}&${qs()}&wait=2${extra}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal });
+        if (r.status === 401) return t.fail("the PC refused the sign-in", "auth");
+        if (r.status !== 200 && r.status !== 204) return t.fail(httpWhy(r.status));
+        if (!t.ready) { t.ready = true; onUp(gen, `${kind === "pipe" ? n + " requests in flight" : "one request per frame"}`); pingHttp(); }
+        conn.lastData = now();
+        if (r.status === 204) { W.idle++; T.idle++; continue; }
+        const hdr = JSON.parse(r.headers.get("X-Frame"));
+        show(hdr, await r.blob(), null);
+      } catch (e) {
+        if (failed) return;
+        return t.fail(timedOut ? "stalled: a request got no answer for 8 s" : (t.ready ? `connection lost (${e.name})` : "could not connect: sharing off, or no network"));
+      } finally { clearTimeout(timer); acs.delete(ac); }
+    }
+  }
+  if (conn.want) t.resume(); else stopped = true;
+  if (!conn.want) pingHttp().then((ok) => { if (ok && !t.ready && !failed) { t.ready = true; onUp(gen, "ready"); } });
+  return t;
+}
+
+// ---- Single picture (any transport, Continuous on or off) ---------------------------------------------
+$("one").onclick = async () => {
+  if (!TOKEN) return signIn();
+  const t0 = now();
+  try {
+    const r = await fetch(`${BASE}frame?v=${VID}&${qs()}&once=1`, { headers: { "X-Key": TOKEN }, cache: "no-store" });
+    if (r.status === 401) return signIn("Please sign in (new password, or signed out on the PC).");
+    if (!r.ok) throw new Error(httpWhy(r.status));
+    const hdr = JSON.parse(r.headers.get("X-Frame"));
+    show(hdr, await r.blob(), null);
+    log(`single picture: ${r0(now() - t0)} ms round trip, ${r0(hdr.n / 1024)} KB, PC grab ${hdr.g} ms + encode ${hdr.e} ms`);
+  } catch (e) { log(`single picture failed: ${e.message === "Failed to fetch" ? "the PC did not answer (sharing off, or no network)" : e.message}`); }
+};
+$("cont").onclick = () => setCont(!conn.want);
+$("out").onclick = () => { TOKEN = ""; store.set("peek-token", ""); if (conn.live) conn.live.close("signed out"); conn.live = null; log("signed out in this browser"); signIn(); };
+
+// ---- Sign-in: the password box; Continuous stays as it was ------------------------------------------
+let signing = null;
 function signIn(msg) {
   $("lerr").textContent = msg || "";
   $("login").classList.add("show");
   $("pw").value = ""; setTimeout(() => $("pw").focus(), 50);
-  return waiting || (waiting = new Promise((ok) => { $("lf").onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const r = await fetch(`${BASE}login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("pw").value }) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { $("lerr").textContent = j.error || ("Sign-in failed (HTTP " + r.status + ")"); return; }
-      TOKEN = j.token; store.set("peek-token", TOKEN);
-      $("login").classList.remove("show"); waiting = null; ok();
-    } catch (err) { $("lerr").textContent = "The PC did not answer: is sharing switched on in the tray?"; }
-  }; }));
+  return signing || (signing = new Promise((done) => {
+    $("lf").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const r = await fetch(`${BASE}login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("pw").value }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { $("lerr").textContent = j.error || httpWhy(r.status); return; }
+        TOKEN = j.token; store.set("peek-token", TOKEN);
+        $("login").classList.remove("show"); signing = null; log("signed in"); done();
+        if (conn.want || S.transport === "ws") { conn.attempt = 0; conn.down = 0; if (!conn.live) open(); }
+      } catch (err) { $("lerr").textContent = "The PC did not answer: is sharing switched on in the tray?"; }
+    };
+  }));
 }
 
-async function grab() {
-  if (!TOKEN) await signIn();
-  const s = performance.now();
-  let r;
-  try { r = await fetch(`${BASE}shot?w=${$("size").value}&q=60&t=${Date.now()}`, { headers: { "X-Key": TOKEN }, cache: "no-store" }); }
-  catch (e) { throw new Error("The PC did not answer: is sharing switched on in the tray?"); }
-  if (r.status === 401) { TOKEN = ""; store.set("peek-token", ""); await signIn("Please sign in (new password, or signed out on the PC)."); return grab(); }
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  const blob = await r.blob();
-  if (url) URL.revokeObjectURL(url);
-  url = URL.createObjectURL(blob);
-  await new Promise((ok) => { $("pic").onload = ok; $("pic").src = url; });
-  const ms = performance.now() - s;
-  frames++;
-  const fps = running ? (frames / ((performance.now() - t0) / 1000)).toFixed(1) + " per s · " : "";
-  say(`${fps}${Math.round(blob.size / 1024)} KB · ${Math.round(ms)} ms round trip · PC grab ${r.headers.get("X-Grab-Ms")} ms · ${new Date().toLocaleTimeString("en-US")}`);
-}
-
-$("out").onclick = () => { TOKEN = ""; store.set("peek-token", ""); running = false; signIn(); };
-$("one").onclick = () => grab().catch((e) => say(e.message, true));
-$("cont").onclick = async () => {
-  running = !running;
-  $("cont").textContent = "Continuous: " + (running ? "on" : "off");
-  $("cont").classList.toggle("on", running);
-  frames = 0; t0 = performance.now();
-  while (running) {
-    try { await grab(); } catch (e) { say(e.message, true); running = false; $("cont").textContent = "Continuous: off"; $("cont").classList.remove("on"); }
+// ---- Screen Wake Lock (on by default): asked for whenever the page is shown -------------------------
+let wakeLock = null;
+const wakeState = (s) => { $("wakestate").textContent = s; };
+async function wake(why) {
+  store.set("peek-settings", JSON.stringify({ ...S, wake: $("wake").checked }));
+  if (!$("wake").checked) { if (wakeLock) { const w = wakeLock; wakeLock = null; await w.release().catch(() => {}); } wakeState("off"); return; }
+  if (!("wakeLock" in navigator)) { wakeState("not supported here"); log("wake lock: not supported by this browser"); return; }
+  if (document.visibilityState !== "visible") { wakeState("waits until the page is shown"); return; }
+  if (wakeLock && !wakeLock.released) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeState("on"); log(`wake lock acquired (${why})`);
+    wakeLock.addEventListener("release", () => {
+      const hidden = document.visibilityState !== "visible";
+      log(`wake lock released (${hidden ? "page hidden: the browser lets go" : "released"})`);
+      wakeState(hidden ? "released while hidden; asked again when shown" : "off");
+      wakeLock = null;
+    });
+  } catch (e) {
+    wakeState(`refused: ${e.name}`);
+    log(`wake lock refused (${why}): ${e.name}: ${e.message}`);
+    if (e.name === "NotAllowedError") document.addEventListener("pointerdown", () => wake("after a tap"), { once: true });
   }
-};
+}
+$("wake").onchange = () => wake("toggle");
+
+// ---- Page lifecycle: never pause; log what the browser does to us ------------------------------------
+document.addEventListener("visibilitychange", () => {
+  log(`visibilitychange: ${document.visibilityState}`);
+  if (document.visibilityState === "visible") { conn.lastData = Math.max(conn.lastData, now() - 3000); wake("page shown again"); }
+});
+window.addEventListener("pagehide", (e) => log(`pagehide (persisted: ${e.persisted})`));
+window.addEventListener("pageshow", (e) => log(`pageshow (persisted: ${e.persisted})`));
+document.addEventListener("freeze", () => log("freeze: the browser froze this page"));
+document.addEventListener("resume", () => { log("resume: the page runs again"); conn.lastData = Math.max(conn.lastData, now() - 3000); });
+window.addEventListener("online", () => { log("online"); if (conn.want && !conn.live) { conn.attempt = 0; open(); } });
+window.addEventListener("offline", () => log("offline"));
+
+// Automation hook for the headless tests (test/chrome_page.mjs).
+window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
+  state: () => ({ live: conn.live ? conn.live.kind : null, ready: !!(conn.live && conn.live.ready), want: conn.want, retries: conn.retries,
+                  text: $("conntext").textContent, first: T.first, warm: conn.warmAtOn }),
+  summary: () => {                                   // since Continuous went on
+    const p = (a, q) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return Math.round(s[Math.min(s.length - 1, Math.floor(s.length * q))] * 10) / 10; };
+    const secs = (now() - T.t) / 1000;
+    return { drawn: T.drawn, full: T.full, partial: T.part, dropped: T.dropped, bad: T.bad, idle: T.idle, asked: T.asked,
+             fps: Math.round((T.drawn / secs) * 100) / 100, interval: p(T.ivs, 0.5), jitter: Math.round(sd(T.ivs) * 10) / 10,
+             lat_p50: p(T.lats, 0.5), lat_p95: p(T.lats, 0.95), net_p50: p(T.nets, 0.5), decode_p50: p(T.decs, 0.5),
+             kb: T.recv ? Math.round(T.bytes / T.recv / 102.4) / 10 : null, full_kb: T.recv ? Math.round(T.fullBytes / T.recv / 102.4) / 10 : null,
+             mbps: Math.round(T.bytes * 8 / secs / 1e4) / 100, first_ms: T.first == null ? null : Math.round(T.first), warm: conn.warmAtOn,
+             ping: sync.best == null ? null : Math.round(sync.best), retries: conn.retries }; } };
+
+log(`page loaded (${own ? "served by the PC" : "Cool tools"}; talks to ${BASE}); ${settingsText()}`);
+wake("page loaded");
 if (!TOKEN) signIn();
+else if (S.transport === "ws") open();             // the WebSocket stays open, paused, so Continuous starts warm
+else setState("", "Ready.");
 </script>
 </body>
 </html>
