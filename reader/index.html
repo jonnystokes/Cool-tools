@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.540 and 2026-10-23 6:36 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.548 and 2026-10-23 7:29 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.540</title>
+<title>Book reader V1.0.548</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.540";
-  window.APP_BUILT = "2026-10-23 6:36 PM";
-  window.APP_NOTE = "the chapter arrows follow the lock: playing = the reading goes to the new chapter's start, paused = the marker moves; quick presses count once; re-lock snaps back";
+  window.APP_VERSION = "Book reader V1.0.548";
+  window.APP_BUILT = "2026-10-23 7:29 PM";
+  window.APP_NOTE = "Tapping a paragraph sets where the reading starts at any time: the Play-start line now shows in the simple marks view";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -443,7 +443,10 @@ html[data-marks="simple"] .book p.speaking::after, html[data-marks="simple"] .bo
   border-radius: 2px; background: var(--made);
 }
 html[data-marks="simple"] .book p.speaking::after, html[data-marks="simple"] .book h1.speaking::after { background: var(--speak); }
-html[data-marks="simple"] .book p.current::before, html[data-marks="simple"] .book h1.current::before { display: none; }
+/* The Play-start line shows in the simple view too (Jon, 2026-10-23: a tap must visibly set where the reading
+   starts, before Play and while the voice loads), outside the dash; hidden on the paragraph being read (blue). */
+html[data-marks="simple"] .book p.current::before, html[data-marks="simple"] .book h1.current::before { left: -11px; width: 3px; }
+html[data-marks="simple"] .book p.current.speaking::before, html[data-marks="simple"] .book h1.current.speaking::before { display: none; }
 html[data-marks="detailed"] .book p.current::before, html[data-marks="detailed"] .book h1.current::before { left: -10px; width: 3px; }
 html[data-marks="detailed"] .book p.made::after, html[data-marks="detailed"] .book h1.made::after,
 html[data-marks="detailed"] .book p.speaking::after, html[data-marks="detailed"] .book h1.speaking::after {
@@ -8300,6 +8303,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       ["speaking", "Being read now: the ring on its line and the blue background."],
       ["piece", "The rest of the piece being read (short lines are read together)."],
     ] : [
+      ["current", "Play-start line (left, outer): where Play starts. Tap a paragraph to move it, at any time."],
       ["dash allmade", "A green line at the left: this paragraph's sound is made and ready to play."],
       ["dash speaking", "The line turns blue: being read now (the paragraph is shaded too)."],
       ["piece", "The rest of the piece being read (short lines are read together)."],
@@ -10521,10 +10525,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (state === "stopped") return;
     if (setup === gen) { wanted = { ch, para }; log("playback", `${why} while the voice loads: the reading will start at paragraph ${para + 1}`); return; }   // play() starts there (P8)
     let list;
-    try { list = await loadList(ch); } catch (e) { log("error", "the chapter could not be read", e); return; }
+    try { list = await loadList(ch); } catch (e) { log("error", "the chapter could not be read", e); status(`The reading could not move: the chapter could not be read (${firstLine(e.message)}).`); return; }
     if (state === "stopped") return;
     const at = QUEUE.locate(list, para);
-    if (!at) return;
+    if (!at) { log("playback", `${why}: nothing to read at or after paragraph ${para + 1}; the reading stays where it is`); status("Nothing to read from that paragraph on: the reading stays where it is."); return; }
     let k = at.k;
     if (list[k].parts.length > 1) { splitAt(ch, list, k); k += at.part; }
     jump(ch, k, why);
