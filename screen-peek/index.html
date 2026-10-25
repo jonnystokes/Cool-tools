@@ -25,7 +25,8 @@
   details { margin: 8px; background: var(--card); border-radius: 10px; padding: 4px 10px 10px; }
   summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12em, 1fr)); gap: 10px; }
-  label { display: grid; gap: 4px; font-size: 0.9em; color: var(--dim); }
+  label { display: grid; gap: 4px; font-size: 0.9em; color: var(--dim); min-width: 0; }
+  .grid select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }   /* long option text stays inside its column */
   label.chk { display: flex; align-items: center; gap: 10px; min-height: 48px; color: var(--text); }
   label.chk input { width: 26px; height: 26px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
@@ -52,11 +53,11 @@
   <summary>Settings</summary>
   <div class="grid">
     <label>Transport<select id="transport">
-      <option value="ws" selected>TCP: WebSocket (one socket)</option>
+      <option value="ws">TCP: WebSocket (one socket)</option>
       <option value="stream">TCP: stream (one long response)</option>
       <option value="pipe">TCP: pipelined requests</option>
       <option value="pull">TCP: one request per frame</option>
-      <option value="udp-fast">UDP, fastest: lost pieces never resent</option>
+      <option value="udp-fast" selected>UDP, fastest: lost pieces never resent</option>
       <option value="udp-mid">UDP, middle: resent while fresh</option>
       <option value="udp-rel">UDP, reliable (for comparison)</option>
     </select></label>
@@ -64,22 +65,22 @@
       <option value="50">50 ms</option><option value="100">100 ms</option><option value="200" selected>200 ms</option><option value="500">500 ms</option>
     </select></label>
     <label>Picture width<select id="w">
-      <option value="640">640 px</option><option value="960">960 px</option><option value="1280" selected>1280 px</option><option value="0">full</option>
+      <option value="640">640 px</option><option value="960">960 px</option><option value="1280">1280 px</option><option value="0" selected>full</option>
     </select></label>
     <label>Quality<select id="q">
-      <option value="40">40</option><option value="60" selected>60</option><option value="75">75</option><option value="85">85</option>
+      <option value="40">40</option><option value="60">60</option><option value="75">75</option><option value="85" selected>85</option>
     </select></label>
     <label>Format<select id="fmt"><option value="jpeg" selected>JPEG</option><option value="webp">WebP (smaller, ~10× slower to make)</option></select></label>
     <label>Frame-rate cap<select id="fps">
       <option value="5">5 per s</option><option value="10">10 per s</option><option value="15">15 per s</option>
-      <option value="30" selected>30 per s</option><option value="60">60 per s</option><option value="0">no cap</option>
+      <option value="30">30 per s</option><option value="60">60 per s</option><option value="0" selected>no cap</option>
     </select></label>
     <label>Frames in flight (window)<select id="win">
-      <option value="1">1</option><option value="2" selected>2</option><option value="3">3</option>
+      <option value="1">1</option><option value="2">2</option><option value="3" selected>3</option>
     </select></label>
     <label>Full refresh (with partial updates)<select id="refresh">
-      <option value="5">every 5 s</option><option value="10" selected>every 10 s</option><option value="30">every 30 s</option>
-      <option value="60">every 60 s</option><option value="0">never</option>
+      <option value="5">every 5 s</option><option value="10">every 10 s</option><option value="30">every 30 s</option>
+      <option value="60">every 60 s</option><option value="0" selected>never</option>
     </select></label>
   </div>
   <label class="chk"><input type="checkbox" id="partial" checked> Partial updates: send only the parts that changed</label>
@@ -156,7 +157,7 @@ function readSettings() {
   for (const k of KEYS) S[k] = $(k).value;
   for (const k of CHECKS) S[k] = $(k).checked;
 }
-try { const saved = JSON.parse(store.get("peek-settings") || "{}");
+try { const saved = JSON.parse(store.get("peek-settings-v2") || "{}");
       for (const k of KEYS) if (saved[k] != null && [...$(k).options].some((o) => o.value === saved[k])) $(k).value = saved[k];
       for (const k of CHECKS) if (saved[k] != null) $(k).checked = !!saved[k];
       if (saved.wake != null) $("wake").checked = !!saved.wake; } catch (e) {}
@@ -167,7 +168,7 @@ const settingsText = () => `${S.transport}, ${S.w === "0" ? "full" : S.w + " px"
 const keepsOpen = () => S.transport === "ws" || S.transport.startsWith("udp");   // stays open, paused, between runs
 for (const k of [...KEYS, ...CHECKS]) $(k).addEventListener("change", () => {
   const oldT = S.transport; readSettings();
-  store.set("peek-settings", JSON.stringify({ ...S, wake: $("wake").checked }));
+  store.set("peek-settings-v2", JSON.stringify({ ...S, wake: $("wake").checked }));
   log(`settings: ${settingsText()}`);
   if (!conn.live) { if (keepsOpen() && TOKEN && !conn.down) open(); return; }   // keep a warm connection ready
   // Same WebSocket / UDP link: new settings travel on it. The UDP resend window is fixed when the channel is made.
@@ -665,7 +666,7 @@ function signIn(msg) {
 let wakeLock = null;
 const wakeState = (s) => { $("wakestate").textContent = s; };
 async function wake(why) {
-  store.set("peek-settings", JSON.stringify({ ...S, wake: $("wake").checked }));
+  store.set("peek-settings-v2", JSON.stringify({ ...S, wake: $("wake").checked }));
   if (!$("wake").checked) { if (wakeLock) { const w = wakeLock; wakeLock = null; await w.release().catch(() => {}); } wakeState("off"); return; }
   if (!("wakeLock" in navigator)) { wakeState("not supported here"); log("wake lock: not supported by this browser"); return; }
   if (document.visibilityState !== "visible") { wakeState("waits until the page is shown"); return; }
