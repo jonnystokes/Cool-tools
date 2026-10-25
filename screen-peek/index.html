@@ -423,7 +423,7 @@ function ctlOpen(why) {
   if (!TOKEN) return;
   const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ctl");
   C.ws = ws; C.ready = false; C.unanswered = 0; C.openedAt = now(); C.lastRx = now(); C.mute = false;
-  log(`control: connecting (${why})${C.attempt ? `, attempt ${C.attempt + 1}` : ""}…`);
+  if (C.attempt <= 10 || C.attempt % 10 === 0) log(`control: connecting (${why})${C.attempt ? `, attempt ${C.attempt + 1}` : ""}…`);
   if (!C.down) setState("wait", "Connecting…");
   C.connectTimer = setTimeout(() => { if (C.ws === ws && !C.ready) ctlDown("no answer within 10 s"); }, 10000);
   ws.onopen = () => { if (C.ws === ws) ws.send(JSON.stringify({ type: "hello", token: TOKEN, page: VID, v: 5 })); };
@@ -455,7 +455,10 @@ function ctlDown(why, kind) {
   if (!C.down) C.down = now();
   C.attempt++; C.why = why;
   const delay = backoff(C.attempt);
-  log(`control: ${was ? "lost" : "failed"}: ${why}; reconnecting in ${delay} ms (attempt ${C.attempt})`);
+  // Never gives up. A long outage (the Funnel path once failed for ~3 minutes after a network switch) is logged at
+  // every attempt for the first 10, then every 10th, with how long it has been.
+  if (C.attempt <= 10 || C.attempt % 10 === 0 || was)
+    log(`control: ${was ? "lost" : "failed"}: ${why}; reconnecting in ${delay} ms (attempt ${C.attempt}, down ${r0((now() - C.down) / 1000)} s)`);
   setState("bad", `Reconnecting… (attempt ${C.attempt}, ${r0((now() - C.down) / 1000)} s): ${why}`);
   C.timer = setTimeout(() => { C.timer = 0; ctlOpen("reconnect"); }, delay);
 }
@@ -511,7 +514,7 @@ function dataStart(why) {
   for (const q of Q.splice(0)) drop(q);
   PC_.srv = null; FZ.on = false; T.paths++;
   conn.pathAt = now(); conn.firstOnPath = null; conn.lastData = now(); conn.upAt = 0;
-  log(`data: starting path ${gen}: ${S.transport} (${why})`);
+  if (conn.attempt <= 10 || conn.attempt % 10 === 0) log(`data: starting path ${gen}: ${S.transport} (${why})`);
   if (!conn.down) setState("wait", `Starting ${S.transport}…`);
   conn.live = TRANSPORTS[S.transport](gen);
 }
@@ -521,7 +524,7 @@ function dataStop(why, ctlGone) {
   conn.live = null;
   try { t.close(why); } catch (e) {}
   if (!ctlGone) ctlSend({ type: "stop", gen: t.gen, why: String(why).slice(0, 150) });
-  log(`data: path ${t.gen} (${t.kind}) stopped: ${why}`);
+  if (conn.attempt <= 10 || conn.attempt % 10 === 0) log(`data: path ${t.gen} (${t.kind}) stopped: ${why}`);
 }
 function onUp(gen, what) {
   if (!conn.live || conn.live.gen !== gen) return;
@@ -539,7 +542,7 @@ function onFail(gen, why, kind) {
   if (!conn.down) conn.down = now();
   conn.attempt++; conn.retries++; conn.why = why;
   const delay = backoff(conn.attempt);
-  log(`disconnected: ${why}; retry ${conn.attempt} in ${delay} ms`);
+  if (conn.attempt <= 10 || conn.attempt % 10 === 0) log(`disconnected: ${why}; retry ${conn.attempt} in ${delay} ms (down ${r0((now() - conn.down) / 1000)} s)`);
   setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((now() - conn.down) / 1000)} s): ${why}`);
   conn.timer = setTimeout(() => {
     conn.timer = 0;
