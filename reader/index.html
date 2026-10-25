@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.589 and 2026-10-25 10:07 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.592 and 2026-10-25 10:29 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.589</title>
+<title>Book reader V1.0.592</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.589";
-  window.APP_BUILT = "2026-10-25 10:07 AM";
-  window.APP_NOTE = "Use my PC: Piper and Supertonic also run on the PC's graphics card through CUDA (Piper about 26x, Supertonic about 4x real time)";
+  window.APP_VERSION = "Book reader V1.0.592";
+  window.APP_BUILT = "2026-10-25 10:29 AM";
+  window.APP_NOTE = "Key window: one green row (the sound is ready in the browser); the PC voice's CUDA tests";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -8935,7 +8935,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const listening = !!(g.LISTENER && g.LISTENER.enabled() && !g.LISTENER.cannot());
     const rows = det ? [
       ["current", "Play-start line (left, outer): the paragraph Play starts from, the last one read. Tap a paragraph to move it."],
-      ["made", "Sound made: one segment per chunk (a sentence or two), solid once made, faint while waiting."],
+      ["made", "Green: the sound is ready in the browser (one segment per chunk, a sentence or two; faint while waiting). Then blue while it is read."],
       ["speaking", "Being read now: the ring on its line and the blue background."],
       ["piece", "The rest of the piece being read (short lines are read together)."],
     ] : [
@@ -8944,10 +8944,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       ["dash speaking", "The line turns blue: being read now (the paragraph is shaded too)."],
       ["piece", "The rest of the piece being read (short lines are read together)."],
     ];
-    // The PC voice's marks (Settings → Cloud → Use my PC), in the detailed view: where each chunk is.
-    if (det && g.SETTINGS && SETTINGS.get("useMyPC")) rows.splice(2, 0,
-      ["made pcw", "Purple segment: on your PC, working (waiting its turn there, being made, or on the way here)."],
-      ["made", "Green segment: ready in the browser (solid once its sound is here). Then blue while it is read."]);
+    // The PC voice's mark (Settings → Cloud → Use my PC), in the detailed view: before the one green row (the same
+    // green, drawn by drawLine's one colour() either way; Jon 2026-10-25: two green rows meant the same thing).
+    if (det && g.SETTINGS && SETTINGS.get("useMyPC")) rows.splice(1, 0,
+      ["made pcw", "Purple segment: on your PC, working (waiting its turn there, being made, or on the way here)."]);
     if (src !== "off") rows.push(["word", `The word being spoken (timing ${src === "voice" ? "from the voice" : src === "listener" ? "from the listener" : "estimated"}).`]);
     // The listener's marks, only while it is on (step 8a); its left-edge marks only in the detailed view.
     if (listening && det) rows.push(
