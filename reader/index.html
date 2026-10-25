@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.556 and 2026-10-24 12:08 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.561 and 2026-10-24 11:24 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.556</title>
+<title>Book reader V1.0.561</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.556";
-  window.APP_BUILT = "2026-10-24 12:08 AM";
-  window.APP_NOTE = "Long words wrap instead of widening the page (chapter 3311) \u00b7 testing, unchanged";
+  window.APP_VERSION = "Book reader V1.0.561";
+  window.APP_BUILT = "2026-10-24 11:24 PM";
+  window.APP_NOTE = "PC Relay step 1: Open \u2192 From my PC (Relay Files on the PC through PC Relay: folders, sizes, dates, search, sort, live updates; Private asks for the PC's password once; Add a file through the normal preview, or a whole folder as one book)";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -203,6 +203,16 @@ button:disabled { opacity: 0.4; cursor: default; }
 .libon { padding: 0.6em 0.8em; }
 .librow.update { border-color: var(--accent); }
 .libact.libget { border-color: var(--accent); font-weight: 600; }
+/* Open → From my PC (pcfiles.js) */
+.pccrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pccrumb { min-height: var(--tap); padding: 0 0.6em; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: inherit; cursor: pointer; }
+.pchere { font-weight: 600; padding: 0 0.3em; }
+.pcsep { color: var(--muted); }
+.pcbar { display: flex; gap: 8px; }
+.pcbar .pcq { flex: 1; margin: 0; width: auto; }
+.pcsort { min-height: var(--tap); border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: inherit; padding: 0 0.4em; }
+.librow.pclocked .libopen { background: var(--bar); }
+.pcpw { display: flex; flex-direction: column; gap: 8px; }
 
 /* The chapter list lives in the contents panel (contents.css) since 2026-10-21. */
 .libopts { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--bar); font-size: 0.95em; }
@@ -1090,6 +1100,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     capsAsWords: true,             // "YOU DID WHAT" said normally; VIP, OK, Roman numerals, "9 AM" kept
     numbersToWords: false,         // 2080 -> "two thousand and eighty"; off by default, the benchmark turns it on for Supertonic (Jon, 2026-10-23)
     joinShort: true,               // a piece of five words or fewer joins its neighbour
+    // Cloud (Jon's PC through PC Relay: cloud.js, pcfiles.js, engines/cloud.js)
+    pcAddress: "",                 // the relay's address; "" = Jon's PC (https://desktop-krq9ti2.tail46434.ts.net)
     // Sound group: Voice
     voice: "kokoro:af_heart",      // "engine:voice"
     runOn: "gpu",                  // "gpu" or "cpu": the card and its speed first (Jon, 2026-10-17); a device without WebGPU fails at Play with the reason (no fallbacks)
@@ -4575,7 +4587,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const bar = h("div", "libbtns");
     const addFiles = btn("libbtn", "Add files, a zip or an EPUB", () => inputs.files.click(), "Text files (.txt, .text, .md), a .gz, a zip of them, or an .epub");
     const addFolder = btn("libbtn", "Add a folder", () => inputs.folder.click(), "A folder of text files, or a folder holding several books");
-    bar.append(addFiles, addFolder);
+    const fromPC = btn("libbtn", "From my PC", () => { st.mode = "pc"; render(); }, "Browse Relay Files on your PC (PC Relay) and add a file or a whole folder");
+    bar.append(addFiles, addFolder, fromPC);
     box.appendChild(bar);
     const msg = h("div", "libmsg", st.status); msg.setAttribute("aria-live", "polite"); msg.hidden = !st.status;
     box.appendChild(msg);
@@ -4933,11 +4946,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const body = st.win.body;
     if (st.mode === "preview" && st.plan) renderPreview(body);
     else if (st.mode === "progress") renderProgress(body);
+    else if (st.mode === "pc" && globalThis.PCFILES) PCFILES.render(body);    // Open → From my PC (pcfiles.js)
     else renderList(body);
   }
+  function showList() { if (globalThis.PCFILES) PCFILES.stop(); st.mode = "list"; render(); }
   function open() {
     if (st.win) { FLOAT.open("library"); return st.win; }
-    st.win = FLOAT.open("library", { title: "Open", width: 440, height: 560, onClose: () => { st.win = null; st.renaming = ""; st.armed = ""; if (st.mode === "preview") { st.plan = null; st.mode = "list"; } } });
+    st.win = FLOAT.open("library", { title: "Open", width: 440, height: 560, onClose: () => { st.win = null; st.renaming = ""; st.armed = ""; if (st.mode === "pc" && globalThis.PCFILES) { PCFILES.stop(); st.mode = "list"; } if (st.mode === "preview") { st.plan = null; st.mode = "list"; } } });
     render();
     log("page", `the Open window (${BOOK.books.length} book${BOOK.books.length === 1 ? "" : "s"})`);
     return st.win;
@@ -4948,7 +4963,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   READER.onChange((what) => { if ((what === "book" || what === "chapter" || what === "order") && st.win && st.mode === "list") render(); });
 
   globalThis.LIBRARY = {
-    open, pick, add, render, download,
+    open, pick, add, render, download, showList,
     get isOpen() { return !!st.win; },
     get mode() { return st.mode; },
     get status() { return st.status; },
@@ -5105,6 +5120,433 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   globalThis.SHELF = { autoload, load, list, catalog, get state() { return st.state; }, get message() { return st.message; }, get entry() { return st.entry; }, get wanted() { return wanted || zipPath; } };
+})();
+</script>
+<script>
+/* relay-client.js: the PC Relay client (ONE source: Projects\pc-relay\client\relay-client.js; each page's build
+   copies it in, so never edit a copy). Talks to PC Relay on Jon's PC (Tailscale Funnel).
+   - Nothing happens until the page calls something: no background traffic of its own.
+   - Status events: checking / connected / starting / ready / offline / off / signin / reload, each with a plain `why`.
+   - Sign-in passes are per device and per scope ("screen", "files-private"), kept in localStorage, sent in the
+     X-Relay-Pass header (HTTP) or as WebSocket subprotocols "pass.<p>" (a browser cannot set WebSocket headers);
+     never in a URL, never cookies.
+   - Version-checked: a relay that needs a newer client says so, and the status becomes "reload". */
+(function (root) {
+  "use strict";
+  const VERSION = 1;
+  const DEFAULT_PC = "https://desktop-krq9ti2.tail46434.ts.net";
+  const store = {
+    get(k) { try { return root.localStorage.getItem(k) || ""; } catch (e) { return ""; } },
+    set(k, v) { try { if (v) root.localStorage.setItem(k, v); else root.localStorage.removeItem(k); } catch (e) {} },
+    keys() { try { return Object.keys(root.localStorage); } catch (e) { return []; } },
+  };
+  let memDevice = "";
+  function deviceId() {
+    let d = store.get("relay-device") || memDevice;
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(d)) {
+      d = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+      store.set("relay-device", d);
+      memDevice = d;
+    }
+    return d;
+  }
+  function httpWhy(status) {
+    return ({ 401: "the PC wants the password", 403: "the PC refused this page", 404: "the PC has no such program",
+      410: "this page is out of date: reload it", 426: "this page is out of date: reload it",
+      429: "too many requests: wait a minute", 502: "the PC is reachable but the relay is not running (502)",
+      503: "the PC said it is busy or switched off (503)" })[status] || `the PC answered ${status}`;
+  }
+  function netWhy(err, ms) {
+    if (err && err.name === "AbortError") return `no answer from the PC within ${Math.round(ms / 1000)} s`;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return "this device is offline";
+    return "could not reach the PC (no network, or the PC is off or asleep)";
+  }
+  async function readError(r) {
+    try { const j = await r.clone().json(); if (j && j.error) return j.error; } catch (e) {}
+    return httpWhy(r.status);
+  }
+
+  class Relay {
+    constructor(opts) {
+      this.app = (opts.app || "page").replace(/[^A-Za-z0-9_.-]/g, "");
+      this.base = String(opts.base || DEFAULT_PC).replace(/\/+$/, "");
+      this.status = { state: "idle", why: "", at: Date.now() };
+      this.info = null;          // the last /relay/ping answer
+      this.latency = 0;          // ms, the last ping's round trip
+      this.bytes = 0;            // bytes this client has fetched through fetchJSON / fetch (approximate)
+      this.subs = new Set();
+      if (typeof opts.onStatus === "function") this.subs.add(opts.onStatus);
+    }
+    setBase(url) { this.base = String(url || DEFAULT_PC).replace(/\/+$/, ""); }
+    on(fn) { this.subs.add(fn); return () => this.subs.delete(fn); }
+    _set(state, extra) {
+      this.status = Object.assign({ state, why: "", at: Date.now() }, extra || {});
+      for (const f of this.subs) { try { f(this.status); } catch (e) {} }
+    }
+    // ---- passes ----
+    pass(scope) { try { const j = JSON.parse(store.get("relay-pass:" + scope) || "null"); return (j && j.pass) || ""; } catch (e) { return ""; } }
+    hasPass(scope) { return !!this.pass(scope); }
+    passes() {
+      const out = [];
+      for (const k of store.keys()) if (k.startsWith("relay-pass:")) { const p = this.pass(k.slice(11)); if (p) out.push(p); }
+      return out;
+    }
+    adoptPass(scope, pass) { if (pass) store.set("relay-pass:" + scope, JSON.stringify({ pass, at: Date.now() })); }
+    forget(scope) { store.set("relay-pass:" + scope, ""); }
+    headers(extra) {
+      const h = { "X-Relay-Client": this.app + "/" + VERSION, "X-Relay-Device": deviceId() };
+      const p = this.passes();
+      if (p.length) h["X-Relay-Pass"] = p.join(",");
+      return Object.assign(h, extra || {});
+    }
+    // ---- addresses ----
+    url(service, path) { return `${this.base}/svc/${service}/${String(path || "").replace(/^\/+/, "")}`; }
+    wsUrl(service, path) { return this.url(service, path).replace(/^http/, "ws"); }
+    wsProtocols() { return ["relay", "dev." + deviceId(), ...this.passes().map((p) => "pass." + p)]; }
+    ws(service, path) { return new WebSocket(this.wsUrl(service, path), this.wsProtocols()); }
+    // fetch through the relay. opts.timeout (ms) aborts a request that has not started answering.
+    async fetch(service, path, opts) {
+      opts = Object.assign({}, opts || {});
+      const timeout = opts.timeout || 0; delete opts.timeout;
+      opts.headers = this.headers(opts.headers);
+      let timer = 0, ac = null;
+      if (timeout && !opts.signal) { ac = new AbortController(); opts.signal = ac.signal; timer = setTimeout(() => ac.abort(), timeout); }
+      try { return await fetch(this.url(service, path), opts); }
+      finally { clearTimeout(timer); }
+    }
+    // ---- the light check ----
+    async ping(timeoutMs) {
+      timeoutMs = timeoutMs || 8000;
+      this._set("checking", { why: "checking the connection…" });
+      const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeoutMs), t0 = performance.now();
+      try {
+        const r = await fetch(`${this.base}/relay/ping?t=${Date.now()}`, { headers: this.headers(), cache: "no-store", signal: ac.signal });
+        if (!r.ok) { const why = await readError(r); this._set(r.status === 426 ? "reload" : "offline", { why }); return { ok: false, why }; }
+        const info = await r.json();
+        this.latency = Math.round(performance.now() - t0);
+        this.info = info;
+        if ((info.min_client || 0) > VERSION) { const why = "this page is out of date: reload it"; this._set("reload", { why }); return { ok: false, why, info }; }
+        if (!info.on) { const why = "the PC relay is switched off (tray icon on the PC)"; this._set("off", { why, info }); return { ok: false, why, info }; }
+        this._set("connected", { why: `connected (${this.latency} ms)`, info, latency: this.latency });
+        return { ok: true, info, latency: this.latency };
+      } catch (err) {
+        const why = netWhy(err, timeoutMs);
+        this._set("offline", { why });
+        return { ok: false, why };
+      } finally { clearTimeout(timer); }
+    }
+    service(id) { return ((this.info && this.info.services) || []).find((s) => s.id === id) || null; }
+    // ---- sign-in ----
+    async signIn(scope, password) {
+      const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 15000);
+      try {
+        const name = (typeof navigator !== "undefined" ? navigator.userAgent : "").replace(/\s+/g, " ").slice(0, 80);
+        const r = await fetch(`${this.base}/relay/login`, { method: "POST", headers: this.headers({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ password, scope, device: deviceId(), name: this.app + ": " + name }), cache: "no-store", signal: ac.signal });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) return { ok: false, why: j.error || httpWhy(r.status) };
+        this.adoptPass(scope, j.pass);
+        return { ok: true };
+      } catch (err) { return { ok: false, why: netWhy(err, 15000) }; }
+      finally { clearTimeout(timer); }
+    }
+    async signOut(scope) {
+      const p = this.pass(scope);
+      this.forget(scope);
+      if (!p) return { ok: true };
+      try { await fetch(`${this.base}/relay/logout`, { method: "POST", headers: { "X-Relay-Pass": p, "X-Relay-Client": this.app + "/" + VERSION }, cache: "no-store" }); } catch (e) {}
+      return { ok: true };
+    }
+    // ---- start a service, with progress ("starting the voice engine…") ----
+    async open(service, onProgress, timeoutMs) {
+      timeoutMs = timeoutMs || 60000;
+      this._set("starting", { service, why: `starting ${service} on the PC…` });
+      const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeoutMs);
+      try {
+        const r = await fetch(`${this.base}/relay/open/${service}`, { headers: this.headers(), cache: "no-store", signal: ac.signal });
+        if (r.status === 401) { const why = await readError(r); this._set("signin", { service, why }); return { ok: false, signin: true, why }; }
+        if (!r.ok) { const why = await readError(r); this._set("offline", { service, why }); return { ok: false, why }; }
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        let buf = "", last = null;
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, i); buf = buf.slice(i + 1);
+            if (!line.trim()) continue;
+            try { last = JSON.parse(line); } catch (e) { continue; }
+            if (onProgress) { try { onProgress(last); } catch (e) {} }
+            if (last.state === "starting") this._set("starting", { service, why: last.text || "starting…", seconds: last.seconds || 0 });
+          }
+        }
+        if (last && last.state === "ready") { this._set("ready", { service, why: last.warm ? "ready" : `ready (started in ${(last.ms / 1000).toFixed(1)} s)` }); return { ok: true, warm: !!last.warm, ms: last.ms || 0 }; }
+        const why = (last && last.error) || "the PC stopped answering while it was starting";
+        this._set("offline", { service, why });
+        return { ok: false, why };
+      } catch (err) {
+        const why = netWhy(err, timeoutMs);
+        this._set("offline", { service, why });
+        return { ok: false, why };
+      } finally { clearTimeout(timer); }
+    }
+    // ---- keep checking (only while the page wants it): backoff 1 s, 2 s, 4 s ... 30 s while it fails ----
+    watch(everyMs) {
+      everyMs = everyMs || 15000;
+      let stopped = false, timer = 0, fails = 0;
+      const tick = async () => {
+        if (stopped) return;
+        const r = await this.ping();
+        fails = r.ok ? 0 : fails + 1;
+        const wait = r.ok ? everyMs : Math.min(30000, 1000 * 2 ** Math.min(fails - 1, 5));
+        if (!stopped) timer = setTimeout(tick, wait * (0.9 + Math.random() * 0.2));
+      };
+      const online = () => { clearTimeout(timer); tick(); };
+      if (typeof addEventListener === "function") addEventListener("online", online);
+      tick();
+      return () => { stopped = true; clearTimeout(timer); if (typeof removeEventListener === "function") removeEventListener("online", online); };
+    }
+  }
+
+  root.RelayClient = { VERSION, DEFAULT_PC, create: (opts) => new Relay(opts || {}), deviceId, httpWhy };
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+<script>
+// cloud.js: the reader's link to Jon's PC through PC Relay (Projects\pc-relay; the client library
+// relay-client.js is copied in by build.py from pc-relay\client, never edited here). One shared RelayClient
+// (PCRELAY.client()), made on first use: nothing talks to the PC until Settings → Cloud, Open → From my PC
+// or "Use my PC for the voice" asks. The address: SETTINGS pcAddress (blank = Jon's PC).
+(function () {
+  let client = null;
+  const base = () => String(SETTINGS.get("pcAddress") || "").trim().replace(/\/+$/, "") || RelayClient.DEFAULT_PC;
+  function get() {
+    const b = base();
+    if (!client) client = RelayClient.create({ app: "reader", base: b });
+    else if (client.base !== b) client.setBase(b);
+    return client;
+  }
+  globalThis.PCRELAY = { client: get, get base() { return base(); } };
+})();
+</script>
+<script>
+// pcfiles.js: Open → From my PC (2026-10-25). Browses "Relay Files" on Jon's PC through PC Relay (the files
+// service: Projects\pc-relay\services\files) inside the Open window: folders with their sizes and dates,
+// search, sort, live updates while it is open, and the Private folder (🔒, the PC's password once per device;
+// the relay keeps the pass). "Add" brings a file in through the normal import (library.js: the same preview as
+// Add files); "Add as a book" brings a whole folder in as one zip (one book). Nothing is sent to the PC until
+// From my PC is opened; closing it ends the live-updates stream. The PC's address: SETTINGS pcAddress (blank =
+// Jon's PC), set in Settings → Cloud. Uses PCRELAY (cloud.js's shared RelayClient).
+(function () {
+  const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const btn = (cls, text, fn, title) => { const b = h("button", cls, text); b.type = "button"; if (title) b.title = title; b.addEventListener("click", fn); return b; };
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+  const MB = (n) => (n < 1e3 ? `${n || 0} bytes` : n < 1e6 ? `${Math.max(1, Math.round(n / 1e3))} KB` : `${(n / 1e6).toFixed(n < 1e7 ? 1 : 0)} MB`);
+  const when = (ms) => (ms ? new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+  const st = { body: null, folder: "root", data: null, results: null, q: "", sort: "name", msg: "", bad: false, loading: false, pw: false, pwMsg: "", ev: null, evFails: 0, seq: 0, qTimer: 0 };
+
+  const R = () => PCRELAY.client();
+  async function getJSON(path) {
+    let r;
+    try { r = await R().fetch("files", path, { timeout: 30000, cache: "no-store" }); }
+    catch (e) { const err = new Error(e.name === "AbortError" ? "no answer from the PC within 30 s" : "could not reach the PC (no network, or the PC is off or asleep)"); err.net = true; throw err; }
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) { const err = new Error(j.error || "the PC wants the password"); err.signin = j.signin || "files-private"; throw err; }
+    if (!r.ok) throw new Error(j.error || RelayClient.httpWhy(r.status));
+    return j;
+  }
+  function say(text, bad) { st.msg = text || ""; st.bad = !!bad; const m = st.body && st.body.querySelector(".pcmsg"); if (m) { m.textContent = st.msg; m.hidden = !st.msg; m.classList.toggle("bad", st.bad); } }
+
+  async function load(folder, quiet) {
+    const seq = ++st.seq;
+    st.loading = true;
+    if (!quiet) { say(st.data ? "Loading…" : "Opening Relay Files on the PC…"); }
+    try {
+      const j = await getJSON("list?folder=" + encodeURIComponent(folder));
+      if (seq !== st.seq) return;
+      st.folder = folder; st.data = j; st.pw = false; st.loading = false;
+      say("");
+      draw();
+    } catch (e) {
+      if (seq !== st.seq) return;
+      st.loading = false;
+      if (e.signin) { st.pw = { folder, scope: e.signin }; st.pwMsg = ""; say(""); draw(); return; }
+      log("book", `From my PC: ${e.message}`);
+      say(`The PC's files could not be listed: ${e.message}.`, true);
+      if (!st.data) draw();
+    }
+  }
+  async function search(q) {
+    st.q = q;
+    if (!q.trim()) { st.results = null; draw(); return; }
+    const seq = ++st.seq;
+    try {
+      const j = await getJSON("search?q=" + encodeURIComponent(q));
+      if (seq !== st.seq) return;
+      st.results = j; say(j.more ? "More than 300 found: showing the first 300." : ""); draw();
+    } catch (e) { if (seq === st.seq) say(`Search failed: ${e.message}.`, true); }
+  }
+
+  // ---- live updates: the files service's event stream, only while From my PC is open ------------------------
+  async function events() {
+    if (st.ev || !st.body) return;
+    const ac = new AbortController();
+    st.ev = ac;
+    try {
+      const r = await R().fetch("files", "events", { signal: ac.signal, cache: "no-store" });
+      if (!r.ok || !r.body) throw new Error(RelayClient.httpWhy(r.status));
+      st.evFails = 0;
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const block = buf.slice(0, i); buf = buf.slice(i + 2);
+          const line = block.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          let m; try { m = JSON.parse(line.slice(6)); } catch (e) { continue; }
+          if (m.type === "changed" && st.body) {
+            if (st.results && st.q) search(st.q);
+            else if ((m.folders || []).includes(st.folder) || (st.data && (m.folders || []).some((f) => (st.data.items || []).some((it) => it.id === f)))) load(st.folder, true);
+          }
+        }
+      }
+    } catch (e) { if (ac.signal.aborted) return; }
+    finally { if (st.ev === ac) st.ev = null; }
+    if (st.body && !ac.signal.aborted) { st.evFails++; setTimeout(events, Math.min(30000, 1000 * 2 ** Math.min(st.evFails, 5))); }
+  }
+  function stop() { if (st.ev) { st.ev.abort(); st.ev = null; } st.body = null; clearTimeout(st.qTimer); }
+
+  // ---- bringing a file or folder in: download with progress in the Open window, then the normal import ----
+  async function bring(it) {
+    const path = it.dir ? `zip/${it.id}` : `file/${it.id}`;
+    const name = it.dir ? `${it.name}.zip` : it.name;
+    const total = it.size || 0;
+    stop();
+    LIBRARY.download(`Downloading ${name} from the PC…`, 0);
+    try {
+      const r = await R().fetch("files", path, { cache: "no-store" });
+      if (r.status === 401) throw new Error("the PC wants the password again (signed out on the PC?)");
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || RelayClient.httpWhy(r.status)); }
+      const len = Number(r.headers.get("content-length")) || total;
+      const parts = []; let got = 0, last = 0;
+      const rd = r.body.getReader();
+      for (;;) {
+        const { done, value } = await rd.read();
+        if (done) break;
+        parts.push(value); got += value.length;
+        if (performance.now() - last > 120) { last = performance.now(); LIBRARY.download(`Downloading ${name} from the PC: ${MB(got)}${len ? ` of ${it.dir ? "about " : ""}${MB(len)}` : ""}`, len ? Math.min(1, got / len) : 0); }
+      }
+      log("book", `From my PC: ${name} downloaded (${MB(got)})`);
+      LIBRARY.download(null);
+      const file = new File(parts, name, { type: it.dir ? "application/zip" : (r.headers.get("content-type") || ""), lastModified: it.mtime || Date.now() });
+      await LIBRARY.pick([file]);
+    } catch (e) {
+      LIBRARY.download(null);
+      log("book", `From my PC: ${name} could not be brought in: ${e.message}`);
+      LIBRARY.say(`${name} could not be brought in from the PC: ${e.message}.`, true);
+    }
+  }
+
+  // ---- drawing --------------------------------------------------------------------------------------------
+  function sorted(items) {
+    const k = st.sort;
+    return [...items].sort((a, b) => (b.dir - a.dir) || (k === "date" ? (b.mtime || 0) - (a.mtime || 0) : k === "size" ? (b.size || 0) - (a.size || 0) : a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" })));
+  }
+  function item(it, showPath) {
+    const r = h("div", "librow pcrow" + (it.locked ? " pclocked" : ""));
+    r.dataset.id = it.id;
+    const icon = it.locked ? "🔒 " : it.dir ? "📁 " : "📄 ";
+    const top = btn("libopen", "", () => { if (it.dir) { st.results = null; st.q = ""; load(it.id); } else bring(it); }, it.dir ? `Open the folder "${it.name}"` : `Add "${it.name}" (the import preview comes first)`);
+    const head = h("div", "libhead"); head.append(h("span", "libtitle", icon + it.name));
+    top.appendChild(head);
+    const sub = it.locked ? "needs the PC's password" : it.dir ? `${fmt(it.files || 0)} file${it.files === 1 ? "" : "s"} · ${MB(it.size)}${it.mtime ? " · " + when(it.mtime) : ""}` : `${MB(it.size)} · ${when(it.mtime)}`;
+    top.appendChild(h("div", "libsub", sub));
+    if (showPath) top.appendChild(h("div", "libsub", it.path));
+    r.appendChild(top);
+    if (!it.locked) {
+      const acts = h("div", "libacts");
+      if (it.dir) { acts.append(btn("libact", "Open", () => { st.results = null; st.q = ""; load(it.id); }), btn("libact libget", "Add as a book", () => bring(it), `The whole folder as one book (one zip, ${MB(it.size)})`)); }
+      else acts.appendChild(btn("libact libget", "Add", () => bring(it), `Add "${it.name}" (the import preview comes first)`));
+      r.appendChild(acts);
+    }
+    return r;
+  }
+  function pwForm() {
+    const box = h("form", "libspec pcpw");
+    box.appendChild(h("div", "libh", "🔒 Private: the PC's password"));
+    box.appendChild(h("div", "libsub", "The same password as Screen Peek (tray icon on the PC → Set password). This device remembers the sign-in."));
+    const inp = h("input", "libname"); inp.type = "password"; inp.autocomplete = "current-password"; inp.placeholder = "Password"; inp.setAttribute("aria-label", "The PC's password");
+    const m = h("div", "libmsg bad", st.pwMsg); m.hidden = !st.pwMsg;
+    const go = btn("libbtn libadd", "Sign in", () => {}, "");
+    go.type = "submit";
+    const back = btn("libbtn", "Back", () => { st.pw = false; draw(); });
+    const row = h("div", "libbtns"); row.append(go, back);
+    box.append(inp, m, row);
+    box.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      go.disabled = true; m.hidden = false; m.classList.remove("bad"); m.textContent = "Signing in…";
+      const res = await R().signIn(st.pw.scope, inp.value);
+      go.disabled = false;
+      if (!res.ok) { st.pwMsg = res.why.charAt(0).toUpperCase() + res.why.slice(1) + "."; m.textContent = st.pwMsg; m.classList.add("bad"); inp.select(); log("book", `From my PC: sign-in refused: ${res.why}`); return; }
+      log("book", "From my PC: signed in for the Private folder");
+      const f = st.pw.folder; st.pw = false; load(f);
+    });
+    setTimeout(() => { try { inp.focus(); } catch (e) {} }, 0);
+    return box;
+  }
+  function draw() {
+    const body = st.body;
+    if (!body) return;
+    const box = h("div", "lib pcfiles");
+    const top = h("div", "libbtns");
+    top.append(btn("libbtn", "◀ Books", () => { stop(); LIBRARY.showList(); }, "Back to the books stored here"));
+    box.appendChild(top);
+    box.appendChild(h("div", "libh", "From my PC: Relay Files"));
+    const m = h("div", "libmsg pcmsg", st.msg); m.hidden = !st.msg; m.classList.toggle("bad", st.bad); m.setAttribute("aria-live", "polite");
+    box.appendChild(m);
+    if (st.pw) { box.appendChild(pwForm()); body.replaceChildren(box); return; }
+    const d = st.data;
+    if (d) {
+      const crumbs = h("div", "pccrumbs");
+      d.crumbs.forEach((c, i) => {
+        if (i) crumbs.appendChild(h("span", "pcsep", "›"));
+        crumbs.appendChild(i === d.crumbs.length - 1 && !st.results ? h("span", "pchere", c.name) : btn("pccrumb", c.name, () => { st.results = null; st.q = ""; load(c.id); }));
+      });
+      box.appendChild(crumbs);
+      const bar = h("div", "pcbar");
+      const q = h("input", "libname pcq"); q.type = "search"; q.placeholder = "Search all of Relay Files"; q.value = st.q; q.setAttribute("aria-label", "Search by name");
+      q.addEventListener("input", () => { clearTimeout(st.qTimer); st.qTimer = setTimeout(() => search(q.value), 250); });
+      const sort = h("select", "pcsort"); sort.setAttribute("aria-label", "Sort");
+      for (const [v, t] of [["name", "Name"], ["date", "Newest"], ["size", "Largest"]]) { const o = h("option", "", t); o.value = v; o.selected = st.sort === v; sort.appendChild(o); }
+      sort.addEventListener("change", () => { st.sort = sort.value; draw(); });
+      bar.append(q, sort);
+      box.appendChild(bar);
+      const list = h("div", "liblist");
+      const items = st.results ? st.results.items : d.items;
+      for (const it of sorted(items)) list.appendChild(item(it, !!st.results));
+      if (!items.length) list.appendChild(h("div", "libempty", st.results ? "Nothing on the PC matches." : "This folder is empty."));
+      box.appendChild(list);
+      const f = d.folder;
+      box.appendChild(h("div", "libfoot", `${st.results ? `${fmt(items.length)} found · ` : ""}${fmt(f.files || 0)} file${f.files === 1 ? "" : "s"} · ${MB(f.size)} in ${f.name} · kept up to date while this is open`));
+    }
+    const hadFocus = document.activeElement && document.activeElement.classList.contains("pcq");
+    body.replaceChildren(box);
+    if (hadFocus) { const q = box.querySelector(".pcq"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+  }
+
+  // Called by library.js when the Open window shows "From my PC" (render) or leaves it (stop).
+  function render(body) {
+    const fresh = !st.body;
+    st.body = body;
+    draw();
+    if (fresh) { log("book", `From my PC: opened (${PCRELAY.client().base})`); load(st.data ? st.folder : "root", !!st.data); events(); }
+  }
+
+  globalThis.PCFILES = { render, stop, load, search, get state() { return { folder: st.folder, data: st.data, results: st.results, pw: !!st.pw, msg: st.msg, bad: st.bad, events: !!st.ev }; } };
 })();
 </script>
 <script>
