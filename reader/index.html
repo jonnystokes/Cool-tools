@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.599 and 2026-10-25 11:11 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.603 and 2026-10-25 12:28 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.599</title>
+<title>Book reader V1.0.603</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.599";
-  window.APP_BUILT = "2026-10-25 11:11 AM";
-  window.APP_NOTE = "Use my PC runs the PC flat out: whole pieces, 6 asked at once (the PC's read-ahead), no bursts or copies; per-piece PC times in the log; the summary says how fast the sound arrived (6.7x real time through the Funnel, was 1.3x) \u00b7 testing, unchanged";
+  window.APP_VERSION = "Book reader V1.0.603";
+  window.APP_BUILT = "2026-10-25 12:28 PM";
+  window.APP_NOTE = "Use my PC keeps trying to reach the PC";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -5172,6 +5172,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (typeof navigator !== "undefined" && navigator.onLine === false) return "this device is offline";
     return "could not reach the PC (no network, or the PC is off or asleep)";
   }
+  // What kind of failure (2026-10-25, additive: every failed result also carries `kind`, and `status` for an
+  // HTTP answer), so a page can say which it was and decide whether trying again can help:
+  // "offline" (this device has no network), "timeout", "network" (no connection to the PC), "http" (the PC
+  // answered with an error status), "off" (the relay is switched off), "reload", "signin", "start" (a program
+  // failed or stopped answering while it started).
+  function netKind(err) {
+    if (err && err.name === "AbortError") return "timeout";
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
+    return "network";
+  }
   async function readError(r) {
     try { const j = await r.clone().json(); if (j && j.error) return j.error; } catch (e) {}
     return httpWhy(r.status);
@@ -5232,18 +5242,18 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeoutMs), t0 = performance.now();
       try {
         const r = await fetch(`${this.base}/relay/ping?t=${Date.now()}`, { headers: this.headers(), cache: "no-store", signal: ac.signal });
-        if (!r.ok) { const why = await readError(r); this._set(r.status === 426 ? "reload" : "offline", { why }); return { ok: false, why }; }
+        if (!r.ok) { const why = await readError(r); this._set(r.status === 426 ? "reload" : "offline", { why }); return { ok: false, why, kind: r.status === 426 || r.status === 410 ? "reload" : "http", status: r.status }; }
         const info = await r.json();
         this.latency = Math.round(performance.now() - t0);
         this.info = info;
-        if ((info.min_client || 0) > VERSION) { const why = "this page is out of date: reload it"; this._set("reload", { why }); return { ok: false, why, info }; }
-        if (!info.on) { const why = "the PC relay is switched off (tray icon on the PC)"; this._set("off", { why, info }); return { ok: false, why, info }; }
+        if ((info.min_client || 0) > VERSION) { const why = "this page is out of date: reload it"; this._set("reload", { why }); return { ok: false, why, info, kind: "reload" }; }
+        if (!info.on) { const why = "the PC relay is switched off (tray icon on the PC)"; this._set("off", { why, info }); return { ok: false, why, info, kind: "off" }; }
         this._set("connected", { why: `connected (${this.latency} ms)`, info, latency: this.latency });
         return { ok: true, info, latency: this.latency };
       } catch (err) {
         const why = netWhy(err, timeoutMs);
         this._set("offline", { why });
-        return { ok: false, why };
+        return { ok: false, why, kind: netKind(err) };
       } finally { clearTimeout(timer); }
     }
     service(id) { return ((this.info && this.info.services) || []).find((s) => s.id === id) || null; }
@@ -5275,8 +5285,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeoutMs);
       try {
         const r = await fetch(`${this.base}/relay/open/${service}`, { headers: this.headers(), cache: "no-store", signal: ac.signal });
-        if (r.status === 401) { const why = await readError(r); this._set("signin", { service, why }); return { ok: false, signin: true, why }; }
-        if (!r.ok) { const why = await readError(r); this._set("offline", { service, why }); return { ok: false, why }; }
+        if (r.status === 401) { const why = await readError(r); this._set("signin", { service, why }); return { ok: false, signin: true, why, kind: "signin", status: 401 }; }
+        if (!r.ok) { const why = await readError(r); this._set("offline", { service, why }); return { ok: false, why, kind: r.status === 426 || r.status === 410 ? "reload" : "http", status: r.status }; }
         const rd = r.body.getReader(), dec = new TextDecoder();
         let buf = "", last = null;
         for (;;) {
@@ -5295,11 +5305,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         if (last && last.state === "ready") { this._set("ready", { service, why: last.warm ? "ready" : `ready (started in ${(last.ms / 1000).toFixed(1)} s)` }); return { ok: true, warm: !!last.warm, ms: last.ms || 0 }; }
         const why = (last && last.error) || "the PC stopped answering while it was starting";
         this._set("offline", { service, why });
-        return { ok: false, why };
+        return { ok: false, why, kind: "start" };
       } catch (err) {
         const why = netWhy(err, timeoutMs);
         this._set("offline", { service, why });
-        return { ok: false, why };
+        return { ok: false, why, kind: netKind(err) };
       } finally { clearTimeout(timer); }
     }
     // ---- keep checking (only while the page wants it): backoff 1 s, 2 s, 4 s ... 30 s while it fails ----
@@ -7282,40 +7292,184 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // line), synth(piece) sends the piece's speech and settings and gets its sound (PCM16 at 24 kHz) and word
 // times back, stop() cancels the PC's work at once. Used instead of the voice's own engine while "Use my PC
 // for the voice" is on (player.js pickEngine). The PC is contacted only when this is on: one light check when
-// a book opens (the status bar says "Using cloud: …"), the real work from Play. No fallbacks: if the PC cannot
-// be reached at Play, the reading stops with the reason and a "Use this device's voice" button appears.
+// a book opens (the status bar says "Using cloud: …"), the real work from Play.
+// Trying again (Jon, 2026-10-25, after one passing "could not reach the PC"): ONE retry loop (run()) serves the
+// Cloud tab's check, the book-open check, Play and a connection that dropped mid-reading. It tries again by
+// itself, 1, 2, 4, 8 s apart, then every 12 s, for as long as the reason applies (the tab open; Use my PC on
+// with a book open; Play waiting; pieces still to come), one request at a time; `online` and the page coming
+// back into view try at once, and so does "Try now" (CLOUDVOICE.tryNow). Each attempt is logged and shown:
+// "Can't reach the PC yet: <reason>. Trying again in 4 s (attempt 3)…". The reasons are told apart: no network
+// here, a timeout, no connection to the PC, the relay switched off or not running, the PC voice starting.
+// Only a reason trying again cannot fix (the PC wants its password, the page is out of date, the PC refused)
+// stops Play, with the reason and the "Use this device's voice" button. No fallbacks: nothing switches to this
+// device's voice by itself. A dropped connection keeps the pieces not answered yet: once the PC is back (its
+// voice loaded again if it had to restart) they are sent again, so the reading goes on where it was with the
+// sound already here kept.
 // Marks: each chunk's place (queued on the PC, generating there, on the way) goes to the player
 // (PLAYER.cloudMark), which highlight.js colours. CLOUDVOICE: the status for the bar and the Cloud tab.
 (function () {
-  const st = { ws: null, hello: null, opening: null, waiters: new Map(), states: new Map(), times: new Map(), key: "", loading: "", error: "", check: "", checkAt: 0, checking: null, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null };
+  const st = { lastMsg: 0, ws: null, hello: null, waiters: new Map(), states: new Map(), times: new Map(), key: "", prep: null, loading: "", status: "", check: "", checkAt: 0, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null };
   const R = () => PCRELAY.client();
   const plain = (e) => String((e && e.message) || e || "").replace(/^Error: /, "");
   const err = (msg, extra) => Object.assign(new Error(msg), extra || {});
   const parseVoice = (v) => { const p = ENGINE.parse(String(v || "kokoro:af_heart")); return { engine: p.engine, voice: p.voice }; };
-  function redraw() { if (globalThis.PLAYBAR) PLAYBAR.refresh(); }
-
-  // ---- the light check (book open, the Cloud tab): one /relay/ping ------------------------------------------
-  async function check(why) {
-    if (st.checking) return st.checking;
-    st.check = "checking…"; redraw();
-    st.checking = R().ping(8000).then((r) => {
-      const v = r.info && r.info.services ? r.info.services.find((s) => s.id === "voice") : null;
-      st.check = r.ok ? (v ? `connected (${R().latency} ms; the PC voice is ${v.state === "running" ? "running" : v.unavailable ? v.unavailable.replace(/\.$/, "") : "ready to start"})` : "connected, but the PC has no voice service") : `the PC can't be reached: ${r.why}`;
-      st.checkAt = Date.now();
-      log("voice", `Use my PC: ${why || "check"}: ${st.check}`);
-      redraw();
-      return r;
-    }).finally(() => { st.checking = null; });
-    return st.checking;
+  const connected = () => !!(st.ws && st.ws.readyState === 1 && st.hello);
+  const subs = new Set();
+  function redraw() {
+    if (globalThis.PLAYBAR) PLAYBAR.refresh();
+    for (const f of subs) { try { f(); } catch (e) {} }
   }
 
-  // ---- the connection ----------------------------------------------------------------------------------------
+  // ---- Trying again: one loop, one request at a time ----------------------------------------------------------
+  const BACKOFF = [1000, 2000, 4000, 8000], EVERY = 12000;
+  const backoff = (n) => (n <= BACKOFF.length ? BACKOFF[n - 1] : EVERY);
+  // checks: [{ label, keep(), resolve }] (the light check, kept trying while keep() says so); conns: [{ label,
+  // resolve, reject }] (a connection wanted: Play). attempt: the attempt in hand (busy) or the last one failed.
+  const loop = { running: false, busy: false, mode: "", attempt: 0, why: "", next: 0, wake: null, checks: [], conns: [], last: null };
+  const unsent = () => { let n = 0; for (const [id, w] of st.waiters) if (id !== "__prepare" && !w.sent) n++; return n; };
+  // A reading on the PC voice is under way (playing or paused) but the connection is gone: it wants it back.
+  const reading = () => !!(globalThis.PLAYER && PLAYER.state !== "stopped" && PLAYER.engine === E && st.key && !connected());
+  function wants() {
+    loop.checks = loop.checks.filter((c) => { if (!c.tried) return true; let k = false; try { k = !!c.keep(); } catch (e) {} if (!k) c.resolve(loop.last || { ok: false, why: loop.why || "not checked" }); return k; });
+    return { connect: loop.conns.length > 0 || unsent() > 0 || reading(), check: loop.checks.length > 0 };
+  }
+  // What the loop is trying for, in the log and on screen.
+  function label() {
+    if (loop.conns.length) return loop.conns[0].label;
+    if (unsent() || reading()) return "the connection dropped while reading";
+    return loop.checks.length ? loop.checks[0].label : "check";
+  }
+  // "Can't reach the PC yet: <reason>. Trying again in 4 s (attempt 3)…" while the loop runs after a failure.
+  function retryText() {
+    if (!loop.running || !loop.why) return "";
+    if (loop.busy || !loop.next) return `Can't reach the PC yet: ${loop.why}. Trying again now (attempt ${loop.attempt})…`;
+    return `Can't reach the PC yet: ${loop.why}. Trying again in ${Math.max(1, Math.ceil((loop.next - Date.now()) / 1000))} s (attempt ${loop.attempt})…`;
+  }
+  const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+
+  // The reason in plain words, and whether trying again can help.
+  function failure(r) {
+    const k = r.kind || (r.signin ? "signin" : "network"), s = r.status || 0;
+    const why = k === "offline" ? "this device has no network (no Wi-Fi or mobile data)"
+      : k === "timeout" ? `${r.why} (a timeout: a slow or changing network, or the PC asleep)`
+      : k === "network" ? "could not reach the PC (it may be off or asleep, or the network just changed)"
+      : k === "off" ? "the PC answered, but PC Relay is switched off there (its tray icon on the PC)"
+      : k === "http" && s === 502 ? "the PC answered, but PC Relay is not running there (502)"
+      : k === "start" ? `the PC voice did not start: ${r.why}`
+      : k === "signin" ? "the PC wants its password (Settings → Cloud → Sign in)"
+      : r.why || "unknown";
+    const retry = ["offline", "timeout", "network", "off", "start", "starting", "dropped"].includes(k) || (k === "http" && [429, 500, 502, 503, 504].includes(s));
+    return { ok: false, why, retry, kind: k, status: s };
+  }
+  // A ping answered: every light check waiting has its answer.
+  function settleChecks(r) {
+    const v = r.info && r.info.services ? r.info.services.find((s) => s.id === "voice") : null;
+    st.check = v ? `connected (${R().latency} ms; the PC voice is ${v.state === "running" ? "running" : v.unavailable ? v.unavailable.replace(/\.$/, "") : "ready to start"})` : "connected, but the PC has no voice service";
+    st.checkAt = Date.now();
+    const labels = Array.from(new Set(loop.checks.map((c) => c.label)));
+    if (labels.length) log("voice", `Use my PC: ${labels.join(", ")}: ${st.check}`);
+    const cs = loop.checks; loop.checks = [];
+    for (const c of cs) c.resolve(r);
+  }
+  // Wait between attempts, a second at a time (the countdown on screen; a reason gone ends the wait):
+  // true = try again, false = nothing wants it any more.
+  async function rest(ms) {
+    loop.next = Date.now() + ms;
+    try {
+      while (Date.now() < loop.next) {
+        const why = await new Promise((res) => { const t = setTimeout(() => res("time"), Math.min(1000, Math.max(10, loop.next - Date.now()))); loop.wake = (k) => { clearTimeout(t); res(k || "now"); }; });
+        loop.wake = null;
+        if (why === "now") return true;
+        const w = wants();
+        if (!w.connect && !w.check) return false;
+        redraw();
+      }
+      return true;
+    } finally { loop.next = 0; loop.wake = null; }
+  }
+  // run(): start the loop, or (a new ask: the tab opened, Play pressed) try at once if it is resting.
+  // ensure(): start it if it is not running, without cutting a wait short (pieces kept after a drop).
+  const ensure = () => { if (!loop.running) run(); };
+  async function run() {
+    if (loop.running) { if (loop.wake) loop.wake("now"); return; }
+    loop.running = true; loop.attempt = 0; loop.why = ""; loop.last = null;
+    try {
+      for (;;) {
+        const w = wants();
+        if (!w.connect && !w.check) break;
+        loop.attempt++; loop.busy = true; loop.mode = w.connect ? "connect" : "check";
+        redraw();
+        let r;
+        try { r = w.connect ? await connectOnce() : await pingOnce(); }
+        catch (e) { r = { ok: false, why: plain(e), retry: true }; }
+        loop.busy = false;
+        if (r.ok) {
+          if (loop.why) log("voice", `Use my PC (${label()}): the PC answered at attempt ${loop.attempt}`);
+          loop.why = ""; loop.attempt = 0; loop.last = r;
+          if (connected()) { const cs = loop.conns; loop.conns = []; for (const c of cs) c.resolve(st.ws); }
+          continue;                                   // whatever is still wanted (a connection after a check) goes on at once
+        }
+        loop.last = r; loop.why = r.why;
+        for (const c of loop.checks) c.tried = true;     // a check with nothing keeping it ends after one try
+        if (!r.retry) {
+          const what = label();
+          log("voice", `Use my PC (${what}): ${r.why}; not tried again (trying again cannot fix this)`);
+          st.check = `the PC can't be reached: ${r.why}`; st.checkAt = Date.now();
+          const cs = loop.checks; loop.checks = []; for (const c of cs) c.resolve(r);
+          if (loop.conns.length || unsent()) st.failed = true;
+          const e = () => err(`Use my PC: ${r.why}. Press "Use this device's voice", or try again.`, { cannot: true, cloud: true });
+          const ns = loop.conns; loop.conns = []; for (const c of ns) c.reject(e());
+          for (const [id, wt] of st.waiters) if (id !== "__prepare" && !wt.sent) { st.waiters.delete(id); st.times.delete(id); mark(id, null); wt.reject(e()); }
+          break;
+        }
+        const ms = backoff(loop.attempt), w2 = wants();
+        if (!w2.connect && !w2.check) { st.check = `the PC can't be reached: ${r.why}`; break; }
+        log("voice", `Use my PC (${label()}): attempt ${loop.attempt} failed: ${r.why}; trying again in ${ms / 1000} s`);
+        if (!(await rest(ms))) { st.check = `the PC can't be reached: ${r.why}`; log("voice", `Use my PC: stopped trying (nothing waits for the PC any more)`); break; }
+      }
+    } finally {
+      loop.running = false; loop.busy = false; loop.next = 0; loop.mode = "";
+      redraw();
+    }
+  }
+  const tryNow = () => { if (loop.wake) { log("voice", "Use my PC: Try now"); loop.wake("now"); } };
+  // The network came back, or the page came back into view: try at once.
+  addEventListener("online", () => { if (loop.wake) { log("voice", "Use my PC: the network is back: trying at once"); loop.wake("now"); } });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && loop.wake) { log("voice", "Use my PC: the page is back in view: trying at once"); loop.wake("now"); } });
+  // A connection that looks open but is dead (a phone moving from Wi-Fi to mobile data gets no close event for
+  // minutes): taken as dropped when the network changes with pieces waiting, or when the PC has said nothing
+  // for STALE_MS while pieces wait on it. Then the usual path: reconnect, ask for those pieces again.
+  const STALE_MS = 20000;
+  const waitingOnPC = () => { for (const [id, w] of st.waiters) if (id !== "__prepare" && w.sent) return true; return false; };
+  function giveUp(why) {
+    const ws = st.ws;
+    if (!ws) return;
+    closed(ws)({ code: 4000, reason: why });
+    try { ws.onclose = null; ws.close(); } catch (e) {}
+  }
+  const netChanged = (what) => () => { if (connected() && waitingOnPC()) { log("voice", `Use my PC: ${what} while pieces wait on the PC: connecting again to be sure`); giveUp(what); } };
+  addEventListener("offline", netChanged("the network went away"));
+  if (navigator.connection && navigator.connection.addEventListener) navigator.connection.addEventListener("change", netChanged("the network changed"));
+  setInterval(() => { if (connected() && waitingOnPC() && performance.now() - st.lastMsg > STALE_MS) giveUp(`no word from the PC voice for ${STALE_MS / 1000} s with pieces waiting`); }, 2000);
+
+  // ---- The light check (book open, the Cloud tab): /relay/ping; keep() = go on trying while it says so ------------
+  function check(why, keep) {
+    return new Promise((resolve) => { loop.checks.push({ label: why || "check", keep: keep || (() => false), resolve }); run(); });
+  }
+  async function pingOnce() {
+    const r = await R().ping(8000);
+    if (r.ok) { settleChecks(r); return { ok: true, info: r.info }; }
+    return failure(r);
+  }
+
+  // ---- The connection ----------------------------------------------------------------------------------------
   function onMessage(ev) {
+    st.lastMsg = performance.now();
     if (typeof ev.data !== "string") return audio(ev.data);
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
     if (m.type === "hello") { st.hello = m; return; }
-    if (m.type === "loading") { st.loading = m.text; E.status = m.text; redraw(); return; }
-    if (m.type === "loaded" || m.type === "prepared") { if (m.key === st.key && (m.type === "loaded" || m.ready)) { st.loading = ""; E.status = ""; const w = st.waiters.get("__prepare"); if (w) { st.waiters.delete("__prepare"); w.resolve(); } } if (m.error && m.key === st.key) failPrepare(m.error); redraw(); return; }
+    if (m.type === "loading") { st.loading = m.text; st.status = m.text; redraw(); return; }
+    if (m.type === "loaded" || m.type === "prepared") { if (m.key === st.key && (m.type === "loaded" || m.ready)) { st.loading = ""; st.status = ""; const w = st.waiters.get("__prepare"); if (w) { st.waiters.delete("__prepare"); w.resolve(); } } if (m.error && m.key === st.key) failPrepare(m.error); redraw(); return; }
     if (m.type === "state") { const t = st.times.get(m.id); if (t && (m.state === "generating" || m.state === "sending")) t[m.state] = performance.now(); mark(m.id, m.state, m); return; }
     if (m.type === "error") {
       if (!m.id) return;
@@ -7353,48 +7507,97 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (state) st.states.set(partId, state); else st.states.delete(partId);
     if (globalThis.PLAYER && PLAYER.cloudMark) PLAYER.cloudMark(partId);
   }
-  function dropAll(why, extra) {
-    for (const [id, w] of st.waiters) { w.reject(err(why, extra)); if (id !== "__prepare") mark(id, null); }
-    st.waiters.clear(); st.times.clear();
+  // The connection closed under us: the pieces not answered stay (sent again once it is back); a model
+  // being loaded is asked for again (init's prepared()); a reading under way reconnects at once.
+  function closed(ws) {
+    return (ev) => {
+      if (st.ws !== ws) return;
+      st.ws = null; st.hello = null;
+      let n = 0;
+      for (const [id, w] of st.waiters) {
+        if (id === "__prepare") { st.waiters.delete(id); w.reject(err("the connection dropped while the voice loaded", { redo: true })); continue; }
+        w.sent = false; n++; mark(id, null);
+      }
+      log("voice", `Use my PC: the connection to the PC voice closed (${ev.reason || "code " + ev.code})${n ? `; ${n} piece${n === 1 ? "" : "s"} not answered yet will be asked for again once it is back` : ""}`);
+      redraw();
+      if (n || reading()) ensure();
+    };
   }
-  async function connect() {
-    if (st.ws && st.ws.readyState === 1 && st.hello) return st.ws;
-    if (st.opening) return st.opening;
-    st.opening = (async () => {
-      const r = await check("Play");
-      if (!r.ok) { st.failed = true; throw err(`Use my PC: the PC can't be reached (${r.why}). Press "Use this device's voice", or try again.`, { cannot: true, cloud: true }); }
-      const o = await R().open("voice", (p) => { if (p.state === "starting") { E.status = p.text || "starting the voice on the PC…"; redraw(); } });
-      if (!o.ok) { st.failed = true; throw err(`Use my PC: ${o.signin ? "the PC wants its password (Settings → Cloud → Sign in)" : o.why}.`, { cannot: true, cloud: true }); }
+  // One try at the whole connection: the ping, the voice service started, the WebSocket's hello; after a drop,
+  // the model loaded again if the PC lost it and every piece not answered sent again.
+  async function connectOnce() {
+    if (!connected()) {
+      const r = await R().ping(8000);
+      if (!r.ok) return failure(r);
+      settleChecks(r);
+      const o = await R().open("voice", (p) => { if (p.state === "starting") { st.status = p.text || "starting the voice on the PC…"; redraw(); } });
+      if (!o.ok) return failure(o);
       const ws = R().ws("voice", "ws");
       ws.binaryType = "arraybuffer";
-      await new Promise((resolve, reject) => {
-        const t = setTimeout(() => { reject(err("Use my PC: the PC voice did not answer within 15 s.", { cannot: true, cloud: true })); try { ws.close(); } catch (e) {} }, 15000);
-        ws.onmessage = (ev) => { onMessage(ev); if (st.hello) { clearTimeout(t); resolve(); } };
-        ws.onclose = (ev) => { clearTimeout(t); reject(err(`Use my PC: the PC voice closed the connection (${ev.reason || ev.code}).`, { cannot: true, cloud: true })); };
+      st.hello = null;
+      const hs = await new Promise((resolve) => {
+        const t = setTimeout(() => { resolve({ ok: false, why: "the PC voice is still starting (no answer within 15 s)", retry: true, kind: "starting" }); try { ws.close(); } catch (e) {} }, 15000);
+        ws.onmessage = (ev) => { onMessage(ev); if (st.hello) { clearTimeout(t); resolve({ ok: true }); } };
+        ws.onclose = (ev) => { clearTimeout(t); resolve({ ok: false, why: `the PC voice closed the connection (${ev.reason || "code " + ev.code})`, retry: true, kind: "dropped" }); };
       });
+      if (!hs.ok) { st.hello = null; return hs; }
       ws.onmessage = onMessage;
-      ws.onclose = (ev) => {
-        if (st.ws !== ws) return;
-        st.ws = null; st.hello = null;
-        log("voice", `Use my PC: the connection to the PC voice closed (${ev.reason || "code " + ev.code})`);
-        dropAll(`the connection to the PC voice dropped (${ev.reason || "code " + ev.code})`);
-        redraw();
-      };
-      st.ws = ws; st.failed = false;
+      ws.onclose = closed(ws);
+      st.ws = ws; st.failed = false; st.lastMsg = performance.now();
+      if (st.status && !st.loading) st.status = "";
       log("voice", `Use my PC: connected to the PC voice (${R().base})`);
-      return ws;
-    })().finally(() => { st.opening = null; });
-    return st.opening;
+    }
+    const n = unsent();
+    if (!n) return { ok: true };
+    // After a drop: the model first (a restarted service has none), then the pieces again, in their order.
+    if (st.prep && !(st.hello.models || []).includes(st.key)) {
+      try { await prepareOn(st.ws); }
+      catch (e) { return e.redo ? { ok: false, why: "the connection dropped again while the PC voice loaded", retry: true, kind: "dropped" } : Object.assign(failure({ kind: "cannot", why: plain(e) }), { retry: false }); }
+      if (!connected()) return { ok: false, why: "the connection dropped again", retry: true, kind: "dropped" };
+    }
+    let k = 0;
+    st.lastMsg = performance.now();
+    for (const [id, w] of st.waiters) {
+      if (id === "__prepare" || w.sent) continue;
+      w.sent = true; k++;
+      const t = st.times.get(id); if (t) { t.ask = performance.now(); delete t.generating; delete t.sending; }
+      mark(id, "queued");
+      st.ws.send(w.msg);
+    }
+    log("voice", `Use my PC: ${k} piece${k === 1 ? "" : "s"} asked for again after the drop; the reading goes on where it was`);
+    return { ok: true };
+  }
+  // A connection: at once when there is one, else the loop's (it waits, trying again, until it is up or a
+  // reason trying cannot fix comes; E.stop() ends the wait).
+  function connect(why) {
+    if (connected()) return Promise.resolve(st.ws);
+    return new Promise((resolve, reject) => { loop.conns.push({ label: why, resolve, reject }); run(); });
+  }
+  // The model loaded on the PC (90 s at most); a drop meanwhile rejects with `redo`.
+  function prepareOn(ws) {
+    const key = st.key;
+    return new Promise((resolve, reject) => {
+      st.waiters.set("__prepare", { resolve, reject, sent: true });
+      ws.send(JSON.stringify(st.prep));
+      setTimeout(() => { const w = st.waiters.get("__prepare"); if (w && w.resolve === resolve) { st.waiters.delete("__prepare"); reject(err("Use my PC: the PC voice did not load within 90 s.", { cannot: true, cloud: true })); } }, 90000);
+    }).then(() => { if (st.hello && key === st.key) st.hello.models = Array.from(new Set([...(st.hello.models || []), key])); });
   }
 
-  const E = {
+  // ENGINE.register keeps a COPY (Object.assign: getters become fixed values), so E is the registered copy and
+  // the getters are put back on it below; everything here (and the player) uses that one object.
+  const SPEC = {
     id: "cloud", name: "PC voice", hidden: true,
     voices: [{ id: "cloud", name: "PC voice" }],
     can: { timing: true, reroll: false, copies: false },
     // Pieces asked at once (player.js inFlightMax): the PC's read-ahead (its hello), so the PC always has the
     // next pieces queued and the network's round trip is hidden behind its work (Jon, 2026-10-25; was 2).
     get depth() { return Math.max(1, Number(st.hello && st.hello.readAhead) || 6); },
-    sampleRate: 24000, maxChars: 300, status: "",
+    // While the loop tries to (re)connect, the player's per-piece watchdog waits instead of calling the voice stuck.
+    get waiting() { return loop.running && loop.mode === "connect"; },
+    // The status line while the voice loads: "Waiting for the PC · Can't reach the PC yet: …" while it retries.
+    get status() { const t = loop.mode === "connect" ? retryText() : ""; return t ? `Waiting for the PC · ${t}` : st.status; },
+    set status(v) { st.status = v || ""; },
+    sampleRate: 24000, maxChars: 300,
     async init(opts) {
       const v = parseVoice(opts.voice);
       if (!["kokoro", "piper", "supertonic"].includes(v.engine)) throw err(`Use my PC: the PC runs Kokoro, Piper and Supertonic voices; ${(ENGINE.get(v.engine) || { name: v.engine }).name} runs on this device. Choose one of those in Settings → Voice, or press "Use this device's voice".`, { cannot: true, cloud: true });
@@ -7403,61 +7606,84 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       E.sampleRate = piper ? (/-x?_?low$/.test(v.voice) ? 16000 : 22050) : sup ? 44100 : 24000;
       E.maxChars = piper ? 400 : sup ? 180 : 300;
       const key = piper ? `piper ${st.opts.runOn} ${v.voice}` : sup ? `supertonic ${st.opts.runOn}` : `kokoro ${st.opts.runOn} ${st.opts.precision}`;
-      const ws = await connect();
-      if (st.key === key && st.hello && (st.hello.models || []).includes(key) && !st.loading) return;
-      st.key = key;
       const name = piper ? `Piper ${v.voice}` : sup ? "Supertonic" : "Kokoro";
-      E.status = `loading ${name} on the PC's ${st.opts.runOn === "cuda" ? "graphics card (CUDA)" : st.opts.runOn === "gpu" ? "graphics card" : "processor"}…`;
-      redraw();
-      await new Promise((resolve, reject) => {
-        st.waiters.set("__prepare", { resolve, reject });
-        ws.send(JSON.stringify({ type: "prepare", engine: v.engine, voice: v.voice, runOn: st.opts.runOn, precision: st.opts.precision }));
-        setTimeout(() => { if (st.waiters.get("__prepare")) { st.waiters.delete("__prepare"); reject(err("Use my PC: the PC voice did not load within 90 s.", { cannot: true, cloud: true })); } }, 90000);
-      });
-      if (st.hello) st.hello.models = Array.from(new Set([...(st.hello.models || []), key]));
-      E.status = "";
+      if (!connected()) { st.status = "connecting to the PC…"; redraw(); }
+      // The model loaded on the PC; a drop while it loads waits for the connection again and asks again.
+      for (;;) {
+        const ws = await connect("Play");
+        if (st.key === key && st.hello && (st.hello.models || []).includes(key) && !st.loading) { st.status = ""; return; }
+        st.key = key;
+        st.prep = { type: "prepare", engine: v.engine, voice: v.voice, runOn: st.opts.runOn, precision: st.opts.precision };
+        st.status = `loading ${name} on the PC's ${st.opts.runOn === "cuda" ? "graphics card (CUDA)" : st.opts.runOn === "gpu" ? "graphics card" : "processor"}…`;
+        redraw();
+        try { await prepareOn(ws); break; }
+        catch (e) { if (!e.redo) throw e; log("voice", "Use my PC: the connection dropped while the PC voice loaded; waiting for it again"); }
+      }
+      st.status = "";
       log("voice", `Use my PC: ${globalThis.CLOUDVOICE.short()} is ready`);
     },
-    async synth(piece, opts) {
-      const ws = await connect();
+    // A piece: sent at once when connected, else kept until the connection is back (the loop runs meanwhile).
+    synth(piece, opts) {
       const o = st.opts || {};
       const id = piece.id || `p${++st.seq}`;
       const ahead = globalThis.STREAM && STREAM.ahead ? Number(STREAM.ahead()) || 0 : null;
+      const msg = JSON.stringify({ type: "synth", id, text: piece.speech, engine: o.engine || "kokoro", voice: o.voice, runOn: o.runOn, precision: o.precision, pace: (opts && opts.pace) || o.pace, speaker: o.speaker, steps: o.steps, speed: SETTINGS.get("speed"), ahead_s: ahead });
       return new Promise((resolve, reject) => {
-        st.waiters.set(id, { resolve, reject });
+        const w = { resolve, reject, msg, sent: false };
+        st.waiters.set(id, w);
         st.times.set(id, { ask: performance.now(), depth: [...st.waiters.keys()].filter((k) => k !== "__prepare").length });
-        mark(id, "queued");
-        ws.send(JSON.stringify({ type: "synth", id, text: piece.speech, engine: o.engine || "kokoro", voice: o.voice, runOn: o.runOn, precision: o.precision, pace: (opts && opts.pace) || o.pace, speaker: o.speaker, steps: o.steps, speed: SETTINGS.get("speed"), ahead_s: ahead }));
+        if (connected()) { if (!waitingOnPC()) st.lastMsg = performance.now(); w.sent = true; mark(id, "queued"); st.ws.send(msg); }   // the stale clock starts with the first piece waiting
+        else ensure();
       });
     },
     stop() {
-      if (st.ws && st.ws.readyState === 1) { try { st.ws.send(JSON.stringify({ type: "cancel" })); } catch (e) {} }
+      if (connected()) { try { st.ws.send(JSON.stringify({ type: "cancel" })); } catch (e) {} }
       const prep = st.waiters.get("__prepare");
       for (const [id, w] of st.waiters) if (id !== "__prepare") { w.reject(err("stopped", { stopped: true })); mark(id, null); }
       st.waiters.clear();
       if (prep) st.waiters.set("__prepare", prep);
       st.states.clear(); st.times.clear();
+      // A Play waiting for the PC waits no more (Stop, Pause, a settings change); the light checks go on.
+      const cs = loop.conns; loop.conns = [];
+      for (const c of cs) c.reject(err("stopped", { stopped: true }));
+      if (cs.length) log("voice", "Use my PC: stopped waiting for the PC");
+      if (loop.wake) loop.wake("recheck");
     },
     describe() { return { runOn: [], precisions: [], pace: true, steps: false, copies: false, speaker: 0 }; },
   };
-  ENGINE.register(E);
+  const E = ENGINE.register(SPEC);
+  for (const k of ["depth", "waiting", "status"]) Object.defineProperty(E, k, Object.assign(Object.getOwnPropertyDescriptor(SPEC, k), { configurable: true }));
 
   globalThis.CLOUDVOICE = {
     check,
+    tryNow,
+    // Called on every change of the connection's state and once a second while a retry counts down.
+    on(fn) { subs.add(fn); return () => subs.delete(fn); },
     stateOf: (partId) => st.states.get(partId) || null,
-    // The play bar's voice part while the PC voice reads: "Kokoro fp32 on your PC (card)".
-    short() { const o = st.opts || {}; return `${o.engine === "piper" ? "Piper " + o.voice : o.engine === "supertonic" ? "Supertonic " + o.voice : "Kokoro " + (o.precision || "fp32")} on your PC (${o.runOn === "cpu" ? "processor" : o.runOn === "cuda" ? "card, CUDA" : "card"})${st.loading ? " · " + st.loading : ""}`; },
-    // The stopped line: "Using cloud: connected (45 ms; ...)" while Use my PC is on.
-    using() { return SETTINGS.get("useMyPC") ? (st.check ? `Using cloud: ${st.check}` : "Using cloud (checked when a book opens)") : ""; },
+    // The retry loop as it is: running, the attempt, the reason, the countdown, the text shown.
+    get retry() { return { running: loop.running, busy: loop.busy, mode: loop.mode, attempt: loop.attempt, why: loop.why, next: loop.next, label: loop.running ? label() : "", text: retryText() }; },
+    get waiting() { return E.waiting; },
+    // The play bar's voice part while the PC voice reads: "Kokoro fp32 on your PC (card)"; while a dropped
+    // connection is tried again, the attempt follows.
+    short() { const o = st.opts || {}, t = loop.mode === "connect" ? retryText() : ""; return `${o.engine === "piper" ? "Piper " + o.voice : o.engine === "supertonic" ? "Supertonic " + o.voice : "Kokoro " + (o.precision || "fp32")} on your PC (${o.runOn === "cpu" ? "processor" : o.runOn === "cuda" ? "card, CUDA" : "card"})${st.loading ? " · " + st.loading : ""}${t ? " · " + t : ""}`; },
+    // The stopped line: "Using cloud: connected (45 ms; ...)" while Use my PC is on; the attempt while it retries.
+    using() {
+      if (!SETTINGS.get("useMyPC")) return "";
+      const t = retryText();
+      if (t) return `Using cloud: ${lowerFirst(t)}`;
+      return st.check ? `Using cloud: ${st.check}` : "Using cloud (checked when a book opens)";
+    },
     get failed() { return st.failed && !!SETTINGS.get("useMyPC"); },
-    get info() { return { connected: !!(st.ws && st.ws.readyState === 1), check: st.check, checkAt: st.checkAt, bytes: st.bytes, pieces: st.pieces, x: st.x, lastMs: st.lastMs, loading: st.loading, key: st.key, queued: st.waiters.size }; },
-    close() { if (st.ws) { try { st.ws.close(); } catch (e) {} st.ws = null; st.hello = null; } },
+    get info() { return { connected: connected(), check: st.check, checkAt: st.checkAt, bytes: st.bytes, pieces: st.pieces, x: st.x, lastMs: st.lastMs, loading: st.loading, key: st.key, queued: st.waiters.size, unsent: unsent() }; },
+    close() { if (st.ws) { const ws = st.ws; st.ws = null; st.hello = null; try { ws.close(); } catch (e) {} } },
   };
 
-  // The light check when a book opens, only while Use my PC is on.
-  if (globalThis.READER && READER.onChange) READER.onChange((what) => { if (what === "book" && SETTINGS.get("useMyPC")) check("book open"); });
+  // The light check when a book opens, only while Use my PC is on; tried again until it answers, while Use my PC
+  // stays on and a book is open.
+  const bookKeep = () => !!SETTINGS.get("useMyPC") && globalThis.READER && READER.state === "book";
+  if (globalThis.READER && READER.onChange) READER.onChange((what) => { if (what === "book" && SETTINGS.get("useMyPC")) check("book open", bookKeep); });
   // ... and the book the page opens with (it opens before any change is announced).
-  const startCheck = () => { if (!(globalThis.APP && APP.ready)) { setTimeout(startCheck, 200); return; } if (SETTINGS.get("useMyPC") && READER.state === "book" && !st.checkAt && !st.checking) check("book open"); };
+  const startCheck = () => { if (!(globalThis.APP && APP.ready)) { setTimeout(startCheck, 200); return; } if (SETTINGS.get("useMyPC") && READER.state === "book" && !st.checkAt && !loop.running) check("book open", bookKeep); };
   setTimeout(startCheck, 200);
 })();
 </script>
@@ -10766,7 +10992,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const run = () => {
       if (!mine()) return Promise.reject(Object.assign(new Error("the reading moved on before this chunk's turn"), { stopped: true }));   // a stale job left in the card gate (P11)
       job.t0 = performance.now();
-      job.timer = setTimeout(() => { if (mine()) failed(rec, i, Object.assign(new Error(`no answer from the voice in ${Math.round(limit / 1000)} s`), { timeout: true })); }, limit);
+      // Use my PC: while the connection is being tried again (engines/cloud.js), the chunk is not stuck: the
+      // watchdog starts over (the chunk is sent again when the PC is back).
+      const arm = () => { job.timer = setTimeout(() => { if (!mine()) return; if (engine && engine.waiting) { arm(); return; } failed(rec, i, Object.assign(new Error(`no answer from the voice in ${Math.round(limit / 1000)} s`), { timeout: true })); }, limit); };
+      arm();
       return engine.synth(part, engineOpts);
     };
     const p = LISTENER.gate("voice", run);
@@ -11295,7 +11524,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const lead = LISTENER.state.why ? LISTENER.note() : lastError && notice ? notice : "";
     const parts = [];
     if (state === "paused") parts.push("Paused");
-    if (!engine || !engineLoaded) parts.push(recovering ? "Restarting the voice…" : "Loading voice…", engine && engine.status ? engine.status : "");
+    if (!engine || !engineLoaded) parts.push(recovering ? "Restarting the voice…" : engine && engine.waiting && engine.status ? "" : "Loading voice…", engine && engine.status ? engine.status : "");   // Use my PC waiting: "Waiting for the PC · Can't reach the PC yet: …"
     else {
       if (state === "playing") parts.push("Playing");
       parts.push(voiceShort() + (resting && !making.size ? " resting" : ""));
@@ -11499,6 +11728,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
   function pause() {
     if (state !== "playing") return;
+    // Play waiting for the PC (Use my PC, trying again): Pause cancels the waiting, like Stop (Jon, 2026-10-25).
+    if (setup === gen && engine && engine.waiting) { log("playback", "pause while waiting for the PC: the waiting is cancelled"); stop("Stopped waiting for the PC. Press Play to try again."); return; }
     setState("paused");
     if (live) hush(true); else STREAM.pause();
   }
@@ -13420,7 +13651,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // signed in or not). Use my PC for the voice (Apply): the voice chosen in the Voice tab is made on the PC
 // (engines/cloud.js). PC address (live). Test: one short sentence made on the PC and played here, with its
 // timing. Sign in / out (the PC's password: the Private files, and the voice when the PC asks for it). Data used.
-// "Use this device's voice" turns Use my PC off at once (the button the play bar shows after a failed Play too).
+// "Use this device's voice" turns Use my PC off at once (the button the play bar shows after a failed Play too,
+// and while Play waits for the PC). The status box keeps trying while the tab is open (engines/cloud.js's retry
+// loop), with Try now; the play bar has a Try now while Use my PC tries again.
 (function () {
   const W = globalThis.SETTINGSWIN;
   if (!W) return;
@@ -13430,10 +13663,31 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const SCOPES = ["files-private", "voice"];
   let checkedAt = 0;
 
+  // The link's status: checked at once, and while the tab is open tried again by itself until the PC answers
+  // (engines/cloud.js's one retry loop): "Can't reach the PC yet: <reason>. Trying again in 4 s (attempt 3)…"
+  // with a Try now button.
   function statusBox() {
     const box = h("div", "cloudstat");
     box.textContent = "Checking connection…";
+    let done = false;
+    const C = globalThis.CLOUDVOICE;
+    let warn = null;
+    const waiting = () => {
+      const t = C && C.retry.text;
+      if (done || !t || !box.isConnected) return;
+      if (!warn) {                                  // built once; the countdown only changes the text
+        box.replaceChildren();
+        warn = h("div", "swarn", "");
+        const now = button("sbtn", "Try now", () => C.tryNow());
+        now.classList.add("cloudnow");
+        box.append(warn, now, h("div", "shelp", `Address: ${R().base}. The PC must be on and awake, with PC Relay running (tray icon). This tab keeps trying while it is open.`));
+      }
+      if (warn.textContent !== t) warn.textContent = t;
+    };
+    const off = C ? C.on(waiting) : null;
     const draw = (r) => {
+      done = true;
+      if (off) off();
       if (!box.isConnected && checkedAt) return;
       box.replaceChildren();
       const c = R();
@@ -13449,7 +13703,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       box.appendChild(h("div", "shelp", signed));
     };
     checkedAt = Date.now();
-    R().ping(8000).then(draw, (e) => draw({ ok: false, why: e.message }));
+    // Kept trying while the box is on screen (a box not yet attached counts for its first second).
+    const t0 = Date.now(), keep = () => box.isConnected || Date.now() - t0 < 1000;
+    (C ? C.check("Cloud tab", keep) : R().ping(8000)).then(draw, (e) => draw({ ok: false, why: e.message }));
     return box;
   }
 
@@ -13544,7 +13800,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   function cloudTab(body) {
     body.appendChild(row("Your PC", "", statusBox(), { block: true }));
-    body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, the reading stops and says why; nothing switches by itself. The PC runs Kokoro and Supertonic voices (card or processor, as Run on says) and Piper voices (processor)."));
+    body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, it keeps trying by itself (1, 2, 4, 8 s apart, then every 12 s) and says why; Play waits and starts the moment the PC answers, and a reading whose connection drops goes on where it was once it is back. Nothing switches to this device's voice by itself (the “Use this device's voice” button is there while it waits). The PC runs Kokoro and Supertonic voices (card or processor, as Run on says) and Piper voices (processor)."));
     const back = button("sbtn", "Use this device's voice", () => { change("useMyPC", false); say("Use my PC is off (press Apply): this device makes the voice again."); });
     body.appendChild(row("Use this device's voice", "Choose the voice in the Voice tab; it runs on your PC. This button turns Use my PC off (press Apply).", back, { block: true }));
     body.appendChild(choice("pcCard", "PC graphics card", "How the PC's graphics card makes the voice when Run on says Graphics card. CUDA is the fastest on the PC's GTX 1050 Ti: Kokoro about 6× real time (first sound in about 1 s), Supertonic about 4×, Piper about 26×. WebGPU: Kokoro about 3.6×, Supertonic about 2.7×, Piper on the processor. If the one chosen fails, the reading stops and says why; it never switches by itself.", [
@@ -13569,9 +13825,25 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     log("voice", "Use my PC switched off from the play bar: this device's voice from the next Play");
     PLAYBAR.status("Using this device's voice. Press Play.");
   });
+  // "Try now" beside it while Use my PC is trying the PC again (the book-open check, a Play waiting, a dropped
+  // connection): the next attempt at once, instead of at the end of the countdown.
+  const now = h("button", "cloudoff cloudnow", "Try now");
+  now.type = "button"; now.hidden = true; now.id = "cloudnow";
+  now.title = "Try to reach the PC again now";
+  now.addEventListener("click", () => { if (globalThis.CLOUDVOICE) CLOUDVOICE.tryNow(); });
   const box = document.getElementById("stbox");
-  if (box && box.parentNode) box.parentNode.insertBefore(btn, box.nextSibling);
-  setInterval(() => { const show = !!(globalThis.CLOUDVOICE && CLOUDVOICE.failed && PLAYER.status().state === "stopped"); if (btn.hidden === show) btn.hidden = !show; }, 1000);
+  if (box && box.parentNode) { box.parentNode.insertBefore(now, box.nextSibling); box.parentNode.insertBefore(btn, box.nextSibling); }
+  // Shown: "Use this device's voice" after a Play the PC could not serve, and while Play (or a reading) waits
+  // for the PC: still Jon's choice, nothing switches by itself; "Try now" while a retry counts down.
+  const sync = () => {
+    const C = globalThis.CLOUDVOICE, on = !!SETTINGS.get("useMyPC");
+    const show = !!(C && on && ((C.failed && PLAYER.status().state === "stopped") || (C.waiting && PLAYER.status().state !== "stopped")));
+    if (btn.hidden === show) btn.hidden = !show;
+    const retry = !!(C && on && C.retry.running && C.retry.why);
+    if (now.hidden === retry) now.hidden = !retry;
+  };
+  if (globalThis.CLOUDVOICE) CLOUDVOICE.on(sync);
+  setInterval(sync, 1000);
 })();
 </script>
 <script>
