@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.561 and 2026-10-24 11:24 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.569 and 2026-10-24 11:40 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.561</title>
+<title>Book reader V1.0.569</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.561";
-  window.APP_BUILT = "2026-10-24 11:24 PM";
-  window.APP_NOTE = "PC Relay step 1: Open \u2192 From my PC (Relay Files on the PC through PC Relay: folders, sizes, dates, search, sort, live updates; Private asks for the PC's password once; Add a file through the normal preview, or a whole folder as one book)";
+  window.APP_VERSION = "Book reader V1.0.569";
+  window.APP_BUILT = "2026-10-24 11:40 PM";
+  window.APP_NOTE = "PC Relay step 2: Use my PC for the voice (Settings \u2192 Sound \u2192 Cloud: link status, Use my PC, PC address, Test, sign in, data used; the cloud engine makes the chosen Kokoro voice on the PC with the phone's word timing; a light check at book open, the status bar says Using cloud; a PC that can't be reached stops Play with the reason and a Use this device's voice button); marks show queued / generating / on the way from the PC; Detailed marks on by default";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -357,6 +357,9 @@ html.cdock .ctop .idx { display: none; }
    ::after = the state: sound made, or being read). The Key window lists these. */
 :root {
   --made: light-dark(#3c9d5f, #4fc97d);
+  --pc-queued: light-dark(#8a7fb0, #a99be0);   /* PC voice: queued on the PC */
+  --pc-making: light-dark(#d9822b, #ffab5c);   /* PC voice: being made on the PC */
+  --pc-sending: light-dark(#1f9fb8, #5fd3ea);  /* PC voice: on the way from the PC */
   --speak: light-dark(#2f6fd6, #6ea8ff);
   --word: light-dark(#ffd36b, #8a6a12);
   --miss: light-dark(#c62828, #ff7070);
@@ -503,6 +506,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 .keyrow .sw { flex: none; width: 1.4em; height: 1.4em; border-radius: 4px; border: 1px solid var(--line); }
 .keyrow .sw.current { border: 0; border-left: 3px solid var(--accent); border-radius: 0; width: 0.9em; }
 .keyrow .sw.made { border: 0; border-left: 3px solid var(--made); border-radius: 0; width: 0.9em; }
+.keyrow .sw.made.pcq { border-left-color: var(--pc-queued); }
+.keyrow .sw.made.pcm { border-left-color: var(--pc-making); }
+.keyrow .sw.made.pcs { border-left-color: var(--pc-sending); }
 .keyrow .sw.speaking { border-left: 3px solid var(--speak); background: color-mix(in srgb, var(--speak) 16%, transparent); }
 .keyrow .sw.piece { background: color-mix(in srgb, var(--speak) 7%, transparent); }
 .keyrow .sw.dash { border: 0; border-radius: 2px; width: 3px; height: 1.1em; background: var(--made); }
@@ -516,6 +522,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 .keyrow .sw.add::before { content: "+"; }
 .keyrow .sw.spell { color: var(--spelled); }
 .keyrow .sw.word { width: auto; height: auto; padding: 0 0.3em; background: var(--word); border: 0; font-size: 0.9em; }
+/* the play bar's "Use this device's voice" (cloudtab.js): after a Play that could not reach the PC */
+.cloudoff { min-height: 48px; min-width: 48px; padding: 0 0.8em; border: 1px solid var(--accent); border-radius: 8px; background: var(--bg); color: inherit; font-weight: 600; cursor: pointer; }
 </style>
 <style>
 /* settings.css: the Settings window (settingswin.js). Its content sizes from --ui like every window
@@ -786,6 +794,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 .phere { grid-area: here; color: var(--muted); font-size: 0.82em; }
 .phere.yes { color: var(--accent); }
 .ptotal { font-weight: 600; }
+/* Settings → Cloud (cloudtab.js) */
+.cloudstat { display: flex; flex-direction: column; gap: 0.2em; padding: 0.4em 0.6em; border: 1px solid var(--line); border-radius: 8px; background: var(--bar); }
+.stext { width: 100%; min-width: 0; min-height: var(--tap); padding: 0 0.6em; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: inherit; box-sizing: border-box; }
+.sstack { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 </style>
 
 </head>
@@ -1101,6 +1113,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     numbersToWords: false,         // 2080 -> "two thousand and eighty"; off by default, the benchmark turns it on for Supertonic (Jon, 2026-10-23)
     joinShort: true,               // a piece of five words or fewer joins its neighbour
     // Cloud (Jon's PC through PC Relay: cloud.js, pcfiles.js, engines/cloud.js)
+    useMyPC: false,                // Use my PC for the voice: the chosen voice is made on the PC (engines/cloud.js); Apply
     pcAddress: "",                 // the relay's address; "" = Jon's PC (https://desktop-krq9ti2.tail46434.ts.net)
     // Sound group: Voice
     voice: "kokoro:af_heart",      // "engine:voice"
@@ -1131,7 +1144,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     screenAwake: true,
     // Debug
     debugView: false,              // the Debug view window: the listener's findings, errors and issues as they are found (debugview.js)
-    detailedMarks: false,          // the left-edge marks: false = one short dash per paragraph (green = its sound is ready, blue = being read); true = the diagnostic view (chunk segments, the Play-start line, the listener's issue marks)
+    detailedMarks: true,           // ON by default since 2026-10-25 (Jon: switched on once for existing settings, then his choice is kept; no migration needed: the store keeps only values that differ from the defaults). The left-edge marks: false = one short dash per paragraph (green = its sound is ready, blue = being read); true = the diagnostic view (chunk segments, the Play-start line, the listener's issue marks)
     logTypesOff: [],               // unticked log types; everything else shows
   };
 
@@ -5469,7 +5482,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     r.appendChild(top);
     if (!it.locked) {
       const acts = h("div", "libacts");
-      if (it.dir) { acts.append(btn("libact", "Open", () => { st.results = null; st.q = ""; load(it.id); }), btn("libact libget", "Add as a book", () => bring(it), `The whole folder as one book (one zip, ${MB(it.size)})`)); }
+      if (it.dir) { acts.append(btn("libact", "Open", () => { st.results = null; st.q = ""; load(it.id); })); if (it.files) acts.append(btn("libact libget", "Add as a book", () => bring(it), `The whole folder as one book (one zip, ${MB(it.size)})`)); }
       else acts.appendChild(btn("libact libget", "Add", () => bring(it), `Add "${it.name}" (the import preview comes first)`));
       r.appendChild(acts);
     }
@@ -5505,7 +5518,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const top = h("div", "libbtns");
     top.append(btn("libbtn", "◀ Books", () => { stop(); LIBRARY.showList(); }, "Back to the books stored here"));
     box.appendChild(top);
-    box.appendChild(h("div", "libh", "From my PC: Relay Files"));
+    box.appendChild(h("div", "libh", "From my PC"));
     const m = h("div", "libmsg pcmsg", st.msg); m.hidden = !st.msg; m.classList.toggle("bad", st.bad); m.setAttribute("aria-live", "polite");
     box.appendChild(m);
     if (st.pw) { box.appendChild(pwForm()); body.replaceChildren(box); return; }
@@ -7264,6 +7277,177 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 })();
 </script>
 <script>
+// engines/cloud.js: the `cloud` engine (2026-10-25): the voice chosen in Settings → Voice, made on Jon's PC
+// by PC Relay's voice service (Projects\pc-relay\services\voice: the same kokoro-js and the same word timing
+// code as engines/kokoro.js, on the PC's graphics card or processor). The same interface as every engine
+// (engine.js): init loads it on the PC (the relay starts the service; its progress shows on the status
+// line), synth(piece) sends the piece's speech and settings and gets its sound (PCM16 at 24 kHz) and word
+// times back, stop() cancels the PC's work at once. Used instead of the voice's own engine while "Use my PC
+// for the voice" is on (player.js pickEngine). The PC is contacted only when this is on: one light check when
+// a book opens (the status bar says "Using cloud: …"), the real work from Play. No fallbacks: if the PC cannot
+// be reached at Play, the reading stops with the reason and a "Use this device's voice" button appears.
+// Marks: each chunk's place (queued on the PC, generating there, on the way) goes to the player
+// (PLAYER.cloudMark), which highlight.js colours. CLOUDVOICE: the status for the bar and the Cloud tab.
+(function () {
+  const st = { ws: null, hello: null, opening: null, waiters: new Map(), states: new Map(), key: "", loading: "", error: "", check: "", checkAt: 0, checking: null, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null };
+  const R = () => PCRELAY.client();
+  const plain = (e) => String((e && e.message) || e || "").replace(/^Error: /, "");
+  const err = (msg, extra) => Object.assign(new Error(msg), extra || {});
+  const parseVoice = (v) => { const p = ENGINE.parse(String(v || "kokoro:af_heart")); return { engine: p.engine, voice: p.voice }; };
+  function redraw() { if (globalThis.PLAYBAR) PLAYBAR.refresh(); }
+
+  // ---- the light check (book open, the Cloud tab): one /relay/ping ------------------------------------------
+  async function check(why) {
+    if (st.checking) return st.checking;
+    st.check = "checking…"; redraw();
+    st.checking = R().ping(8000).then((r) => {
+      const v = r.info && r.info.services ? r.info.services.find((s) => s.id === "voice") : null;
+      st.check = r.ok ? (v ? `connected (${R().latency} ms; the PC voice is ${v.state === "running" ? "running" : v.unavailable ? v.unavailable.replace(/\.$/, "") : "ready to start"})` : "connected, but the PC has no voice service") : `the PC can't be reached: ${r.why}`;
+      st.checkAt = Date.now();
+      log("voice", `Use my PC: ${why || "check"}: ${st.check}`);
+      redraw();
+      return r;
+    }).finally(() => { st.checking = null; });
+    return st.checking;
+  }
+
+  // ---- the connection ----------------------------------------------------------------------------------------
+  function onMessage(ev) {
+    if (typeof ev.data !== "string") return audio(ev.data);
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.type === "hello") { st.hello = m; return; }
+    if (m.type === "loading") { st.loading = m.text; E.status = m.text; redraw(); return; }
+    if (m.type === "loaded" || m.type === "prepared") { if (m.key === st.key && (m.type === "loaded" || m.ready)) { st.loading = ""; E.status = ""; const w = st.waiters.get("__prepare"); if (w) { st.waiters.delete("__prepare"); w.resolve(); } } if (m.error && m.key === st.key) failPrepare(m.error); redraw(); return; }
+    if (m.type === "state") { mark(m.id, m.state, m); return; }
+    if (m.type === "error") {
+      if (!m.id) return;
+      const w = st.waiters.get(m.id);
+      if (w) { st.waiters.delete(m.id); mark(m.id, null); w.reject(err(`The PC voice: ${m.error}`, { fatal: !!m.fatal, cannot: !!m.cannot })); }
+      else if (m.cannot && st.waiters.has("__prepare")) failPrepare(m.error);
+    }
+  }
+  function failPrepare(msg) { const w = st.waiters.get("__prepare"); if (w) { st.waiters.delete("__prepare"); w.reject(err(`The PC voice could not load: ${msg}`, { cannot: true })); } }
+  function audio(buf) {
+    st.bytes += buf.byteLength;
+    const n = new DataView(buf).getUint32(0, true);
+    let h; try { h = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n))); } catch (e) { return; }
+    const w = st.waiters.get(h.id);
+    if (!w) return;
+    st.waiters.delete(h.id);
+    const pcm = new Int16Array(buf.slice(4 + n));
+    const out = new Float32Array(pcm.length);
+    for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768;
+    st.pieces++; st.x = h.x || st.x; st.lastMs = h.ms;
+    mark(h.id, null);
+    const r = { audio: out, sampleRate: h.sampleRate || 24000, peak: h.peak };
+    if (h.words) r.words = h.words;
+    w.resolve(r);
+  }
+  function mark(partId, state) {
+    if (state) st.states.set(partId, state); else st.states.delete(partId);
+    if (globalThis.PLAYER && PLAYER.cloudMark) PLAYER.cloudMark(partId);
+  }
+  function dropAll(why, extra) {
+    for (const [id, w] of st.waiters) { w.reject(err(why, extra)); if (id !== "__prepare") mark(id, null); }
+    st.waiters.clear();
+  }
+  async function connect() {
+    if (st.ws && st.ws.readyState === 1 && st.hello) return st.ws;
+    if (st.opening) return st.opening;
+    st.opening = (async () => {
+      const r = await check("Play");
+      if (!r.ok) { st.failed = true; throw err(`Use my PC: the PC can't be reached (${r.why}). Press "Use this device's voice", or try again.`, { cannot: true, cloud: true }); }
+      const o = await R().open("voice", (p) => { if (p.state === "starting") { E.status = p.text || "starting the voice on the PC…"; redraw(); } });
+      if (!o.ok) { st.failed = true; throw err(`Use my PC: ${o.signin ? "the PC wants its password (Settings → Cloud → Sign in)" : o.why}.`, { cannot: true, cloud: true }); }
+      const ws = R().ws("voice", "ws");
+      ws.binaryType = "arraybuffer";
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => { reject(err("Use my PC: the PC voice did not answer within 15 s.", { cannot: true, cloud: true })); try { ws.close(); } catch (e) {} }, 15000);
+        ws.onmessage = (ev) => { onMessage(ev); if (st.hello) { clearTimeout(t); resolve(); } };
+        ws.onclose = (ev) => { clearTimeout(t); reject(err(`Use my PC: the PC voice closed the connection (${ev.reason || ev.code}).`, { cannot: true, cloud: true })); };
+      });
+      ws.onmessage = onMessage;
+      ws.onclose = (ev) => {
+        if (st.ws !== ws) return;
+        st.ws = null; st.hello = null;
+        log("voice", `Use my PC: the connection to the PC voice closed (${ev.reason || "code " + ev.code})`);
+        dropAll(`the connection to the PC voice dropped (${ev.reason || "code " + ev.code})`);
+        redraw();
+      };
+      st.ws = ws; st.failed = false;
+      log("voice", `Use my PC: connected to the PC voice (${R().base})`);
+      return ws;
+    })().finally(() => { st.opening = null; });
+    return st.opening;
+  }
+
+  const E = {
+    id: "cloud", name: "PC voice", hidden: true,
+    voices: [{ id: "cloud", name: "PC voice" }],
+    can: { timing: true, reroll: false, copies: true },
+    copies: 2,                                   // two pieces asked at once: the next is queued on the PC while one travels
+    sampleRate: 24000, maxChars: 300, status: "",
+    async init(opts) {
+      const v = parseVoice(opts.voice);
+      if (v.engine !== "kokoro") throw err(`Use my PC: the PC runs only Kokoro voices for now; ${v.engine} runs on this device. Choose a Kokoro voice in Settings → Voice, or press "Use this device's voice".`, { cannot: true, cloud: true });
+      st.opts = { engine: "kokoro", voice: v.voice, runOn: opts.runOn === "cpu" ? "cpu" : "gpu", precision: opts.precision || "fp32", pace: opts.pace };
+      const key = `kokoro ${st.opts.runOn} ${st.opts.precision}`;
+      const ws = await connect();
+      if (st.key === key && st.hello && (st.hello.models || []).includes(key) && !st.loading) return;
+      st.key = key;
+      E.status = st.opts.runOn === "gpu" ? "loading Kokoro on the PC's graphics card…" : "loading Kokoro on the PC's processor…";
+      redraw();
+      await new Promise((resolve, reject) => {
+        st.waiters.set("__prepare", { resolve, reject });
+        ws.send(JSON.stringify({ type: "prepare", runOn: st.opts.runOn, precision: st.opts.precision }));
+        setTimeout(() => { if (st.waiters.get("__prepare")) { st.waiters.delete("__prepare"); reject(err("Use my PC: the PC voice did not load within 90 s.", { cannot: true, cloud: true })); } }, 90000);
+      });
+      if (st.hello) st.hello.models = Array.from(new Set([...(st.hello.models || []), key]));
+      E.status = "";
+    },
+    async synth(piece, opts) {
+      const ws = await connect();
+      const o = st.opts || {};
+      const id = piece.id || `p${++st.seq}`;
+      const ahead = globalThis.STREAM && STREAM.ahead ? Number(STREAM.ahead()) || 0 : null;
+      return new Promise((resolve, reject) => {
+        st.waiters.set(id, { resolve, reject });
+        mark(id, "queued");
+        ws.send(JSON.stringify({ type: "synth", id, text: piece.speech, engine: "kokoro", voice: o.voice, runOn: o.runOn, precision: o.precision, pace: (opts && opts.pace) || o.pace, speed: SETTINGS.get("speed"), ahead_s: ahead }));
+      });
+    },
+    stop() {
+      if (st.ws && st.ws.readyState === 1) { try { st.ws.send(JSON.stringify({ type: "cancel" })); } catch (e) {} }
+      const prep = st.waiters.get("__prepare");
+      for (const [id, w] of st.waiters) if (id !== "__prepare") { w.reject(err("stopped", { stopped: true })); mark(id, null); }
+      st.waiters.clear();
+      if (prep) st.waiters.set("__prepare", prep);
+      st.states.clear();
+    },
+    describe() { return { runOn: [], precisions: [], pace: true, steps: false, copies: false, speaker: 0 }; },
+  };
+  ENGINE.register(E);
+
+  globalThis.CLOUDVOICE = {
+    check,
+    stateOf: (partId) => st.states.get(partId) || null,
+    // The play bar's voice part while the PC voice reads: "Kokoro fp32 on your PC (card)".
+    short() { const o = st.opts || {}; return `Kokoro ${o.precision || "fp32"} on your PC (${o.runOn === "cpu" ? "processor" : "card"})${st.loading ? " · " + st.loading : ""}`; },
+    // The stopped line: "Using cloud: connected (45 ms; ...)" while Use my PC is on.
+    using() { return SETTINGS.get("useMyPC") ? (st.check ? `Using cloud: ${st.check}` : "Using cloud (checked when a book opens)") : ""; },
+    get failed() { return st.failed && !!SETTINGS.get("useMyPC"); },
+    get info() { return { connected: !!(st.ws && st.ws.readyState === 1), check: st.check, checkAt: st.checkAt, bytes: st.bytes, pieces: st.pieces, x: st.x, lastMs: st.lastMs, loading: st.loading, key: st.key, queued: st.waiters.size }; },
+    close() { if (st.ws) { try { st.ws.close(); } catch (e) {} st.ws = null; st.hello = null; } },
+  };
+
+  // The light check when a book opens, only while Use my PC is on.
+  if (globalThis.READER && READER.onChange) READER.onChange((what) => { if (what === "book" && SETTINGS.get("useMyPC")) check("book open"); });
+  // ... and the book the page opens with (it opens before any change is announced).
+  const startCheck = () => { if (!(globalThis.APP && APP.ready)) { setTimeout(startCheck, 200); return; } if (SETTINGS.get("useMyPC") && READER.state === "book" && !st.checkAt && !st.checking) check("book open"); };
+  setTimeout(startCheck, 200);
+})();
+</script>
+<script>
 // mp3.js: pieces to MP3 for the stream, in a worker so the page stays fluid. The encoder (lamejs, an
 // exact pinned version) is a library like the voices' (models.js): got on the first Play, never
 // before, through MODELS.ensure (the store, else the web, else Voice_data.zip when offline: a file
@@ -8669,6 +8853,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const segs = new Map();            // piece id -> { piece, flags, spans }, for the chapter on screen
   let segsChapter = null;
   const PENDING = "color-mix(in srgb, var(--made) 30%, transparent)";
+  const CLOUD_COLOURS = { queued: "var(--pc-queued)", generating: "var(--pc-making)", sending: "var(--pc-sending)" };   // play.css
   function made(piece, flags, spans) {
     if (!shown(piece)) return;
     if (segsChapter !== piece.chapter) { segs.clear(); segsChapter = piece.chapter; }
@@ -8689,7 +8874,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         const span = x.to - x.from;
         cs.forEach((c, j) => {
           const c0 = Math.max(c.from, a), c1 = Math.min(c.to, b);
-          if (c1 > c0) out.push({ a: (x.from + span * (c0 - a) / sp.length) / len, b: (x.from + span * (c1 - a) / sp.length) / len, done: !flags || flags[j] !== false });
+          const f = !flags ? true : flags[j] == null ? false : flags[j];
+          if (c1 > c0) out.push({ a: (x.from + span * (c0 - a) / sp.length) / len, b: (x.from + span * (c1 - a) / sp.length) / len, done: f === true, at: typeof f === "string" ? f : "" });
         });
       }
     }
@@ -8697,11 +8883,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     el.classList.toggle("allmade", out.length > 0 && out.every((s) => s.done));   // every chunk made: the simple dash (UX-16)
     if (!out.length) { el.style.removeProperty("--madeseg"); return; }
     out.sort((p, q) => p.a - q.a);
-    if (out.length === 1) { if (out[0].done) el.style.removeProperty("--madeseg"); else el.style.setProperty("--madeseg", PENDING); return; }
+    // With the PC voice a waiting chunk shows where it is: queued on the PC, generating there, on the way.
+    const colour = (s) => (s.done ? "var(--made)" : s.at ? (CLOUD_COLOURS[s.at] || PENDING) : PENDING);
+    if (out.length === 1) { if (out[0].done) el.style.removeProperty("--madeseg"); else el.style.setProperty("--madeseg", colour(out[0])); return; }
     const pc = (f) => (Math.max(0, Math.min(1, f)) * 100).toFixed(2) + "%";
     const stops = [];
     out.forEach((s, i) => {
-      stops.push(`${s.done ? "var(--made)" : PENDING} ${i ? `calc(${pc(s.a)} + 1px)` : pc(s.a)} ${i < out.length - 1 ? `calc(${pc(s.b)} - 1px)` : pc(s.b)}`);
+      stops.push(`${colour(s)} ${i ? `calc(${pc(s.a)} + 1px)` : pc(s.a)} ${i < out.length - 1 ? `calc(${pc(s.b)} - 1px)` : pc(s.b)}`);
       if (i < out.length - 1) stops.push(`transparent calc(${pc(s.b)} - 1px) calc(${pc(out[i + 1].a)} + 1px)`);
     });
     el.style.setProperty("--madeseg", `linear-gradient(to bottom, ${stops.join(", ")})`);
@@ -8751,6 +8939,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       ["dash speaking", "The line turns blue: being read now (the paragraph is shaded too)."],
       ["piece", "The rest of the piece being read (short lines are read together)."],
     ];
+    // The PC voice's marks (Settings → Cloud → Use my PC), in the detailed view: where each chunk is.
+    if (det && g.SETTINGS && SETTINGS.get("useMyPC")) rows.splice(2, 0,
+      ["made pcq", "Grey-violet segment: queued on your PC, waiting its turn."],
+      ["made pcm", "Orange segment: being made on your PC now."],
+      ["made pcs", "Cyan segment: made, on the way from your PC."],
+      ["made", "Green segment: ready in the browser (solid once its sound is here)."]);
     if (src !== "off") rows.push(["word", `The word being spoken (timing ${src === "voice" ? "from the voice" : src === "listener" ? "from the listener" : "estimated"}).`]);
     // The listener's marks, only while it is on (step 8a); its left-edge marks only in the detailed view.
     if (listening && det) rows.push(
@@ -10252,6 +10446,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // ---- The voice ---------------------------------------------------------------------------------
   // The engine the voice setting names; one not in this build is a failure with the reason (no fallbacks).
   function pickEngine() {
+    // Use my PC for the voice (Settings → Cloud): the cloud engine (engines/cloud.js) makes the chosen voice on the PC.
+    if (SETTINGS.get("useMyPC") && ENGINE.get("cloud")) return { engine: ENGINE.get("cloud"), voice: SETTINGS.get("voice") };
     const want = ENGINE.parse(SETTINGS.get("voice"));
     const e = ENGINE.get(want.engine);
     if (!e) throw Object.assign(new Error(`The voice "${SETTINGS.get("voice")}" is not in this build. Choose one in Settings → Voice.`), { cannot: true });
@@ -10358,7 +10554,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   // ---- Making pieces: the pump -------------------------------------------------------------------
   const estimateSec = (p) => (stats.chars ? stats.sound / stats.chars : 0.06) * p.speech.length;
-  const flagsOf = (m) => m.chunks.map((c) => c.dur != null);
+  // A chunk's mark: true = its sound is here; else false, or with the PC voice where it is on the PC ("queued",
+  // "generating", "sending": engines/cloud.js), which highlight.js colours.
+  const flagsOf = (m) => m.chunks.map((c, i) => (c.dur != null ? true : (engine && engine.id === "cloud" && globalThis.CLOUDVOICE && CLOUDVOICE.stateOf(`${m.piece.id}#${i}`)) || false));
   function madePause(p) {
     const rate = (engine && engine.sampleRate) || 24000;
     const m = { piece: p, chunks: [{ text: "", chars: 0, audio: new Float32Array(Math.round(rate * PAUSE_SEC)), sampleRate: rate, dur: PAUSE_SEC, words: null, ms: 0 }], done: 1, dur: PAUSE_SEC, chars: 0, ms: 0, t0: performance.now(), complete: true, appended: 0 };
@@ -11033,6 +11231,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // The voice in short: "Kokoro fp32 (card)", "Piper (processor, 4 copies)", "Browser voices (the device speaks)".
   function voiceShort() {
     if (!engine) return "";
+    if (engine.id === "cloud" && globalThis.CLOUDVOICE) return CLOUDVOICE.short();
     if (live) return `${engine.name} (the device speaks)`;
     const o = engineOpts || {}, n = copiesNow(), asked = copiesAsked(), short = engine.pool && engine.pool.growFailed;
     const name = engine.name + (engine.id === "kokoro" && o.precision ? " " + o.precision : "");
@@ -11045,7 +11244,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const notice = lastStatus && statusState === state && (state !== "playing" || performance.now() - statusAt < NOTICE_MS) ? lastStatus : "";
     if (state === "stopped") {
       if (lastError && notice) return { lead: "", text: notice, err: true };          // the error replaces the line
-      return { lead: "", text: ["Stopped", notice, browserNote()].filter(Boolean).join(" · "), err: false };
+      return { lead: "", text: ["Stopped", notice, browserNote(), globalThis.CLOUDVOICE ? CLOUDVOICE.using() : ""].filter(Boolean).join(" · "), err: false };
     }
     const lead = LISTENER.state.why ? LISTENER.note() : lastError && notice ? notice : "";
     const parts = [];
@@ -11338,7 +11537,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // pieces are and sound like, so a reading in progress stops (saying so) and everything made goes;
   // the word timing source and the sound settings change in place; Background playback takes effect
   // at the next Play (the stream is opened then), said on the status line while reading.
-  const VOICE_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "pace", "steps", "copies", "speaker"];
+  const VOICE_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "pace", "steps", "copies", "speaker", "useMyPC"];
   const TEXT_KEYS = ["joinShort", "skipWatermarks", "watermarkRules", "spelling", "capsAsWords", "numbersToWords"];
   const LISTEN_KEYS = ["listenerOn", "listener", "listenMode", "reroll"];
   function settingsChanged(names) {
@@ -11447,7 +11646,14 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   globalThis.PLAYER = {
     play, pause, resume, toggle, stop, step, jumpToPara, show, chapterPicked, hooks, stats, activity, settingsChanged,
-    status: statusNow, detail,                     // what the status lines and the full-status window show (playbar.js)
+    status: statusNow, detail,
+    // engines/cloud.js: a chunk's place on the PC changed (queued / generating / sending): its marks are drawn again.
+    cloudMark(partId) {
+      const pid = String(partId).replace(/#\d+$/, "");
+      const r = making.get(pid);
+      const m = (r && r.m) || made.get(pid);
+      if (m && m.chunks) HIGHLIGHT.made(m.piece, flagsOf(m), m.spans);
+    },
     rebuild: () => { stop(); reset(); },           // everything made goes (the tests; Settings goes through settingsChanged)
     // The voice's workers were used by someone else (the full benchmark): load it afresh at the next Play.
     forget: () => { if (state !== "stopped") stop(); reset(); engineReady = null; engineLoaded = false; engineKey = ""; },
@@ -11523,11 +11729,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // SETTINGSWIN.open / close / show(group, tab) / save / clearData / choose / pending / tab, for the tests.
 (function () {
   const S = globalThis.SETTINGS;
-  const GROUPS = [["Reading", ["Book", "Reading", "Text"]], ["Sound", ["Voice", "Word highlight", "Listener", "Voice data", "Offline package"]], ["System", ["Background", "Storage", "Debug"]]];
+  const GROUPS = [["Reading", ["Book", "Reading", "Text"]], ["Sound", ["Voice", "Cloud", "Word highlight", "Listener", "Voice data", "Offline package"]], ["System", ["Background", "Storage", "Debug"]]];
   const OWNS = {
     Book: ["skipWatermarks", "watermarkRules"], Reading: ["speed", "volume", "readTitle", "continueChapters", "theme", "textSize", "uiSize"],
     Text: ["spelling", "capsAsWords", "numbersToWords", "joinShort"], Voice: ["voice", "kokoroEngine", "runOn", "precision", "pace", "steps", "copies", "speaker", "burst"],
-    "Word highlight": ["wordTiming"], Listener: ["listenerOn", "listener", "listenMode", "reroll"], "Voice data": ["offline", "slim"], "Offline package": [], Background: ["backgroundPlay", "keepAlive", "keepAliveIdle", "holdOnScroll", "screenAwake"],
+    Cloud: ["useMyPC", "pcAddress"], "Word highlight": ["wordTiming"], Listener: ["listenerOn", "listener", "listenMode", "reroll"], "Voice data": ["offline", "slim"], "Offline package": [], Background: ["backgroundPlay", "keepAlive", "keepAliveIdle", "holdOnScroll", "screenAwake"],
     Debug: ["debugView", "detailedMarks", "logTypesOff"],
   };
   const LABELS = {
@@ -11539,9 +11745,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     offline: "Offline mode", slim: "Slim mode", kokoroEngine: "Engine", holdOnScroll: "Pause making sound while I scroll",
     listenerOn: "Listener", listener: "Listener model", listenMode: "Word check timing", reroll: "Re-roll faulty chunks",
     debugView: "Debug view", detailedMarks: "Detailed marks (diagnostics)", logTypesOff: "Log types",
+    useMyPC: "Use my PC for the voice", pcAddress: "PC address",
   };
   // Saved and applied the moment they change (Jon, 2026-10-20). Everything else a tab owns waits for Apply.
-  const LIVE = ["theme", "textSize", "uiSize", "speed", "volume", "readTitle", "continueChapters", "wordTiming", "holdOnScroll", "keepAlive", "keepAliveIdle", "screenAwake", "debugView", "detailedMarks", "logTypesOff"];
+  const LIVE = ["theme", "textSize", "uiSize", "speed", "volume", "readTitle", "continueChapters", "wordTiming", "holdOnScroll", "keepAlive", "keepAliveIdle", "screenAwake", "debugView", "detailedMarks", "logTypesOff", "pcAddress"];
   const HEAVY = new Set(Object.values(OWNS).flat().filter((n) => !LIVE.includes(n)));
   const APPLY_NOTE = "Applies when you press Apply";
   const LATER = {};                                         // tabs not built yet (none); datatab.js and storagetab.js add theirs
@@ -13154,6 +13361,153 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // The stored data changed elsewhere (the Open window added or deleted a book): the next look is fresh.
   const stale = () => { st.data = null; if (shown()) refresh(); };
   globalThis.STORED = { PREFIX: P, survey, remove, removeAll, refresh, stale, hooks: st.hooks, get data() { return st.data; } };
+})();
+</script>
+<script>
+// cloudtab.js: Settings → Sound → Cloud (2026-10-25): Jon's PC through PC Relay. Opening the tab is one of the
+// three things that may contact the PC (with Open → From my PC and Use my PC): it checks the link at once
+// ("Checking connection…", then the address, round trip, relay version, the PC's programs and their state,
+// signed in or not). Use my PC for the voice (Apply): the voice chosen in the Voice tab is made on the PC
+// (engines/cloud.js). PC address (live). Test: one short sentence made on the PC and played here, with its
+// timing. Sign in / out (the PC's password: the Private files, and the voice when the PC asks for it). Data used.
+// "Use this device's voice" turns Use my PC off at once (the button the play bar shows after a failed Play too).
+(function () {
+  const W = globalThis.SETTINGSWIN;
+  if (!W) return;
+  const { h, button, row, toggle, value, change, say } = W.ui;
+  const R = () => PCRELAY.client();
+  const MB = (n) => (n < 1e6 ? `${Math.round((n || 0) / 1e3)} KB` : `${(n / 1e6).toFixed(1)} MB`);
+  const SCOPES = ["files-private", "voice"];
+  let checkedAt = 0;
+
+  function statusBox() {
+    const box = h("div", "cloudstat");
+    box.textContent = "Checking connection…";
+    const draw = (r) => {
+      if (!box.isConnected && checkedAt) return;
+      box.replaceChildren();
+      const c = R();
+      if (!r.ok) { box.appendChild(h("div", "swarn", `The PC can't be reached: ${r.why}.`)); box.appendChild(h("div", "shelp", `Address: ${c.base}. The PC must be on, with PC Relay running (tray icon).`)); return; }
+      const i = r.info;
+      box.appendChild(h("div", "sname", `Connected · ${c.latency} ms · PC Relay ${i.version} on ${i.pc}${i.game ? " · Game mode is on" : ""}`));
+      box.appendChild(h("div", "shelp", `Address: ${c.base}`));
+      for (const s of i.services || []) {
+        const state = s.blocked ? "switched off on the PC" : s.unavailable ? s.unavailable : s.state + (s.clients ? `, ${s.clients} connected` : "");
+        box.appendChild(h("div", "shelp", `${s.name}: ${state}${s.password ? " · needs the password" : ""}`));
+      }
+      const signed = (i.scopes || []).length ? `Signed in here for: ${(i.scopes || []).join(", ")}.` : "Not signed in on this device.";
+      box.appendChild(h("div", "shelp", signed));
+    };
+    checkedAt = Date.now();
+    R().ping(8000).then(draw, (e) => draw({ ok: false, why: e.message }));
+    return box;
+  }
+
+  function addressRow() {
+    const inp = h("input", "stext");
+    inp.type = "url"; inp.placeholder = RelayClient.DEFAULT_PC; inp.value = value("pcAddress") || "";
+    inp.setAttribute("aria-label", "PC address");
+    inp.addEventListener("change", () => { change("pcAddress", inp.value.trim()); });
+    return row("PC address", `Blank = your PC (${RelayClient.DEFAULT_PC}). Saved as soon as you leave the box.`, inp, { name: "pcAddress" });
+  }
+
+  function testRow() {
+    const out = h("div", "shelp", "");
+    const b = button("sbtn", "Test", async () => {
+      b.disabled = true; out.textContent = "Starting the voice on the PC…";
+      try {
+        const o = await R().open("voice", (p) => { if (p.text) out.textContent = p.text; });
+        if (!o.ok) throw new Error(o.why);
+        const ws = R().ws("voice", "ws"); ws.binaryType = "arraybuffer";
+        const v = ENGINE.parse(value("voice"));
+        const t0 = performance.now();
+        const got = await new Promise((resolve, reject) => {
+          const t = setTimeout(() => { reject(new Error("no answer within 90 s")); ws.close(); }, 90000);
+          ws.onmessage = (ev) => {
+            if (typeof ev.data === "string") {
+              const m = JSON.parse(ev.data);
+              if (m.type === "hello") ws.send(JSON.stringify({ type: "synth", id: "test", text: "This is your PC speaking, through the relay.", engine: v.engine, voice: v.voice, runOn: value("runOn") === "cpu" ? "cpu" : "gpu", precision: value("precision") || "fp32", pace: value("pace") }));
+              else if (m.type === "loading") out.textContent = m.text;
+              else if (m.type === "state") out.textContent = m.state === "queued" ? `Queued on the PC (place ${m.pos})…` : "Making it on the PC…";
+              else if (m.type === "error") { clearTimeout(t); reject(new Error(m.error)); ws.close(); }
+              return;
+            }
+            clearTimeout(t);
+            const n = new DataView(ev.data).getUint32(0, true);
+            const head = JSON.parse(new TextDecoder().decode(new Uint8Array(ev.data, 4, n)));
+            resolve({ head, pcm: new Int16Array(ev.data.slice(4 + n)), ms: performance.now() - t0, bytes: ev.data.byteLength });
+            ws.close();
+          };
+          ws.onclose = (ev) => { if (ev.code !== 1000 && ev.code !== 1005) reject(new Error(ev.reason || `closed (${ev.code})`)); };
+        });
+        const sec = got.pcm.length / got.head.sampleRate;
+        out.textContent = `Made ${sec.toFixed(1)} s of sound on the PC in ${(got.head.ms / 1000).toFixed(1)} s (${got.head.x}× real time); ${Math.round(got.ms)} ms here from asking to hearing, ${MB(got.bytes)}. Playing it…`;
+        const ac = new AudioContext();
+        const buf = ac.createBuffer(1, got.pcm.length, got.head.sampleRate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < got.pcm.length; i++) ch[i] = got.pcm[i] / 32768;
+        const src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination); src.start();
+        src.onended = () => { ac.close(); };
+        log("voice", `Cloud tab test: ${sec.toFixed(1)} s in ${(got.head.ms / 1000).toFixed(1)} s on the PC (${got.head.x}×), ${Math.round(got.ms)} ms round trip`);
+      } catch (e) { out.textContent = `The test failed: ${e.message}`; log("voice", `Cloud tab test failed: ${e.message}`); }
+      finally { b.disabled = false; }
+    });
+    const box = h("div", "sstack"); box.append(b, out);
+    return row("Test", "Makes one short sentence on the PC with the voice chosen in the Voice tab and plays it here.", box);
+  }
+
+  function signRow() {
+    const box = h("form", "sstack");
+    const pw = h("input", "stext"); pw.type = "password"; pw.autocomplete = "current-password"; pw.placeholder = "The PC's password"; pw.setAttribute("aria-label", "The PC's password");
+    const msg = h("div", "shelp", SCOPES.some((s) => R().hasPass(s)) ? "Signed in on this device." : "Not signed in on this device.");
+    const inBtn = h("button", "sbtn", "Sign in"); inBtn.type = "submit";
+    const outBtn = button("sbtn", "Sign out here", async () => { for (const s of SCOPES) await R().signOut(s); msg.textContent = "Signed out on this device."; log("voice", "Cloud tab: signed out on this device"); });
+    const btns = h("div", "sbtnrow"); btns.append(inBtn, outBtn);
+    box.append(pw, btns, msg);
+    box.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      inBtn.disabled = true; msg.textContent = "Signing in…";
+      let res = null;
+      for (const s of SCOPES) { res = await R().signIn(s, pw.value); if (!res.ok) break; }
+      inBtn.disabled = false;
+      msg.textContent = res && res.ok ? "Signed in on this device (Private files; the voice if the PC asks for the password)." : `Not signed in: ${res ? res.why : "?"}.`;
+      if (res && res.ok) pw.value = "";
+      log("voice", `Cloud tab: sign-in ${res && res.ok ? "done" : "refused: " + (res && res.why)}`);
+    });
+    return row("Sign in", "The PC's password (the same as Screen Peek's), once per device. Only needed for the Private files, or when the PC asks for it for everything.", box, { block: true });
+  }
+
+  function dataRow() {
+    const i = globalThis.CLOUDVOICE ? CLOUDVOICE.info : { bytes: 0, pieces: 0 };
+    return row("Data used", `${MB(i.bytes)} of sound from the PC this visit (${i.pieces} piece${i.pieces === 1 ? "" : "s"}${i.x ? `, last made at ${i.x}× real time` : ""}). Sound comes as 16-bit samples at 24 kHz: about 0.4 megabits a second of reading, fine on mobile data.`, null);
+  }
+
+  function cloudTab(body) {
+    body.appendChild(row("Your PC", "", statusBox(), { block: true }));
+    body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, the reading stops and says why; nothing switches by itself. The PC runs Kokoro voices."));
+    const back = button("sbtn", "Use this device's voice", () => { change("useMyPC", false); say("Use my PC is off (press Apply): this device makes the voice again."); });
+    body.appendChild(row("", "Choose the voice in the Voice tab; it runs on your PC.", back));
+    body.appendChild(addressRow());
+    body.appendChild(testRow());
+    body.appendChild(signRow());
+    body.appendChild(dataRow());
+  }
+  W.addTab("Cloud", cloudTab);
+
+  // The play bar's "Use this device's voice" button: shown after a Play that could not reach the PC.
+  const btn = h("button", "cloudoff", "Use this device's voice");
+  btn.type = "button"; btn.hidden = true; btn.id = "cloudoff";
+  btn.title = "Turns off Use my PC for the voice; the next Play uses this device's voice";
+  btn.addEventListener("click", () => {
+    try { SETTINGS.update({ useMyPC: false }); } catch (e) { return; }
+    btn.hidden = true;
+    PLAYER.settingsChanged(["useMyPC"]);
+    log("voice", "Use my PC switched off from the play bar: this device's voice from the next Play");
+    PLAYBAR.status("Using this device's voice. Press Play.");
+  });
+  const box = document.getElementById("stbox");
+  if (box && box.parentNode) box.parentNode.insertBefore(btn, box.nextSibling);
+  setInterval(() => { const show = !!(globalThis.CLOUDVOICE && CLOUDVOICE.failed && PLAYER.status().state === "stopped"); if (btn.hidden === show) btn.hidden = !show; }, 1000);
 })();
 </script>
 <script>
