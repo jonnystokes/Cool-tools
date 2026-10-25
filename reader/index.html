@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.595 and 2026-10-25 11:00 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.599 and 2026-10-25 11:11 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.595</title>
+<title>Book reader V1.0.599</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.595";
-  window.APP_BUILT = "2026-10-25 11:00 AM";
-  window.APP_NOTE = "Use my PC: Pause making sound while I scroll never applies with the cloud voice (shown as not used in Settings); local voices unchanged \u00b7 testing, unchanged";
+  window.APP_VERSION = "Book reader V1.0.599";
+  window.APP_BUILT = "2026-10-25 11:11 AM";
+  window.APP_NOTE = "Use my PC runs the PC flat out: whole pieces, 6 asked at once (the PC's read-ahead), no bursts or copies; per-piece PC times in the log; the summary says how fast the sound arrived (6.7x real time through the Funnel, was 1.3x) \u00b7 testing, unchanged";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -7287,7 +7287,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // Marks: each chunk's place (queued on the PC, generating there, on the way) goes to the player
 // (PLAYER.cloudMark), which highlight.js colours. CLOUDVOICE: the status for the bar and the Cloud tab.
 (function () {
-  const st = { ws: null, hello: null, opening: null, waiters: new Map(), states: new Map(), key: "", loading: "", error: "", check: "", checkAt: 0, checking: null, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null };
+  const st = { ws: null, hello: null, opening: null, waiters: new Map(), states: new Map(), times: new Map(), key: "", loading: "", error: "", check: "", checkAt: 0, checking: null, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null };
   const R = () => PCRELAY.client();
   const plain = (e) => String((e && e.message) || e || "").replace(/^Error: /, "");
   const err = (msg, extra) => Object.assign(new Error(msg), extra || {});
@@ -7316,11 +7316,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (m.type === "hello") { st.hello = m; return; }
     if (m.type === "loading") { st.loading = m.text; E.status = m.text; redraw(); return; }
     if (m.type === "loaded" || m.type === "prepared") { if (m.key === st.key && (m.type === "loaded" || m.ready)) { st.loading = ""; E.status = ""; const w = st.waiters.get("__prepare"); if (w) { st.waiters.delete("__prepare"); w.resolve(); } } if (m.error && m.key === st.key) failPrepare(m.error); redraw(); return; }
-    if (m.type === "state") { mark(m.id, m.state, m); return; }
+    if (m.type === "state") { const t = st.times.get(m.id); if (t && (m.state === "generating" || m.state === "sending")) t[m.state] = performance.now(); mark(m.id, m.state, m); return; }
     if (m.type === "error") {
       if (!m.id) return;
       const w = st.waiters.get(m.id);
-      if (w) { st.waiters.delete(m.id); mark(m.id, null); w.reject(err(`The PC voice: ${m.error}`, { fatal: !!m.fatal, cannot: !!m.cannot })); }
+      if (w) { st.waiters.delete(m.id); st.times.delete(m.id); mark(m.id, null); w.reject(err(`The PC voice: ${m.error}`, { fatal: !!m.fatal, cannot: !!m.cannot })); }
       else if (m.cannot && st.waiters.has("__prepare")) failPrepare(m.error);
     }
   }
@@ -7338,6 +7338,14 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     st.pieces++; st.x = h.x || st.x; st.lastMs = h.ms;
     mark(h.id, null);
     const r = { audio: out, sampleRate: h.sampleRate || 24000, peak: h.peak };
+    // Where the time went (player.js logs it per piece and sums it in the summary): the PC's queue, making
+    // and packing (its own clock), the frame's arrival after its "sending" note (the transfer), the rest.
+    const t = st.times.get(h.id), now = performance.now();
+    st.times.delete(h.id);
+    if (t) {
+      const total = now - t.ask, queue = h.queue_ms || 0, gen = h.ms || 0, post = h.post_ms || 0, xfer = t.sending ? now - t.sending : 0;
+      r.pc = { total, queue, gen, post, xfer, net: Math.max(0, total - queue - gen - post - xfer), bytes: buf.byteLength, depth: t.depth };
+    }
     if (h.words) r.words = h.words;
     w.resolve(r);
   }
@@ -7347,7 +7355,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
   function dropAll(why, extra) {
     for (const [id, w] of st.waiters) { w.reject(err(why, extra)); if (id !== "__prepare") mark(id, null); }
-    st.waiters.clear();
+    st.waiters.clear(); st.times.clear();
   }
   async function connect() {
     if (st.ws && st.ws.readyState === 1 && st.hello) return st.ws;
@@ -7382,8 +7390,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const E = {
     id: "cloud", name: "PC voice", hidden: true,
     voices: [{ id: "cloud", name: "PC voice" }],
-    can: { timing: true, reroll: false, copies: true },
-    copies: 2,                                   // two pieces asked at once: the next is queued on the PC while one travels
+    can: { timing: true, reroll: false, copies: false },
+    // Pieces asked at once (player.js inFlightMax): the PC's read-ahead (its hello), so the PC always has the
+    // next pieces queued and the network's round trip is hidden behind its work (Jon, 2026-10-25; was 2).
+    get depth() { return Math.max(1, Number(st.hello && st.hello.readAhead) || 6); },
     sampleRate: 24000, maxChars: 300, status: "",
     async init(opts) {
       const v = parseVoice(opts.voice);
@@ -7415,6 +7425,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const ahead = globalThis.STREAM && STREAM.ahead ? Number(STREAM.ahead()) || 0 : null;
       return new Promise((resolve, reject) => {
         st.waiters.set(id, { resolve, reject });
+        st.times.set(id, { ask: performance.now(), depth: [...st.waiters.keys()].filter((k) => k !== "__prepare").length });
         mark(id, "queued");
         ws.send(JSON.stringify({ type: "synth", id, text: piece.speech, engine: o.engine || "kokoro", voice: o.voice, runOn: o.runOn, precision: o.precision, pace: (opts && opts.pace) || o.pace, speaker: o.speaker, steps: o.steps, speed: SETTINGS.get("speed"), ahead_s: ahead }));
       });
@@ -7425,7 +7436,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       for (const [id, w] of st.waiters) if (id !== "__prepare") { w.reject(err("stopped", { stopped: true })); mark(id, null); }
       st.waiters.clear();
       if (prep) st.waiters.set("__prepare", prep);
-      st.states.clear();
+      st.states.clear(); st.times.clear();
     },
     describe() { return { runOn: [], precisions: [], pace: true, steps: false, copies: false, speaker: 0 }; },
   };
@@ -10439,7 +10450,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   let source = "estimate";           // the word timing source for this reading
   let endMsg = "", lastStall = -1e9, appendFails = 0, playingSince = 0, mediaCh = -1, lastPiecesLog = 0;
   const stats = {};
-  const fresh = () => Object.assign(stats, { pieces: 0, chunks: 0, chars: 0, synthMs: 0, sound: 0, failures: 0, timeouts: 0, stalls: 0, pumpRestarts: 0, playedMs: 0, holds: 0 });
+  const fresh = () => Object.assign(stats, { pieces: 0, chunks: 0, chars: 0, synthMs: 0, sound: 0, failures: 0, timeouts: 0, stalls: 0, pumpRestarts: 0, playedMs: 0, holds: 0,
+    spans: [], pc: { n: 0, queue: 0, gen: 0, post: 0, xfer: 0, net: 0, total: 0, bytes: 0, depth: 0 } });
+  // Wall-clock time the voice was asked for something (overlapping asks counted once), in ms.
+  const busyMs = () => {
+    const xs = stats.spans.slice().sort((p, q) => p[0] - q[0]);
+    let busy = 0, a = -1, b = -1;
+    for (const [x, y] of xs) { if (x > b) { if (b > a) busy += b - a; a = x; b = y; } else if (y > b) b = y; }
+    if (b > a) busy += b - a;
+    return busy;
+  };
   fresh();
 
   const nameOf = (ch, k) => `${(BOOK.info(ch) || { c: "?" }).c}:${k}`;
@@ -10491,6 +10511,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // A failure of the chosen setting itself (it cannot run here, or it gives broken sound): the reading
   // stops with the engine's plain message, which says what to choose instead. Nothing is switched.
   const settingFailed = (e) => !!(e && (e.cannot || e.fatal));
+  // Use my PC (Jon, 2026-10-25): the PC runs flat out and the network's round trip is hidden. Whole pieces
+  // (one chunk each), a deep pipeline (as many pieces asked at once as the PC's read-ahead, engine.depth),
+  // no bursts, no copies, no scroll hold; each piece's times (queue, making, on the way) are logged.
+  const cloudOn = () => !!(engine && engine.id === "cloud");
+  const inFlightMax = () => (cloudOn() ? Math.max(1, Number(engine.depth) || 6) : copiesNow());
 
   // ---- The chunk size (BUGS 31) --------------------------------------------------------------------
   // A voice on the graphics card makes each chunk in one run that keeps frames from the screen, so a
@@ -10507,6 +10532,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const known = speeds.get(engineKey);
     let why;
     if (hooks.chunk) { chunkSize = hooks.chunk; why = "pinned by the tests"; }
+    else if (cloudOn()) { chunkSize = Math.max(PIECES.CHUNK, (engine && engine.maxChars) || 300); log("pieces", `whole pieces of up to ${chunkSize} characters, up to ${inFlightMax()} asked at once (the PC voice: its read-ahead)`); return; }
     else if (!onCard()) { chunkSize = PIECES.CHUNK; why = "the voice runs on the processor"; }
     else if (known) { chunkSize = Math.max(CHUNK_FLOOR, Math.min((engine && engine.maxChars) || 300, Math.round(1000 / known.ms / 10) * 10)); why = `about 1 s of card time each: ${engine.name} measured at ${known.x.toFixed(1)}× real time on the card`; }
     else { chunkSize = PIECES.CHUNK; why = "until the voice's speed on the card is measured"; }
@@ -10575,7 +10601,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   let resting = false;
   function wantMore(ahead) {
     const high = (hooks.ahead && hooks.ahead.high) || AHEAD_SEC, low = (hooks.ahead && hooks.ahead.low) || AHEAD_LOW;
-    if (!SETTINGS.get("burst")) { resting = false; return ahead < high; }   // switched off mid-reading: no "resting" left on line 1
+    if (!SETTINGS.get("burst") || cloudOn()) { resting = false; return ahead < high; }   // (Use my PC: the phone's card is idle, no bursts)   // switched off mid-reading: no "resting" left on line 1
     if (resting && ahead < low) { resting = false; log("playback", `making sound again: ${ahead.toFixed(0)} s ready`); }
     else if (!resting && ahead >= high) { resting = true; log("playback", `resting: ${ahead.toFixed(0)} s of sound ready; the voice starts again under ${low} s`); }
     return !resting;
@@ -10721,7 +10747,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (state === "stopped" || !engineUp()) return;
     if (live) { say(); return; }
     if (hooks.pumpOff && !force) return;
-    while (jobsInFlight() < copiesNow()) {
+    while (jobsInFlight() < inFlightMax()) {
       if (holding()) return;
       const j = nextJob();
       if (!j) return;
@@ -10768,6 +10794,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (r.seed != null) m.seed = r.seed;
     stats.chunks++; stats.chars += c.chars; stats.synthMs += ms; stats.sound += dur;
     speedLog.push({ a: job.t0, b: job.t0 + ms, dur });
+    stats.spans.push([job.t0, job.t0 + ms]);
+    if (r.pc) {                                    // Use my PC: where this piece's time went
+      const t = r.pc, P = stats.pc;
+      P.n++; P.queue += t.queue; P.gen += t.gen; P.post += t.post; P.xfer += t.xfer; P.net += t.net; P.total += t.total; P.bytes += t.bytes; P.depth = Math.max(P.depth, t.depth || 0);
+      log("pieces", `PC times for ${(making.get(m.piece.id) || { name: m.piece.id }).name}${m.chunks.length > 1 ? ` chunk ${i + 1}` : ""}: ${dur.toFixed(1)} s of sound here ${sec(t.total)} s after asking: ${sec(t.queue)} s waiting in the PC's queue, ${sec(t.gen)} s making it (${(dur / Math.max(0.001, t.gen / 1000)).toFixed(1)}× real time), ${sec(t.post)} s word times and packing, ${sec(t.xfer)} s bringing ${Math.round(t.bytes / 1024)} KB, ${sec(t.net)} s network and the rest · ${t.depth} asked at once`);
+    }
     if (stats.chunks === 3 && onCard() && !speeds.has(engineKey) && stats.chars) { speeds.set(engineKey, measured()); chooseChunk(); }   // the first measurement of this voice on the card
     listen(m, i);
   }
@@ -11164,6 +11196,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (live) { hush(false); head = { ch, k }; status(""); say(); return; }
     if (STREAM.seek(piece.id)) return;
     STREAM.park();
+    // Use my PC: the pieces asked for the old place are dropped on the PC at once, so the new place's
+    // piece does not wait behind a deep queue (each is asked again if the reading gets back to it).
+    if (cloudOn() && making.size) {
+      for (const rec of making.values()) for (const j of rec.jobs.values()) clearTimeout(j.timer);
+      making.clear();
+      try { engine.stop(); } catch (e) {}
+    }
     head = { ch, k };
     status("");
     pump();
@@ -11468,7 +11507,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const synth = stats.synthMs / 1000, played = Math.round(playedNow() / 1000);
     const time = `played ${Math.floor(played / 60)} min ${played % 60} s`;
     if (live) return `summary: ${stats.pieces} pieces said (${stats.chars} chars in ${synth.toFixed(0)} s) · ${stats.failures} failed (${stats.timeouts} timed out) · ${stats.pumpRestarts} restarts · ${time}`;
-    return `summary: ${stats.pieces} pieces made${stats.chunks > stats.pieces ? ` in ${stats.chunks} chunks` : ""} (${stats.chars} chars → ${stats.sound.toFixed(0)} s of sound in ${synth.toFixed(1)} s${synth ? `, ${(stats.sound / synth).toFixed(1)}× real time${copiesNow() > 1 ? " per copy" : ""}` : ""}) · ${stats.failures} failed (${stats.timeouts} timed out) · ${stats.stalls} times the sound ran out · ${stats.pumpRestarts} pump restarts${stats.holds ? ` · ${stats.holds} holds while scrolling` : ""} · ${time} · frames ${STREAM.frames} (${played ? Math.round(STREAM.frames / (played / 60)) : 0}/min of playing)${engine && typeof engine.memory === "function" && engine.memory() ? " · " + engine.memory() : ""}`;
+    const P = stats.pc, busy = busyMs() / 1000, avg = (v) => (v / Math.max(1, P.n) / 1000).toFixed(1);
+    const body = P.n
+      ? `${stats.chars} chars → ${stats.sound.toFixed(0)} s of sound arrived from the PC in ${busy.toFixed(1)} s, ${(stats.sound / Math.max(0.001, busy)).toFixed(1)}× real time) · Use my PC: up to ${P.depth} pieces asked at once; per piece on average ${avg(P.total)} s from asking to sound here: ${avg(P.queue)} s in the PC's queue, ${avg(P.gen)} s making (the PC made sound at ${(stats.sound / Math.max(0.001, P.gen / 1000)).toFixed(1)}× real time), ${avg(P.xfer)} s on the way (${Math.round(P.bytes / P.n / 1024)} KB), ${avg(P.net)} s network and the rest`
+      : `${stats.chars} chars → ${stats.sound.toFixed(0)} s of sound in ${synth.toFixed(1)} s${synth ? `, ${(stats.sound / synth).toFixed(1)}× real time${copiesNow() > 1 ? " per copy" : ""}` : ""})`;
+    return `summary: ${stats.pieces} pieces made${stats.chunks > stats.pieces ? ` in ${stats.chunks} chunks` : ""} (${body} · ${stats.failures} failed (${stats.timeouts} timed out) · ${stats.stalls} times the sound ran out · ${stats.pumpRestarts} pump restarts${stats.holds ? ` · ${stats.holds} holds while scrolling` : ""} · ${time} · frames ${STREAM.frames} (${played ? Math.round(STREAM.frames / (played / 60)) : 0}/min of playing)${engine && typeof engine.memory === "function" && engine.memory() ? " · " + engine.memory() : ""}`;
   }
   function stop(msg, isError) {
     clearTimeout(pickTimer); picked = null;
@@ -11509,7 +11552,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     else if (engineUp() && nextJob(true)) { stats.pumpRestarts++; w.push("pieces were waiting with nothing being made: the pump was restarted"); pump(true); }
     else if (!head) w.push("nothing more is queued");
     if (LISTENER.why()) w.push(LISTENER.why());
-    const n = copiesNow(), speed = stats.synthMs ? stats.sound / (stats.synthMs / 1000) * n : 0;   // the copies run side by side: together
+    const n = copiesNow(), speed = cloudOn() ? (busyMs() ? stats.sound / (busyMs() / 1000) : 0) : stats.synthMs ? stats.sound / (stats.synthMs / 1000) * n : 0;   // the copies run side by side: together (Use my PC: the pieces asked at once overlap; their span counts once)
     if (speed && speed < 1.3) w.push(`the voice is slower than the reading (${speed.toFixed(1)}× real time${n > 1 ? ` with ${n} copies together` : ""} over ${stats.chunks} chunks)`);
     return w.join("; ") || "no reason found";
   }
