@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.573 and 2026-10-24 11:57 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.577 and 2026-10-25 12:06 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.573</title>
+<title>Book reader V1.0.577</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.573";
-  window.APP_BUILT = "2026-10-24 11:57 PM";
-  window.APP_NOTE = "PC Relay step 3: Piper voices also run on the PC (Use my PC: the reader's own Piper code on the PC's processor, about 10\u00d7 real time); Cloud tab and marks polish";
+  window.APP_VERSION = "Book reader V1.0.577";
+  window.APP_BUILT = "2026-10-25 12:06 AM";
+  window.APP_NOTE = "PC Relay step 4: Supertonic voices also run on the PC (Use my PC: the reader's own Supertonic code on the PC's graphics card or processor, as Run on says; a card failure stops with the reason); Settings \u2192 Cloud says where the chosen voice would run";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -7389,16 +7389,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     sampleRate: 24000, maxChars: 300, status: "",
     async init(opts) {
       const v = parseVoice(opts.voice);
-      if (v.engine !== "kokoro" && v.engine !== "piper") throw err(`Use my PC: the PC runs Kokoro and Piper voices; ${(ENGINE.get(v.engine) || { name: v.engine }).name} runs on this device. Choose a Kokoro or Piper voice in Settings → Voice, or press "Use this device's voice".`, { cannot: true, cloud: true });
-      const piper = v.engine === "piper";
-      st.opts = { engine: v.engine, voice: v.voice, runOn: piper || opts.runOn === "cpu" ? "cpu" : "gpu", precision: opts.precision || "fp32", pace: opts.pace, speaker: opts.speaker };
-      E.sampleRate = piper ? (/-x?_?low$/.test(v.voice) ? 16000 : 22050) : 24000;
-      E.maxChars = piper ? 400 : 300;
-      const key = piper ? `piper cpu ${v.voice}` : `kokoro ${st.opts.runOn} ${st.opts.precision}`;
+      if (!["kokoro", "piper", "supertonic"].includes(v.engine)) throw err(`Use my PC: the PC runs Kokoro, Piper and Supertonic voices; ${(ENGINE.get(v.engine) || { name: v.engine }).name} runs on this device. Choose one of those in Settings → Voice, or press "Use this device's voice".`, { cannot: true, cloud: true });
+      const piper = v.engine === "piper", sup = v.engine === "supertonic";
+      st.opts = { engine: v.engine, voice: v.voice, runOn: piper || opts.runOn === "cpu" ? "cpu" : "gpu", precision: opts.precision || "fp32", pace: opts.pace, speaker: opts.speaker, steps: opts.steps };
+      E.sampleRate = piper ? (/-x?_?low$/.test(v.voice) ? 16000 : 22050) : sup ? 44100 : 24000;
+      E.maxChars = piper ? 400 : sup ? 180 : 300;
+      const key = piper ? `piper cpu ${v.voice}` : sup ? `supertonic ${st.opts.runOn}` : `kokoro ${st.opts.runOn} ${st.opts.precision}`;
       const ws = await connect();
       if (st.key === key && st.hello && (st.hello.models || []).includes(key) && !st.loading) return;
       st.key = key;
-      E.status = piper ? `loading Piper ${v.voice} on the PC's processor…` : st.opts.runOn === "gpu" ? "loading Kokoro on the PC's graphics card…" : "loading Kokoro on the PC's processor…";
+      const name = piper ? `Piper ${v.voice}` : sup ? "Supertonic" : "Kokoro";
+      E.status = `loading ${name} on the PC's ${st.opts.runOn === "gpu" ? "graphics card" : "processor"}…`;
       redraw();
       await new Promise((resolve, reject) => {
         st.waiters.set("__prepare", { resolve, reject });
@@ -7407,6 +7408,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       });
       if (st.hello) st.hello.models = Array.from(new Set([...(st.hello.models || []), key]));
       E.status = "";
+      log("voice", `Use my PC: ${globalThis.CLOUDVOICE.short()} is ready`);
     },
     async synth(piece, opts) {
       const ws = await connect();
@@ -7416,7 +7418,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       return new Promise((resolve, reject) => {
         st.waiters.set(id, { resolve, reject });
         mark(id, "queued");
-        ws.send(JSON.stringify({ type: "synth", id, text: piece.speech, engine: o.engine || "kokoro", voice: o.voice, runOn: o.runOn, precision: o.precision, pace: (opts && opts.pace) || o.pace, speaker: o.speaker, speed: SETTINGS.get("speed"), ahead_s: ahead }));
+        ws.send(JSON.stringify({ type: "synth", id, text: piece.speech, engine: o.engine || "kokoro", voice: o.voice, runOn: o.runOn, precision: o.precision, pace: (opts && opts.pace) || o.pace, speaker: o.speaker, steps: o.steps, speed: SETTINGS.get("speed"), ahead_s: ahead }));
       });
     },
     stop() {
@@ -7435,7 +7437,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     check,
     stateOf: (partId) => st.states.get(partId) || null,
     // The play bar's voice part while the PC voice reads: "Kokoro fp32 on your PC (card)".
-    short() { const o = st.opts || {}; return `${o.engine === "piper" ? "Piper " + o.voice : "Kokoro " + (o.precision || "fp32")} on your PC (${o.runOn === "cpu" ? "processor" : "card"})${st.loading ? " · " + st.loading : ""}`; },
+    short() { const o = st.opts || {}; return `${o.engine === "piper" ? "Piper " + o.voice : o.engine === "supertonic" ? "Supertonic " + o.voice : "Kokoro " + (o.precision || "fp32")} on your PC (${o.runOn === "cpu" ? "processor" : "card"})${st.loading ? " · " + st.loading : ""}`; },
     // The stopped line: "Using cloud: connected (45 ms; ...)" while Use my PC is on.
     using() { return SETTINGS.get("useMyPC") ? (st.check ? `Using cloud: ${st.check}` : "Using cloud (checked when a book opens)") : ""; },
     get failed() { return st.failed && !!SETTINGS.get("useMyPC"); },
@@ -13485,11 +13487,21 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return row("Data used", `${MB(i.bytes)} of sound from the PC this visit (${i.pieces} piece${i.pieces === 1 ? "" : "s"}${i.x ? `, last made at ${i.x}× real time` : ""}). Sound comes as 16-bit samples at 24 kHz: about 0.4 megabits a second of reading, fine on mobile data.`, null);
   }
 
+  // Where the chosen voice runs on the PC, from the settings as they are (pending ones included): said, never switched.
+  function whereText() {
+    const v = ENGINE.parse(value("voice")), on = value("runOn") === "cpu" ? "processor" : "graphics card";
+    if (v.engine === "kokoro") return `Kokoro ${value("precision") || "fp32"} (${v.voice}) on the PC's ${on} (Run on). Word times from the voice.`;
+    if (v.engine === "supertonic") return `Supertonic ${v.voice} on the PC's ${on} (Run on; measured here: about 1.9× real time on the card at 50 steps, 2.5× on the processor at 30). If the card fails there, the reading stops and says so; choose Processor yourself.`;
+    if (v.engine === "piper") return `Piper ${v.voice} on the PC's processor (Piper never uses the card).`;
+    return `${(ENGINE.get(v.engine) || { name: v.engine }).name} does not run on the PC: with Use my PC on, Play stops and says so.`;
+  }
+
   function cloudTab(body) {
     body.appendChild(row("Your PC", "", statusBox(), { block: true }));
-    body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, the reading stops and says why; nothing switches by itself. The PC runs Kokoro voices (card or processor) and Piper voices (processor)."));
+    body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, the reading stops and says why; nothing switches by itself. The PC runs Kokoro and Supertonic voices (card or processor, as Run on says) and Piper voices (processor)."));
     const back = button("sbtn", "Use this device's voice", () => { change("useMyPC", false); say("Use my PC is off (press Apply): this device makes the voice again."); });
     body.appendChild(row("", "Choose the voice in the Voice tab; it runs on your PC.", back));
+    body.appendChild(row("Where it would run", whereText(), null));
     body.appendChild(addressRow());
     body.appendChild(testRow());
     body.appendChild(signRow());
