@@ -353,6 +353,7 @@ function tick() {                                   // once a second (browsers s
   if (conn.live && conn.live.ready && (conn.want || conn.live.set) && t - conn.lastData > 7000)
     conn.live.fail(`stalled: nothing from the PC for ${r0((t - conn.lastData) / 1000)} s`);
   if (conn.live && conn.live.ready && t - lastPing > (conn.want ? 2000 : 10000)) { lastPing = t; conn.live.ping(); }
+  if (conn.live && conn.live.tick) conn.live.tick();
 }
 let lastPing = 0;
 setInterval(tick, 1000);
@@ -559,18 +560,43 @@ const CHUNK = 16 * 1024 - 64;                        // must match rtc.py
 function udp(gen, mode) {
   const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ws");
   const t = { kind: "udp-" + mode, ready: false };
-  let failed = false, pc = null, openTimer = 0;
+  let failed = false, pc = null, dc = null, openTimer = 0, iceTimer = 0, lastDc = 0, lastAck = 0, wasOpen = false;
   const R = new Map(), done = new Set(), lastId = [null, null];
   const deadline = () => (mode === "fast" ? 250 : mode === "mid" ? +S.life + 150 : 3000);
   const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
-  const cleanup = () => { clearTimeout(openTimer); try { ws.close(); } catch (e) {} try { if (pc) pc.close(); } catch (e) {} };
-  t.fail = (why, kind) => { if (failed) return; failed = true; cleanup(); onFail(gen, why, kind); };
+  // Acks go back over the data channel (direct, like the pictures): the PC's flow control waits for them.
+  const ackDc = (o) => { lastAck = now(); if (dc && dc.readyState === "open") { try { dc.send(JSON.stringify(o)); return; } catch (e) {} } send({ type: "have", seq: o.s, ep: o.e }); };
+  let lastStall = 0;
+  const sweeper = setInterval(() => { sweep(); stallCheck(); }, 100);
+  // If every frame in the PC's window vanished (not one piece arrived), nothing more comes and nothing tells
+  // the PC. So after 0.5 s without a picture while the PC was sending, ask for a full frame (the PC then frees
+  // its window), and don't leave an update waiting for its base until the once-a-second tick either.
+  function stallCheck() {
+    if (!t.ready || !conn.want) return;
+    const n = now();
+    if (D.waitSince && n - D.waitSince > 300) needFull();
+    else if (PC_.srv && PC_.srv.fps > 5 && T.lastDraw && n - T.lastDraw > 500 && n - lastStall > 2000) {
+      lastStall = n;
+      log(`UDP: nothing drawn for ${r0(n - T.lastDraw)} ms while the PC was sending: asked for a full frame`);
+      D.askedAt = 0; needFull(true);
+    }
+  }
+  const cleanup = () => { clearTimeout(openTimer); clearTimeout(iceTimer); clearInterval(sweeper); try { ws.close(); } catch (e) {} try { if (pc) pc.close(); } catch (e) {} };
+  // Any failure tears down the WebSocket and the peer connection (the PC frees its peer as the WebSocket
+  // closes); the supervisor then retries with backoff and builds a NEW peer connection. Continuous stays on.
+  t.fail = (why, kind) => { if (failed) return; failed = true; t.ready = false; cleanup(); onFail(gen, why, kind); };
   t.close = () => { failed = true; cleanup(); };
   t.pause = () => send({ type: "pause", on: true });
   t.resume = () => send({ type: "pause", on: false });
   t.set = () => send({ type: "set", ...S, win: +S.win });
   t.full = () => send({ type: "full" });
   t.ping = () => { send({ type: "ping", t: now() }); stats(); };
+  t.tick = () => {                                   // once a second: keepalive to the PC, and is the path alive?
+    if (!t.ready || failed) return;
+    if (now() - lastAck > 900 && dc && dc.readyState === "open") { try { dc.send("ka"); lastAck = now(); } catch (e) {} }
+    if (now() - lastDc > 3500) t.fail(`UDP: nothing over the data channel for ${r0((now() - lastDc) / 1000)} s (the PC sends a keepalive every second)`);
+  };
+  t.killPc = () => { try { pc.close(); } catch (e) {} return "test: closed this page's peer connection (no events fire)"; };
   ws.onopen = () => send({ type: "hello", token: TOKEN, ...S, win: +S.win, paused: !conn.want, udp: mode });
   ws.onmessage = async (ev) => {
     conn.lastData = now();
@@ -582,6 +608,7 @@ function udp(gen, mode) {
       await pc.setRemoteDescription({ type: "answer", sdp: m.sdp });
     }
     else if (m.type === "rtc-error") t.fail(`UDP: the PC could not set up its side: ${m.error}`);
+    else if (m.type === "rtc-down") t.fail(`UDP: the PC dropped the peer (${m.why})`);
     else if (m.type === "pong") addSync(m.t, m.srv, now());
     else if (m.type === "ka") { W.idle++; T.idle++; }
     else if (m.type === "auth") t.fail("the PC refused the sign-in", "auth");
@@ -595,21 +622,31 @@ function udp(gen, mode) {
   async function start() {
     pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }] });
     const opts = mode === "fast" ? { ordered: false, maxRetransmits: 0 } : mode === "mid" ? { ordered: false, maxPacketLifeTime: +S.life } : { ordered: true };
-    const dc = pc.createDataChannel("peek", opts);
+    dc = pc.createDataChannel("peek", opts);
     dc.binaryType = "arraybuffer";
-    dc.onopen = () => { clearTimeout(openTimer); t.ready = true; onUp(gen, `UDP ${mode} (${JSON.stringify(opts)})`); stats(); };
-    dc.onclose = () => { if (!failed) t.fail("UDP: the data channel closed"); };
+    dc.onopen = () => { clearTimeout(openTimer); t.ready = wasOpen = true; lastDc = now(); onUp(gen, `UDP ${mode} (${JSON.stringify(opts)})`); stats(); };
+    dc.onclose = () => t.fail("UDP: the data channel closed");
     dc.onmessage = chunk;
     const kc = pc.createDataChannel("key");          // reliable: full frames (the base picture) must arrive
     kc.binaryType = "arraybuffer";
     kc.onmessage = chunk;
+    kc.onclose = () => t.fail("UDP: the keyframe channel closed");
     const kinds = new Set();
     pc.onicecandidate = (e) => { if (e.candidate && e.candidate.type) kinds.add(e.candidate.type); };
+    const noPath = "UDP: no direct path (ICE failed). This network needs a TURN relay, which Screen Peek does not have: pick a TCP transport.";
     pc.oniceconnectionstatechange = () => {
-      log(`UDP: ICE ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === "failed") t.fail("UDP: no direct path (ICE failed). This network needs a TURN relay, which Screen Peek does not have: pick a TCP transport.");
+      const st = pc.iceConnectionState;
+      log(`UDP: ICE ${st}`);
+      if (st === "failed") t.fail(wasOpen ? "UDP: ICE failed" : noPath);
+      else if (st === "disconnected") {              // a short grace: Wi-Fi hiccups recover by themselves
+        clearTimeout(iceTimer);
+        iceTimer = setTimeout(() => { if (pc && pc.iceConnectionState === "disconnected") t.fail("UDP: ICE disconnected for 2 s"); }, 2000);
+      } else clearTimeout(iceTimer);
     };
-    pc.onconnectionstatechange = () => log(`UDP: connection ${pc.connectionState}`);
+    pc.onconnectionstatechange = () => {
+      log(`UDP: connection ${pc.connectionState}`);
+      if (pc.connectionState === "failed") t.fail(wasOpen ? "UDP: connection failed" : noPath);
+    };
     await pc.setLocalDescription(await pc.createOffer());
     await new Promise((ok) => { pc.addEventListener("icegatheringstatechange", () => pc.iceGatheringState === "complete" && ok()); setTimeout(ok, 3000); });
     log(`UDP: offer sent with this device's candidates: ${[...kinds].join(", ") || "none"}`);
@@ -617,6 +654,8 @@ function udp(gen, mode) {
     openTimer = setTimeout(() => t.fail("UDP: no direct path within 15 s (ICE did not connect): pick a TCP transport."), 15000);
   }
   function chunk(ev) {
+    lastDc = now();
+    if (typeof ev.data === "string") return;         // the PC's keepalive ("ka")
     const dv = new DataView(ev.data), idx = dv.getUint16(2), n = dv.getUint16(4), total = dv.getUint32(12);
     const fid = dv.getUint8(1) * 4294967296 + dv.getUint32(8);   // flag 1 = the keyframe channel's own numbering
     conn.lastData = now(); U.chunks++;
@@ -627,21 +666,28 @@ function udp(gen, mode) {
     let f = R.get(fid);
     if (!f) R.set(fid, (f = { n, got: 0, seen: new Uint8Array(n), buf: new Uint8Array(total), t0: now() }));
     if (!f.seen[idx]) { f.seen[idx] = 1; f.got++; f.buf.set(new Uint8Array(ev.data, 16), idx * CHUNK); }
-    if (f.got === f.n) { R.delete(fid); finish(fid); U.complete++; frame(f.buf); }
+    if (f.got === f.n) { R.delete(fid); finish(fid); U.complete++; frame(f.buf, lane, raw); }
+    sweep();
+  }
+  // A frame still missing pieces at its deadline is lost: drop it and give its credit back to the PC at once.
+  // Runs on every piece and every 100 ms (with the PC's window full, no more pieces come to trigger it).
+  function sweep() {
     const t0 = now(), dl = deadline();
     // Keyframes travel on the reliable channel and always complete; they get 5 s (a 300 KB frame sharing
     // a busy link takes far longer than the fast channel's 250 ms, and was being thrown away).
     for (const [id, g] of R) if (t0 - g.t0 > (id >= 4294967296 ? 5000 : dl)) {
       R.delete(id); finish(id); U.dropped++;
+      ackDc({ t: "a", f: id % 4294967296, l: id >= 4294967296 ? 1 : 0, lost: 1, s: D.seq, e: D.ep });   // its credit comes back now
       if (id >= 4294967296 || !D.seq) { log("keyframe lost, requested again"); D.askedAt = 0; needFull(true); }
     }
   }
   function finish(fid) { done.add(fid); if (done.size > 1024) done.delete(done.values().next().value); }
-  function frame(buf) {
+  function frame(buf, lane, raw) {
     const hl = new DataView(buf.buffer).getUint32(0);
     const hdr = JSON.parse(dec.decode(buf.subarray(4, 4 + hl))), body = buf.subarray(4 + hl);
     verify(hdr, body);
-    show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), () => send({ type: "have", seq: D.seq, ep: D.ep }));
+    // Acked once drawn (or dropped as old): s / e = the picture the canvas shows, which partial updates build on.
+    show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), () => ackDc({ t: "a", f: raw, l: lane, s: D.seq, e: D.ep }));
   }
   async function stats() {                          // the chosen candidate pair and its round trip, from WebRTC stats
     if (!pc) return;
@@ -740,6 +786,7 @@ window.addEventListener("offline", () => log("offline"));
 
 // Automation hook for the headless tests (test/chrome_page.mjs).
 window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
+  killUdp: () => (conn.live && conn.live.killPc ? conn.live.killPc() : "no UDP connection"),
   state: () => ({ live: conn.live ? conn.live.kind : null, ready: !!(conn.live && conn.live.ready), want: conn.want, retries: conn.retries,
                   text: $("conntext").textContent, first: T.first, warm: conn.warmAtOn }),
   summary: () => {                                   // since Continuous went on
@@ -752,7 +799,22 @@ window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
              mbps: Math.round(T.bytes * 8 / secs / 1e4) / 100, first_ms: T.first == null ? null : Math.round(T.first), warm: conn.warmAtOn,
              ping: sync.best == null ? null : Math.round(sync.best), retries: conn.retries,
              udp: S.transport.startsWith("udp") ? { ...U, rtt: U.rtt == null ? null : Math.round(U.rtt * 10) / 10 } : undefined,
-             crc: S.verify ? { ...CHK } : undefined, pc: PC_.srv, freezes: FZ.n, freeze_longest_ms: Math.round(FZ.longest), auto_steps: AUTO_LOG.slice(-8) }; } };
+             crc: S.verify ? { ...CHK } : undefined, pc: PC_.srv, freezes: FZ.n, freeze_longest_ms: Math.round(FZ.longest), auto_steps: AUTO_LOG.slice(-8) }; },
+  win: (() => {                                      // stats since the previous call (time series in the soak tests)
+    let m = null;
+    return () => {
+      const c = { t: now(), drawn: T.drawn, bytes: T.bytes, recv: T.recv, li: T.lats.length, full: T.full, part: T.part, dropped: T.dropped, T };
+      const p = m && m.T === T ? m : { t: T.t, drawn: 0, bytes: 0, recv: 0, li: 0, full: 0, part: 0, dropped: 0 };
+      m = c;
+      const secs = (c.t - p.t) / 1000, lats = T.lats.slice(p.li).sort((x, y) => x - y);
+      const q = (f) => (lats.length ? Math.round(lats[Math.min(lats.length - 1, Math.floor(lats.length * f))]) : null);
+      return { secs: Math.round(secs * 10) / 10, fps: Math.round((c.drawn - p.drawn) / secs * 10) / 10, p50: q(0.5), p95: q(0.95), max: q(1),
+               kb: c.recv > p.recv ? Math.round((c.bytes - p.bytes) / (c.recv - p.recv) / 102.4) / 10 : null,
+               mbps: Math.round((c.bytes - p.bytes) * 8 / secs / 1e4) / 100, full: c.full - p.full, part: c.part - p.part, dropped: c.dropped - p.dropped,
+               freezes: FZ.n, retries: conn.retries, live: conn.live ? conn.live.kind : null, ready: !!(conn.live && conn.live.ready),
+               udp: S.transport.startsWith("udp") ? { complete: U.complete, dropped: U.dropped, late: U.late, rtt: U.rtt == null ? null : Math.round(U.rtt) } : undefined, pc: PC_.srv };
+    };
+  })() };
 
 log(`page loaded (${own ? "served by the PC" : "Cool tools"}; talks to ${BASE}); ${settingsText()}`);
 wake("page loaded");
