@@ -67,7 +67,7 @@
     <label>Quality mode<select id="mode">
       <option value="manual" selected>Manual: width + quality below</option><option value="auto">Auto: best picture that holds the latency target</option>
     </select></label>
-    <label>Auto latency target<select id="target">
+    <label>Latency target (queue limit; Auto steps down for it)<select id="target">
       <option value="50">50 ms</option><option value="100" selected>100 ms</option><option value="200">200 ms</option><option value="400">400 ms</option>
     </select></label>
     <label>Picture width (manual)<select id="w">
@@ -81,7 +81,7 @@
       <option value="5">5 per s</option><option value="10">10 per s</option><option value="15">15 per s</option>
       <option value="30">30 per s</option><option value="60">60 per s</option><option value="0" selected>no cap</option>
     </select></label>
-    <label>Frames in flight (window)<select id="win">
+    <label>Frames in flight at the start (then measured)<select id="win">
       <option value="1">1</option><option value="2">2</option><option value="3" selected>3</option>
     </select></label>
     <label>Full refresh (with partial updates)<select id="refresh">
@@ -158,45 +158,44 @@ $("clear").onclick = () => { LOG.length = 0; logEl.textContent = ""; };
 
 // ---- Settings (remembered in this browser) ------------------------------------------------------------
 const KEYS = ["transport", "mode", "target", "w", "q", "fmt", "fps", "win", "refresh", "life"], CHECKS = ["partial", "force", "verify"];
+const PAGE_ONLY = ["verify"];                                       // used only here: no new data path needed
 const S = {};
 function readSettings() {
   for (const k of KEYS) S[k] = $(k).value;
   for (const k of CHECKS) S[k] = $(k).checked;
   S.auto = S.mode === "auto";
 }
-const PC_ = { srv: null, auto: null };
-const FZ = { on: false, n: 0, longest: 0 }, AUTO_LOG = [];          // freezes: the PC sends, nothing gets drawn              // the PC's last per-second sender report, and Auto's choice
+const PC_ = { srv: null, auto: null };                              // the PC's last per-second report of THIS data path, Auto's choice
+const FZ = { on: false, n: 0, longest: 0 }, AUTO_LOG = [];          // freezes: the PC sends, nothing gets drawn
 try { const saved = JSON.parse(store.get("peek-settings-v3") || "{}");
       for (const k of KEYS) if (saved[k] != null && [...$(k).options].some((o) => o.value === saved[k])) $(k).value = saved[k];
       for (const k of CHECKS) if (saved[k] != null) $(k).checked = !!saved[k];
       if (saved.wake != null) $("wake").checked = !!saved.wake; } catch (e) {}
 readSettings();
 const qs = () => `w=${S.w}&q=${S.q}&fmt=${S.fmt}&fps=${S.fps}&win=${S.win}&force=${S.force ? 1 : 0}&partial=${S.partial ? 1 : 0}&refresh=${S.refresh}&auto=${S.auto ? 1 : 0}&target=${S.target}`;
-const settingsText = () => `${S.transport}, ${S.auto ? "Auto (target " + S.target + " ms)" : (S.w === "0" ? "full" : S.w + " px") + ", q" + S.q}, ${S.fmt}, cap ${S.fps === "0" ? "none" : S.fps + "/s"}, ` +
-  `window ${S.win}, ${S.partial ? "partial updates (full every " + (S.refresh === "0" ? "never" : S.refresh + " s") + ")" : "full frames"}${S.force ? ", unchanged frames too" : ""}`;
-const keepsOpen = () => S.transport === "ws" || S.transport.startsWith("udp");   // stays open, paused, between runs
+const settingsText = () => `${S.transport}, ${S.auto ? "Auto" : (S.w === "0" ? "full" : S.w + " px") + ", q" + S.q}, target ${S.target} ms, ${S.fmt}, cap ${S.fps === "0" ? "none" : S.fps + "/s"}, ` +
+  `start window ${S.win}, ${S.partial ? "partial updates (full every " + (S.refresh === "0" ? "never" : S.refresh + " s") + ")" : "full frames"}${S.force ? ", unchanged frames too" : ""}`;
 for (const k of [...KEYS, ...CHECKS]) $(k).addEventListener("change", () => {
-  const oldT = S.transport; readSettings();
+  readSettings();
   store.set("peek-settings-v3", JSON.stringify({ ...S, wake: $("wake").checked }));
   log(`settings: ${settingsText()}`);
-  if (!conn.live) { if (keepsOpen() && TOKEN && !conn.down) open(); return; }   // keep a warm connection ready
-  // Same WebSocket / UDP link: new settings travel on it. The UDP resend window is fixed when the channel is made.
-  if (S.transport === oldT && conn.live.set && k !== "life") conn.live.set();
-  else reopen("settings changed");
+  // Any change that matters to the PC gets a whole new data path: the old one is stopped on both sides first,
+  // and the new one starts with a full frame (round 5: a changed setting never rides on an old, possibly stuck path).
+  if (!PAGE_ONLY.includes(k) && conn.want) dataStart(`settings changed (${k})`);
 });
 
-// ---- Clock sync with the PC (NTP-style: the sample with the shortest round trip wins) ---------------
-const sync = { samples: [], offset: 0, rtt: null, ok: false };
+// ---- Clock sync with the PC (NTP-style, over the control connection) ---------------------------------
+// The sample with the smallest error bound wins: half its round trip, plus 0.1 ms per second of age (the two clocks
+// drift apart). So one quiet sample keeps beating many that queued behind other traffic (those made the
+// "latency -395 ms" after reconnects in Jon's round-5 run), and a new server process starts it over.
+const sync = { samples: [], offset: 0, rtt: null, best: null, ok: false };
 function addSync(t0, srv, t1) {
-  sync.samples.push({ rtt: t1 - t0, off: srv - (t0 + t1) / 2 });
-  if (sync.samples.length > 10) sync.samples.shift();
-  const best = sync.samples.reduce((a, b) => (b.rtt < a.rtt ? b : a));
+  const t = now();
+  sync.samples.push({ rtt: t1 - t0, off: srv - (t0 + t1) / 2, at: t1 });
+  sync.samples = sync.samples.filter((s) => t - s.at < 600000).slice(-64);
+  const err = (s) => s.rtt / 2 + (t - s.at) * 1e-4;
+  const best = sync.samples.reduce((a, b) => (err(b) < err(a) ? b : a));
   sync.offset = best.off; sync.rtt = t1 - t0; sync.best = best.rtt; sync.ok = true;
-}
-async function pingHttp() {
-  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 4000), t0 = now();
-  try { const j = await (await fetch(`${BASE}ping?t=${t0}`, { cache: "no-store", signal: ac.signal })).json(); addSync(t0, j.srv, now()); conn.lastData = now(); return true; }
-  catch (e) { return false; } finally { clearTimeout(timer); }
 }
 
 // ---- Applying updates: full frames, and partial updates (changed tiles) that must land in order ------
@@ -240,8 +239,8 @@ function verify(hdr, u8) {
   if (crc32(u8) === hdr.crc) CHK.ok++;
   else if (++CHK.bad <= 5) log(`CRC mismatch on update ${hdr.seq} (${hdr.n} bytes)`);
 }
-function pcReport(m) {                               // the PC's own view of this stream
-  if (m.type === "srv") PC_.srv = m;
+function pcReport(m) {                               // the PC's own view of this data path
+  if (m.type === "srv") { m.at = now(); PC_.srv = m; }
   else if (m.type === "auto") { PC_.auto = m; AUTO_LOG.push(`${m.w || "full"}/q${m.q}: ${m.why || ""}`); log(`Auto: now ${m.w ? m.w + " px" : "full width"}, quality ${m.q} (step ${m.level}): ${m.why || ""}`); }
 }
 // UDP: what the data channel delivered (frames put together, dropped when incomplete at the deadline, late pieces).
@@ -281,7 +280,7 @@ async function paint(it) {
 let W, T;
 function resetW() { W = { t: now(), recv: 0, drawn: 0, dropped: 0, bytes: 0, fullBytes: 0, iv: [], lat: [], idle: 0, dec: [], drw: [], net: [] }; }
 function resetT() { T = { t: now(), recv: 0, drawn: 0, dropped: 0, bad: 0, idle: 0, asked: 0, full: 0, part: 0, first: null, lastDraw: 0, h: null,
-                         bytes: 0, fullBytes: 0, ivs: [], lats: [], decs: [], nets: [] };
+                         bytes: 0, fullBytes: 0, ivs: [], lats: [], decs: [], nets: [], paths: 0, firsts: [] };
                     Object.assign(U, { chunks: 0, complete: 0, dropped: 0, late: 0 }); Object.assign(CHK, { ok: 0, bad: 0 }); Object.assign(FZ, { on: false, n: 0, longest: 0 }); }
 resetW(); resetT();
 function drawn(hdr, it, dec, drw) {
@@ -295,9 +294,13 @@ function drawn(hdr, it, dec, drw) {
     W.lat.push(lat); W.net.push(net); T.lats.push(lat); T.nets.push(net);
   }
   T.h = hdr;
+  if (conn.live && conn.firstOnPath == null) {
+    conn.firstOnPath = t - conn.pathAt; T.firsts.push(conn.firstOnPath);
+    log(`first frame on data path ${conn.live.gen}: ${r0(conn.firstOnPath)} ms after it started`);
+  }
   if (conn.onAt && T.first === null) {
     T.first = t - conn.onAt;
-    log(`first frame ${Math.round(T.first)} ms after Continuous on (connection ${conn.warmAtOn ? "already open: warm" : "new: cold"})`);
+    log(`first frame ${Math.round(T.first)} ms after Continuous on (control connection ${conn.warmAtOn ? "already open: warm" : "new: cold"})`);
   }
 }
 const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
@@ -305,32 +308,35 @@ const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
 const sd = (a) => { const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) ** 2))); };
 const r0 = (x) => (x == null || !isFinite(x) ? "–" : Math.round(x));
 const statsEl = $("stats");
-const CELLS = ["fps", "interval", "latency", "ping", "breakdown", "size", "rate", "frames", "pc", "conn", "first", "check"];
+const CELLS = ["fps", "interval", "latency", "ping", "breakdown", "size", "rate", "frames", "pc", "flow", "conn", "first", "check"];
 const cell = {};
 for (const k of CELLS) { const d = document.createElement("div"); d.className = "s"; d.innerHTML = "<b>–</b><span></span>"; statsEl.appendChild(d); cell[k] = d; }
-cell.breakdown.style.gridColumn = cell.size.style.gridColumn = "span 2";
+cell.breakdown.style.gridColumn = cell.size.style.gridColumn = cell.flow.style.gridColumn = "span 2";
 function put(k, big, small) { cell[k].firstChild.textContent = big; cell[k].lastChild.textContent = small; }
 let lastTick = now();
 function tick() {                                   // once a second (browsers slow this down in background tabs)
   const t = now(), gap = t - lastTick; lastTick = t;
+  const late = gap > 2000;                           // our own timers were held back (background, freeze)
   const secs = (t - W.t) / 1000, fps = W.drawn / secs, iv = mean(W.iv), jit = sd(W.iv), lat = med(W.lat);
   const kb = W.recv ? W.bytes / W.recv / 1024 : 0, fullKb = W.recv ? W.fullBytes / W.recv / 1024 : 0, mbps = W.bytes * 8 / secs / 1e6;
-  const h = T.h;
+  const h = T.h, live = conn.live, ps = PC_.srv;
   put("fps", fps.toFixed(1), `per s (${W.recv} in, ${W.dropped} dropped)`);
   put("interval", W.iv.length ? `${r0(iv)} ± ${r0(jit)} ms` : "–", "frame interval ± jitter");
   put("latency", lat == null ? "–" : `${r0(lat)} ms`, sync.ok ? "capture → on screen (est.)" : "waiting for clock sync");
-  put("ping", sync.rtt == null ? "–" : `${r0(sync.rtt)} ms`, `round trip (best ${r0(sync.best)}, clock ±${r0((sync.best || 0) / 2)})`);
+  put("ping", sync.rtt == null ? "–" : `${r0(sync.rtt)} ms`, `control round trip (best ${r0(sync.best)}, clock ±${r0((sync.best || 0) / 2)})`);
   put("breakdown", h ? `${h.g} + ${h.r} + ${h.c} + ${h.e} + ${r0(med(W.net))} + ${(med(W.dec) || 0).toFixed(1)} + ${(med(W.drw) || 0).toFixed(1)} ms` : "–",
       `capture + scale + compare + encode (PC, ${h ? h.be : "?"}) + send + decode + draw (here)`);
   put("size", W.recv ? `${kb.toFixed(1)} KB` : "–", W.recv && fullKb > kb * 1.05 ? `sent per frame; full frame would be ${r0(fullKb)} KB (${r0(100 - 100 * kb / fullKb)}% saved)` :
       (h ? `per frame, ${h.w}×${h.h}${h.kind === "d" ? `, ${h.tiles} of ${h.of} tiles` : ""}` : "per frame"));
   put("rate", `${mbps.toFixed(2)} Mbps`, "data rate");
   put("frames", `${T.drawn}`, `drawn (${T.full} full, ${T.part} partial) · ${T.dropped} dropped · ${T.idle} no-change · ${T.bad} bad · freezes ${FZ.n}, longest ${(FZ.longest / 1000).toFixed(1)} s`);
-  put("conn", conn.live ? conn.live.kind : "–", `retries ${conn.retries} · up ${conn.upAt ? r0((t - conn.upAt) / 1000) + " s" : "–"}`);
-  const ps = PC_.srv;
+  put("conn", live ? live.kind : "–", `data path ${live ? live.gen : "–"} · control ${C.ready ? "up" : "down"} · retries ${conn.retries} · up ${conn.upAt && live ? r0((t - conn.upAt) / 1000) + " s" : "–"}`);
   put("pc", ps ? (ps.auto ? `Auto: ${ps.w ? ps.w + " px" : "full"} q${ps.q}` : `${ps.w ? ps.w + " px" : "full"} q${ps.q}`) : "–",
-      ps ? `PC sent ${ps.fps}/s, ${ps.mbps} Mbps; queue ≤ ${ps.qmax_kb} KB; waited ${ps.waits}×; send → drawn ${ps.lat == null ? "–" : ps.lat + " ms"}` : "PC sender report");
-  put("first", T.first == null ? "–" : `${r0(T.first)} ms`, `first frame (${conn.warmAtOn ? "warm" : "cold"})`);
+      ps ? `PC sent ${ps.fps}/s, ${ps.mbps} Mbps; send → drawn ${ps.lat == null ? "–" : ps.lat + " ms"}` : "PC sender report");
+  put("flow", ps && ps.bw_mbps != null ? `${ps.bw_mbps} Mbps · cap ${ps.cap_kb} KB` : "–",
+      ps ? `flow control: path delivers (est.); in flight ${ps.infl} (${ps.infl_kb} KB); queue ${ps.qd_ms} ms; base ${r0(ps.base_ms)} ms; ` +
+           `probes ${ps.probes}, cuts ${ps.cuts}, drains ${ps.drains}${ps.lost ? ", lost " + ps.lost : ""}${ps.timeouts ? ", timeouts " + ps.timeouts : ""}` : "flow control (from the PC)");
+  put("first", T.first == null ? "–" : `${r0(T.first)} ms`, `first frame (${conn.warmAtOn ? "warm" : "cold"})${conn.firstOnPath != null ? `; this path ${r0(conn.firstOnPath)} ms` : ""}`);
   const udp = S.transport.startsWith("udp");
   put("check", udp ? `${U.complete} · ${U.dropped} · ${U.late}` : (S.verify ? `${CHK.ok} ok · ${CHK.bad} bad` : "–"),
       udp ? `UDP frames complete · dropped · late pieces; ${U.pair || "no path yet"}${U.rtt != null ? `, rtt ${r0(U.rtt)} ms` : ""}` +
@@ -338,146 +344,273 @@ function tick() {                                   // once a second (browsers s
   if (conn.want) {
     log(`stats  fps ${fps.toFixed(1)}  interval ${r0(iv)}±${r0(jit)} ms  latency ${r0(lat)} ms  ${kb.toFixed(1)} KB (full ${r0(fullKb)})  ${mbps.toFixed(2)} Mbps  ` +
         `in ${W.recv} drawn ${W.drawn} dropped ${W.dropped} no-change ${W.idle}  decode ${(med(W.dec) || 0).toFixed(1)} ms  ping ${r0(sync.rtt)} ms  ${document.visibilityState}` +
-        (PC_.srv ? `  | PC: ${PC_.srv.w ? PC_.srv.w + "px" : "full"} q${PC_.srv.q}${PC_.srv.auto ? " auto" : ""}, sent ${PC_.srv.mbps} Mbps, queue≤${PC_.srv.qmax_kb} KB, waits ${PC_.srv.waits}, loops ${JSON.stringify(PC_.srv.where || {})}` : "") +
-        (gap > 1500 ? `  (timer late: ${(gap / 1000).toFixed(1)} s since last line)` : ""));
+        (ps ? `  | PC path ${ps.gen}: ${ps.w ? ps.w + "px" : "full"} q${ps.q}${ps.auto ? " auto" : ""}, sent ${ps.mbps} Mbps, est ${ps.bw_mbps} Mbps, cap ${ps.cap_kb} KB, ` +
+              `in flight ${ps.infl}/${ps.infl_kb} KB, queue ${ps.qd_ms} ms, base ${ps.base_ms} ms, probes ${ps.probes} cuts ${ps.cuts} drains ${ps.drains}, loops ${JSON.stringify(ps.where || {})}` : "") +
+        (late ? `  (timer late: ${(gap / 1000).toFixed(1)} s since last line)` : ""));
   }
   resetW();
   if (D.waitSince && t - D.waitSince > 300) needFull();
-  // Freeze watchdog: the PC says it is sending, the connection is up, yet nothing was drawn for over 1 s.
-  const sinceDraw = T.lastDraw ? t - T.lastDraw : 0;
-  if (conn.want && conn.live && conn.live.ready && sinceDraw > 1000 && PC_.srv && PC_.srv.fps > 0) {
-    if (!FZ.on) { FZ.on = true; FZ.n++; log(`freeze: nothing drawn for ${r0(sinceDraw)} ms while the PC is sending; asked for a keyframe`); D.askedAt = 0; needFull(true); }
-    FZ.longest = Math.max(FZ.longest, sinceDraw);
-  } else if (FZ.on && sinceDraw < 1000) { FZ.on = false; log(`freeze over (longest so far ${(FZ.longest / 1000).toFixed(1)} s)`); }
-  if (conn.down) setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((t - conn.down) / 1000)} s): ${conn.why}`);
-  if (conn.live && conn.live.ready && (conn.want || conn.live.set) && t - conn.lastData > 7000)
-    conn.live.fail(`stalled: nothing from the PC for ${r0((t - conn.lastData) / 1000)} s`);
-  if (conn.live && conn.live.ready && t - lastPing > (conn.want ? 2000 : 10000)) { lastPing = t; conn.live.ping(); }
+  // Freeze watchdog: the PC says THIS data path is sending, it has drawn before, yet nothing for much longer than
+  // usual: over 1 s, and over 2.5 frame intervals and 1.5 times the PC's send -> drawn time (so 1 frame a second on
+  // a slow link is not a freeze). A new path's setup is not a freeze either: it counts only after the path's first
+  // frame (a slow start is logged as such).
+  const since = t - Math.max(T.lastDraw, conn.pathAt);
+  const usual = Math.max(1000, 2.5 * (med(T.ivs.slice(-20)) || 0), 1.5 * ((ps && ps.lat) || 0));
+  if (conn.want && live && live.ready && conn.firstOnPath != null && ps && ps.gen === live.gen && ps.fps > 0 && since > usual) {
+    if (!FZ.on) { FZ.on = true; FZ.n++; log(`freeze: nothing drawn for ${r0(since)} ms while the PC is sending (usual gap ${r0(usual)} ms); asked for a keyframe`); D.askedAt = 0; needFull(true); }
+    FZ.longest = Math.max(FZ.longest, since);
+  } else if (FZ.on && since < usual) { FZ.on = false; log(`freeze over (longest so far ${(FZ.longest / 1000).toFixed(1)} s)`); }
+  if (conn.want && live && live.ready && conn.firstOnPath == null && !live.slow && t - conn.upAt > 5000) {
+    live.slow = true; log(`slow start: data path ${live.gen} is open but has drawn nothing ${r0((t - conn.pathAt) / 1000)} s after it started`);
+  }
+  if (conn.down && !live) setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((t - conn.down) / 1000)} s): ${conn.why}`);
+  if (C.down && !C.ready) setState("bad", `Reconnecting… (attempt ${C.attempt}, ${r0((t - C.down) / 1000)} s): ${C.why}`);
+  if (late) conn.lastData = Math.max(conn.lastData, t - 3000);
+  // Stall watchdog: nothing on the data path for 7 s, unless the PC (on the control connection, this second) says a
+  // frame of THIS path is still on its way: a big frame on a slow link is slow, not dead (20 s is the hard limit).
+  const quiet = t - conn.lastData, pcBusy = ps && live && ps.gen === live.gen && ps.infl > 0 && t - ps.at < 3000;
+  if (conn.want && live && live.ready && (quiet > 20000 || (quiet > 7000 && !pcBusy)))
+    live.fail(`stalled: nothing on the data path for ${r0(quiet / 1000)} s${pcBusy ? " (the PC still had frames on the way)" : ""}`);
+  heartbeat(late);
   if (conn.live && conn.live.tick) conn.live.tick();
 }
-let lastPing = 0;
 setInterval(tick, 1000);
 
-// ---- Connection supervisor: one live transport; Continuous stays on through disconnects ---------------
-const conn = { want: false, live: null, gen: 0, attempt: 0, retries: 0, down: 0, why: "", timer: 0, lastData: 0, onAt: 0, warmAtOn: false, upAt: 0 };
+// ---- Connections -------------------------------------------------------------------------------------
+// The CONTROL connection (C, WebSocket /ctl) is open whenever this browser is signed in, Continuous on or off: sign-in,
+// pings every second (clock sync, and the heartbeat: 4 pings unanswered and silence for 6 s = dead), the data path's stop, the acks
+// of the TCP data paths, UDP signalling, the PC's reports. If it dies, it is dropped (never reused), the data path goes
+// with it, and a new one is made with backoff (250 ms … 2.5 s, forever), signed in with the stored token; then the data
+// path is rebuilt. Continuous stays on throughout.
+// The DATA path (conn.live: a data WebSocket, a stream, requests, or UDP channels) carries the frames. It is made new,
+// with a full frame first, on Continuous on, on every settings change, on every transport switch and after any failure;
+// the old one is torn down on this side (sockets, fetches, channels, timers) and stopped on the PC at once.
+const conn = { want: false, live: null, gen: 0, attempt: 0, retries: 0, down: 0, why: "", timer: 0, lastData: 0, onAt: 0, warmAtOn: false,
+               upAt: 0, pathAt: 0, firstOnPath: null };
+const C = { ws: null, ready: false, sid: "", boot: "", attempt: 0, timer: 0, down: 0, why: "", unanswered: 0, lastPing: 0, lastRx: 0,
+            openedAt: 0, connectTimer: 0, mute: false };
 function setState(kind, text) { $("dot").className = kind; $("conntext").textContent = text; }
+const backoff = (n) => Math.round(Math.min(2500, 250 * 2 ** (n - 1)) * (0.8 + Math.random() * 0.4));
+function httpWhy(status) {
+  if (status === 502) return "the PC is reachable but sharing is off (502)";
+  if (status === 503 || status === 504) return `the Funnel or the PC did not answer in time (${status})`;
+  if (status === 409) return "the PC already has a newer data path for this page (409)";
+  if (status === 410) return "the PC does not know this page's control session (410)";
+  return `HTTP ${status}`;
+}
 function setCont(on) {
   conn.want = on;
   $("cont").textContent = "Continuous: " + (on ? "on" : "off");
   $("cont").classList.toggle("on", on);
   if (on) {
-    resetT(); resetW(); conn.onAt = now(); conn.warmAtOn = !!(conn.live && conn.live.ready);
+    resetT(); resetW(); conn.onAt = now(); conn.warmAtOn = C.ready;
     log(`Continuous ON (${settingsText()})`);
     if (!TOKEN) { signIn(); return; }
-    if (conn.live) conn.live.resume(); else open();
+    if (C.ready) dataStart("Continuous on");
+    else if (!C.ws && !C.timer) ctlOpen("Continuous on");          // (reconnecting already: the path starts once it is up)
   } else {
     log("Continuous OFF");
-    clearTimeout(conn.timer); conn.down = 0; conn.attempt = 0;
-    if (conn.live) conn.live.pause();
-    setState(conn.live && conn.live.ready ? "wait" : "", conn.live && conn.live.ready ? "Connected, paused." : "Off.");
+    clearTimeout(conn.timer); conn.timer = 0; conn.down = 0; conn.attempt = 0;
+    dataStop("Continuous off");
+    setState(C.ready ? "wait" : "", C.ready ? "Connected (Continuous off)." : "Off.");
   }
 }
-function open() {
-  clearTimeout(conn.timer);
-  const make = TRANSPORTS[S.transport];
-  conn.live = make(++conn.gen);
-  setState("wait", conn.attempt ? `Reconnecting (attempt ${conn.attempt})…` : "Connecting…");
+
+// -- the control connection --
+function ctlOpen(why) {
+  clearTimeout(C.timer); C.timer = 0; clearTimeout(C.connectTimer);
+  ctlDrop();
+  if (!TOKEN) return;
+  const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ctl");
+  C.ws = ws; C.ready = false; C.unanswered = 0; C.openedAt = now(); C.lastRx = now(); C.mute = false;
+  log(`control: connecting (${why})${C.attempt ? `, attempt ${C.attempt + 1}` : ""}…`);
+  if (!C.down) setState("wait", "Connecting…");
+  C.connectTimer = setTimeout(() => { if (C.ws === ws && !C.ready) ctlDown("no answer within 10 s"); }, 10000);
+  ws.onopen = () => { if (C.ws === ws) ws.send(JSON.stringify({ type: "hello", token: TOKEN, page: VID, v: 5 })); };
+  ws.onmessage = (ev) => {
+    if (C.ws !== ws || C.mute) return;
+    C.lastRx = now();
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    ctlMsg(m);
+    if (C.ws === ws) heartbeat(false);               // (pings also ride on the PC's messages: timers may be throttled)
+  };
+  ws.onclose = (ev) => {
+    if (C.ws !== ws) return;
+    if (ev.code === 4401) return ctlDown("the PC refused the sign-in", "auth");
+    ctlDown(ev.code === 1001 ? `the PC said: ${ev.reason || "going away"}` :
+            C.ready ? `the control connection closed (code ${ev.code})` : `could not connect (code ${ev.code}): sharing off, or no network`);
+  };
 }
-function reopen(why) {
-  if (conn.live) conn.live.close(why);
-  conn.live = null;
-  if (conn.want || keepsOpen()) open();
+function ctlDrop() {                                // forget the control connection object (it is never reused)
+  const ws = C.ws; C.ws = null; C.ready = false;
+  if (ws) { ws.onopen = ws.onmessage = ws.onclose = null; try { ws.close(); } catch (e) {} }
 }
-function onUp(gen, what) {
-  if (gen !== conn.gen) return;
-  if (conn.down) log(`reconnected after ${r0((now() - conn.down) / 1000)} s and ${conn.attempt} ${conn.attempt === 1 ? "try" : "tries"}`);
-  conn.attempt = 0; conn.down = 0; conn.lastData = now(); conn.upAt = now();
-  log(`connected: ${what}`);
-  setState(conn.want ? "live" : "wait", conn.want ? `Live (${S.transport}).` : "Connected, paused.");
-}
-function onFail(gen, why, kind) {
-  if (gen !== conn.gen) return;
-  conn.live = null;
+function ctlDown(why, kind) {
+  clearTimeout(C.connectTimer);
+  const was = C.ready;
+  ctlDrop();
+  dataStop(`the control connection is down (${why})`, true);    // the PC stops that path itself when it notices
   if (kind === "auth") { log(`sign-in needed: ${why}`); setState("bad", "Sign in needed."); signIn("Please sign in (new password, or signed out on the PC)."); return; }
-  if (!conn.want) { log(`connection closed: ${why}`); setState("", "Off."); return; }
-  if (!conn.down) conn.down = now();
-  conn.attempt++; conn.retries++; conn.why = why;
-  const delay = Math.min(2500, 250 * 2 ** (conn.attempt - 1)) * (0.8 + Math.random() * 0.4);
-  log(`disconnected: ${why}; retry ${conn.attempt} in ${r0(delay)} ms`);
-  setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((now() - conn.down) / 1000)} s): ${why}`);
-  conn.timer = setTimeout(() => { if (conn.want && !conn.live) open(); }, delay);
+  if (!TOKEN) return;
+  if (!C.down) C.down = now();
+  C.attempt++; C.why = why;
+  const delay = backoff(C.attempt);
+  log(`control: ${was ? "lost" : "failed"}: ${why}; reconnecting in ${delay} ms (attempt ${C.attempt})`);
+  setState("bad", `Reconnecting… (attempt ${C.attempt}, ${r0((now() - C.down) / 1000)} s): ${why}`);
+  C.timer = setTimeout(() => { C.timer = 0; ctlOpen("reconnect"); }, delay);
 }
-function httpWhy(status) {
-  if (status === 502) return "the PC is reachable but sharing is off (502)";
-  if (status === 503 || status === 504) return `the Funnel or the PC did not answer in time (${status})`;
-  return `HTTP ${status}`;
+function ctlMsg(m) {
+  if (m.type === "hello") {
+    clearTimeout(C.connectTimer);
+    C.ready = true; C.sid = m.sid;
+    if (C.boot && m.boot !== C.boot) { sync.samples = []; sync.ok = false; log("clock sync: the PC's server restarted, starting over"); }
+    C.boot = m.boot;
+    if (C.down) log(`control: reconnected after ${r0((now() - C.down) / 1000)} s and ${C.attempt} ${C.attempt === 1 ? "try" : "tries"}`);
+    log(`control: signed in in ${r0(now() - C.openedAt)} ms (PC capture ${m.be})`);
+    C.attempt = 0; C.down = 0; C.unanswered = 0;
+    for (let i = 0; i < 5; i++) setTimeout(() => ctlPing(true), i * 150);    // a burst for clock sync
+    if (conn.want) dataStart("control connected");
+    else setState("wait", "Connected (Continuous off).");
+    return;
+  }
+  if (m.type === "pong") { C.unanswered = 0; if (typeof m.t === "number") addSync(m.t, m.srv, now()); return; }
+  if (m.type === "auth") return ctlDown("the PC refused the sign-in", "auth");
+  if (m.gen == null || !conn.live || m.gen !== conn.live.gen) return;      // about an older data path: ignored
+  if (m.type === "srv" || m.type === "auto") pcReport(m);
+  else if (conn.live.rtc) conn.live.rtc(m);
+}
+function ctlSend(o) {
+  if (!C.ws || !C.ready || C.ws.readyState !== 1) return false;
+  try { C.ws.send(JSON.stringify(o)); return true; } catch (e) { return false; }
+}
+function ctlPing(force) {
+  const t = now();
+  if (!C.ready || (!force && t - C.lastPing < 900)) return;
+  C.lastPing = t; C.unanswered++;
+  ctlSend({ type: "ping", t });
+}
+function heartbeat(late) {                          // once a second, and whenever the PC sends something
+  if (!C.ws || !C.ready) return;
+  const t = now();
+  if (late) { C.unanswered = 0; C.lastRx = Math.max(C.lastRx, t - 1000); }  // we were held back, not the connection
+  // Dead: 4+ pings unanswered and nothing at all for 6 s. (Any message counts: on a slow link a big frame ahead of a
+  // pong in the network's queue can delay it a few seconds, while the PC's reports keep arriving every second.)
+  if (C.unanswered >= 4 && t - C.lastRx > 6000) return ctlDown(`no answer to ${C.unanswered} pings in ${r0((t - C.lastRx) / 1000)} s`);
+  ctlPing(false);
 }
 
-// ---- Transports -------------------------------------------------------------------------------------
+// -- the data path --
+function dataStart(why) {
+  dataStop(why);                                   // never reused: the old one is stopped first, on both sides
+  clearTimeout(conn.timer); conn.timer = 0;
+  if (!conn.want || !TOKEN) return;
+  if (!C.ready) { if (!C.ws && !C.timer) ctlOpen("the data path needs it"); return; }
+  const gen = ++conn.gen;
+  D.ep = null; D.seq = 0; D.waitSince = 0; D.askedAt = 0;
+  for (const w of D.wait.splice(0)) drop(w);
+  for (const q of Q.splice(0)) drop(q);
+  PC_.srv = null; FZ.on = false; T.paths++;
+  conn.pathAt = now(); conn.firstOnPath = null; conn.lastData = now(); conn.upAt = 0;
+  log(`data: starting path ${gen}: ${S.transport} (${why})`);
+  if (!conn.down) setState("wait", `Starting ${S.transport}…`);
+  conn.live = TRANSPORTS[S.transport](gen);
+}
+function dataStop(why, ctlGone) {
+  const t = conn.live;
+  if (!t) return;
+  conn.live = null;
+  try { t.close(why); } catch (e) {}
+  if (!ctlGone) ctlSend({ type: "stop", gen: t.gen, why: String(why).slice(0, 150) });
+  log(`data: path ${t.gen} (${t.kind}) stopped: ${why}`);
+}
+function onUp(gen, what) {
+  if (!conn.live || conn.live.gen !== gen) return;
+  if (conn.down) log(`data path back after ${r0((now() - conn.down) / 1000)} s and ${conn.attempt} ${conn.attempt === 1 ? "try" : "tries"}`);
+  conn.attempt = 0; conn.down = 0; conn.lastData = now(); conn.upAt = now();
+  log(`connected: ${what} (data path ${gen}, ${r0(now() - conn.pathAt)} ms after it started)`);
+  setState("live", `Live (${S.transport}).`);
+}
+function onFail(gen, why, kind) {
+  if (!conn.live || conn.live.gen !== gen) return;
+  dataStop(why);
+  if (kind === "auth") return ctlDown(why, "auth");
+  if (kind === "session") return ctlDown(why);       // the PC closed this page's session: a new control connection first
+  if (!conn.want) return;
+  if (!conn.down) conn.down = now();
+  conn.attempt++; conn.retries++; conn.why = why;
+  const delay = backoff(conn.attempt);
+  log(`disconnected: ${why}; retry ${conn.attempt} in ${delay} ms`);
+  setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((now() - conn.down) / 1000)} s): ${why}`);
+  conn.timer = setTimeout(() => {
+    conn.timer = 0;
+    if (!conn.want || conn.live) return;
+    if (C.ready) dataStart(`retry ${conn.attempt}`);
+    else if (!C.ws && !C.timer) ctlOpen("retry");   // (otherwise the control connection's reconnect starts it)
+  }, delay);
+}
+
+// ---- Data paths (transports) ------------------------------------------------------------------------
+// Each returns { gen, kind, ready, close(why), fail(why, kind), full() } and, for UDP, rtc(msg) and tick().
+// close() tears down everything this path made (socket, fetches, peer, timers); after it, no handler of the old
+// path does anything. fail() reports a failure to the supervisor, which stops the path and retries with backoff.
+const ackTcp = (gen, hdr) => () => ctlSend({ type: "ack", gen, ep: hdr.ep, seq: hdr.seq });
 const TRANSPORTS = {
-  ws(gen) {                                          // one WebSocket for frames, acks, pings and settings
+  ws(gen) {                                          // frames on a data WebSocket; acks on the control connection
     const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ws");
     ws.binaryType = "arraybuffer";
-    let failed = false;
-    const t = { kind: "ws", ready: false };
-    const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
-    t.fail = (why, kind) => { if (failed) return; failed = true; try { ws.close(); } catch (e) {} onFail(gen, why, kind); };
-    t.close = (why) => { failed = true; try { ws.close(1000, why); } catch (e) {} };
-    t.pause = () => send({ type: "pause", on: true });
-    t.resume = () => send({ type: "pause", on: false });
-    t.set = () => send({ type: "set", ...S, win: +S.win });
-    t.ping = () => send({ type: "ping", t: now() });
-    t.full = () => send({ type: "full" });
-    ws.onopen = () => send({ type: "hello", token: TOKEN, ...S, win: +S.win, paused: !conn.want });
+    const t = { gen, kind: "ws", ready: false };
+    let dead = false;
+    const startTimer = setTimeout(() => t.fail("the data WebSocket did not start within 10 s"), 10000);
+    t.fail = (why, kind) => { if (!dead) onFail(gen, why, kind); };
+    t.close = () => { dead = true; clearTimeout(startTimer); ws.onopen = ws.onmessage = ws.onclose = null; try { ws.close(); } catch (e) {} };
+    t.full = () => ctlSend({ type: "full", gen });
+    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token: TOKEN, sid: C.sid, gen, ...S, win: +S.win }));
     ws.onmessage = (ev) => {
+      if (dead) return;
       conn.lastData = now();
       if (typeof ev.data === "string") {
-        const m = JSON.parse(ev.data);
-        if (m.type === "hello") { t.ready = true; onUp(gen, `WebSocket, PC capture ${m.be}`); for (let i = 0; i < 4; i++) setTimeout(t.ping, i * 150); }
-        else if (m.type === "pong") addSync(m.t, m.srv, now());
+        let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.type === "hello") { clearTimeout(startTimer); t.ready = true; onUp(gen, `WebSocket, PC capture ${m.be}`); }
         else if (m.type === "ka") { W.idle++; T.idle++; }
         else if (m.type === "auth") t.fail("the PC refused the sign-in", "auth");
-        else pcReport(m);
+        else if (m.type === "gone") t.fail("the PC does not know this page's control session", "session");
+        else if (m.type === "reload") t.fail(m.why || "reload the page");
         return;
       }
       const dv = new DataView(ev.data), hl = dv.getUint32(0);
       const hdr = JSON.parse(dec.decode(new Uint8Array(ev.data, 4, hl))), body = new Uint8Array(ev.data, 4 + hl);
       verify(hdr, body);
-      show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), () => send({ type: "ack", seq: hdr.seq }));
+      show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), ackTcp(gen, hdr));
     };
     ws.onclose = (ev) => {
-      if (failed) return;
-      failed = true;
-      if (ev.code === 4401) onFail(gen, "the PC refused the sign-in", "auth");
-      else if (ev.code === 1001) onFail(gen, `the PC said: ${ev.reason || "going away"}`);
-      else onFail(gen, t.ready ? `connection lost (code ${ev.code})` : `could not connect (code ${ev.code}): sharing off, or no network`);
+      if (dead) return;
+      if (ev.code === 4401) return t.fail("the PC refused the sign-in", "auth");
+      if (ev.code === 4410) return t.fail("the PC does not know this page's control session", "session");
+      t.fail(ev.code === 1001 ? `the PC said: ${ev.reason || "going away"}` : t.ready ? `the data WebSocket closed (code ${ev.code})` : `the data WebSocket could not connect (code ${ev.code})`);
     };
     return t;
   },
 
-  stream(gen) {                                      // one long HTTP response; acks go back as small POSTs
+  stream(gen) {                                      // one long HTTP response; acks on the control connection
     const ac = new AbortController();
-    const t = { kind: "stream", ready: false };
-    let failed = false, sid = "";
-    t.fail = (why, kind) => { if (failed) return; failed = true; ac.abort(); onFail(gen, why, kind); };
-    t.close = () => { failed = true; ac.abort(); };
-    t.pause = () => { t.close(); if (conn.live === t) conn.live = null; };   // a stream can't idle: closed, reopened on resume
-    t.resume = () => {};
-    t.ping = pingHttp;
-    const post = (o) => fetch(`${BASE}ack`, { method: "POST", headers: { "X-Key": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ sid, ...o }) }).catch(() => {});
-    const ack = () => post({ n: 1 });
-    t.full = () => post({ n: 0, full: true });
+    const t = { gen, kind: "stream", ready: false };
+    let dead = false;
+    const startTimer = setTimeout(() => t.fail("the stream did not start within 10 s"), 10000);
+    t.fail = (why, kind) => { if (!dead) onFail(gen, why, kind); };
+    t.close = () => { dead = true; clearTimeout(startTimer); ac.abort(); };
+    t.full = () => ctlSend({ type: "full", gen });
     (async () => {
       let r;
-      try { r = await fetch(`${BASE}stream?${qs()}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal }); }
-      catch (e) { return t.fail(failed ? "" : "could not connect: sharing off, or no network"); }
+      try { r = await fetch(`${BASE}stream?sid=${encodeURIComponent(C.sid)}&gen=${gen}&${qs()}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal }); }
+      catch (e) { return t.fail("the stream could not connect: sharing off, or no network"); }
       if (r.status === 401) return t.fail("the PC refused the sign-in", "auth");
-      if (!r.ok) return t.fail(httpWhy(r.status));
+      if (!r.ok) return t.fail(httpWhy(r.status), r.status === 410 ? "session" : undefined);
       const reader = r.body.getReader();
       let buf = new Uint8Array(1 << 20), len = 0;
       try {
         for (;;) {
           const { value, done } = await reader.read();
+          if (dead) return;
           if (done) return t.fail("the stream ended");
           conn.lastData = now();
           if (len + value.length > buf.length) { const nb = new Uint8Array(Math.max(buf.length * 2, len + value.length)); nb.set(buf.subarray(0, len)); buf = nb; }
@@ -490,18 +623,17 @@ const TRANSPORTS = {
             if (pl) {
               const body = buf.slice(off + 8 + hl, off + 8 + hl + pl);
               verify(hdr, body);
-              show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), +S.win ? () => post({ n: 1, seq: hdr.seq }) : null);
+              show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), ackTcp(gen, hdr));
             }
-            else if (hdr.type === "hello") { sid = hdr.sid; t.ready = true; onUp(gen, `stream, PC capture ${hdr.be}`); pingHttp(); }
+            else if (hdr.type === "hello") { clearTimeout(startTimer); t.ready = true; onUp(gen, `stream, PC capture ${hdr.be}`); }
             else if (hdr.type === "ka") { W.idle++; T.idle++; }
             else if (hdr.type === "auth") return t.fail("the PC refused the sign-in", "auth");
             else if (hdr.type === "bye") return t.fail(`the PC said: ${hdr.why}`);
-            else pcReport(hdr);
             off += 8 + hl + pl;
           }
           if (off) { buf.copyWithin(0, off, len); len -= off; }
         }
-      } catch (e) { if (!failed) t.fail(`connection lost (${e.name})`); }
+      } catch (e) { if (!dead) t.fail(`connection lost (${e.name})`); }
     })();
     return t;
   },
@@ -510,121 +642,108 @@ const TRANSPORTS = {
   pipe(gen) { return pullers(gen, Math.max(1, +S.win), "pipe"); },
 };
 
-function pullers(gen, n, kind) {                     // n requests in flight, each long-polls for the next new frame
-  const t = { kind, ready: false };
-  let failed = false, stopped = false, running = 0;
+function pullers(gen, n, kind) {                     // n requests in flight; each long-polls for the next update and
+  const t = { gen, kind, ready: false };             // carries the ack of the frame before it (?ack=epoch.seq)
+  let dead = false, wantFull = false;
   const acs = new Set();
-  t.fail = (why, k) => { if (failed) return; failed = true; for (const a of acs) a.abort(); onFail(gen, why, k); };
-  t.close = () => { failed = true; for (const a of acs) a.abort(); };
-  let wantFull = false;
-  t.pause = () => { stopped = true; };
-  t.resume = () => { stopped = false; while (running < n) loop(); };
-  t.ping = pingHttp;
+  const startTimer = setTimeout(() => { if (!t.ready) t.fail("no answer to the first request within 10 s"); }, 10000);
+  t.fail = (why, k) => { if (!dead) onFail(gen, why, k); };
+  t.close = () => { dead = true; clearTimeout(startTimer); for (const a of acs) a.abort(); };
   t.full = () => { wantFull = true; };
   async function loop() {
-    running++;
-    try { await loopBody(); } finally { running--; }
-  }
-  async function loopBody() {
-    while (!failed && !stopped) {
+    let ack = "";
+    while (!dead) {
       const ac = new AbortController(); acs.add(ac);
-      let timedOut = false;
-      const timer = setTimeout(() => { timedOut = true; ac.abort(); }, 8000);
-      try {
-        const extra = wantFull ? "&full=1" : "";
-        wantFull = false;
-        const r = await fetch(`${BASE}frame?v=${VID}&${qs()}&wait=2${extra}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal });
+      let timedOut = false, timer = 0;
+      const arm = () => { clearTimeout(timer); timer = setTimeout(() => { timedOut = true; ac.abort(); }, 8000); };
+      arm();                                         // 8 s for the answer to start, then 8 s without a byte = stalled
+      try {                                          // (a big frame on a slow link may take longer: that is not a stall)
+        const extra = (wantFull ? "&full=1" : "") + (ack ? `&ack=${encodeURIComponent(ack)}` : "");
+        wantFull = false; ack = "";
+        const r = await fetch(`${BASE}frame?sid=${encodeURIComponent(C.sid)}&gen=${gen}&kind=${kind}&${qs()}&wait=2${extra}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal });
+        if (dead) return;
         if (r.status === 401) return t.fail("the PC refused the sign-in", "auth");
-        if (r.status !== 200 && r.status !== 204) return t.fail(httpWhy(r.status));
-        if (!t.ready) { t.ready = true; onUp(gen, `${kind === "pipe" ? n + " requests in flight" : "one request per frame"}`); pingHttp(); }
+        if (r.status !== 200 && r.status !== 204) return t.fail(httpWhy(r.status), r.status === 410 ? "session" : undefined);
+        if (!t.ready) { clearTimeout(startTimer); t.ready = true; onUp(gen, kind === "pipe" ? `${n} requests in flight` : "one request per frame"); }
         conn.lastData = now();
         if (r.status === 204) { W.idle++; T.idle++; continue; }
         const hdr = JSON.parse(r.headers.get("X-Frame"));
-        if (S.verify) { const body = new Uint8Array(await r.arrayBuffer()); verify(hdr, body); show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), null); }
-        else show(hdr, await r.blob(), null);
+        const reader = r.body.getReader(), parts = [];
+        let got = 0;
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          parts.push(value); got += value.length; conn.lastData = now(); arm();
+        }
+        const body = new Uint8Array(got);
+        for (let i = 0, off = 0; i < parts.length; off += parts[i].length, i++) body.set(parts[i], off);
+        if (dead) return;
+        ack = `${hdr.ep}.${hdr.seq}`;
+        verify(hdr, body);
+        show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), null);
       } catch (e) {
-        if (failed) return;
+        if (dead) return;
         return t.fail(timedOut ? "stalled: a request got no answer for 8 s" : (t.ready ? `connection lost (${e.name})` : "could not connect: sharing off, or no network"));
       } finally { clearTimeout(timer); acs.delete(ac); }
     }
   }
-  if (conn.want) t.resume(); else stopped = true;
-  if (!conn.want) pingHttp().then((ok) => { if (ok && !t.ready && !failed) { t.ready = true; onUp(gen, "ready"); } });
+  for (let i = 0; i < n; i++) loop();
   return t;
 }
 
-// UDP: pictures over a WebRTC data channel, direct (peer to peer, STUN only: no TURN relay); the signed-in
-// WebSocket through the Funnel carries the control (sign-in, settings, pings, offer/answer, confirmations).
-// If no direct path exists, it fails and says so: it never falls back to TCP by itself.
+// UDP: pictures over WebRTC data channels, direct (peer to peer, STUN only: no TURN relay); the control connection
+// carries the offer and answer (and the PC's reports). If no direct path exists, it fails and says so: it never falls
+// back to TCP by itself.
 const CHUNK = 16 * 1024 - 64;                        // must match rtc.py
 function udp(gen, mode) {
-  const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ws");
-  const t = { kind: "udp-" + mode, ready: false };
-  let failed = false, pc = null, dc = null, openTimer = 0, iceTimer = 0, lastDc = 0, lastAck = 0, wasOpen = false;
+  const t = { gen, kind: "udp-" + mode, ready: false };
+  let dead = false, pc = null, dc = null, openTimer = 0, iceTimer = 0, lastDc = 0, lastAck = 0, wasOpen = false;
   const R = new Map(), done = new Set(), lastId = [null, null];
   const deadline = () => (mode === "fast" ? 250 : mode === "mid" ? +S.life + 150 : 3000);
-  const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
   // Acks go back over the data channel (direct, like the pictures): the PC's flow control waits for them.
-  const ackDc = (o) => { lastAck = now(); if (dc && dc.readyState === "open") { try { dc.send(JSON.stringify(o)); return; } catch (e) {} } send({ type: "have", seq: o.s, ep: o.e }); };
+  const ackDc = (o) => { lastAck = now(); if (dc && dc.readyState === "open") { try { dc.send(JSON.stringify(o)); return; } catch (e) {} } ctlSend({ type: "have", gen, seq: o.s, ep: o.e }); };
   let lastStall = 0;
   const sweeper = setInterval(() => { sweep(); stallCheck(); }, 100);
-  // If every frame in the PC's window vanished (not one piece arrived), nothing more comes and nothing tells
-  // the PC. So after 0.5 s without a picture while the PC was sending, ask for a full frame (the PC then frees
-  // its window), and don't leave an update waiting for its base until the once-a-second tick either.
+  // If every frame in the PC's window vanished (not one piece arrived), nothing more comes and nothing tells the
+  // PC. So after 0.5 s without a picture while the PC was sending, ask for a full frame (the PC then frees its
+  // window), and don't leave an update waiting for its base until the once-a-second tick either.
   function stallCheck() {
-    if (!t.ready || !conn.want) return;
+    if (!t.ready || !conn.want || dead) return;
     const n = now();
     if (D.waitSince && n - D.waitSince > 300) needFull();
-    else if (PC_.srv && PC_.srv.fps > 5 && T.lastDraw && n - T.lastDraw > 500 && n - lastStall > 2000) {
+    else if (PC_.srv && PC_.srv.fps > 5 && T.lastDraw && n - T.lastDraw > 500 && n - lastStall > 2000 && conn.firstOnPath != null) {
       lastStall = n;
       log(`UDP: nothing drawn for ${r0(n - T.lastDraw)} ms while the PC was sending: asked for a full frame`);
       D.askedAt = 0; needFull(true);
     }
   }
-  const cleanup = () => { clearTimeout(openTimer); clearTimeout(iceTimer); clearInterval(sweeper); try { ws.close(); } catch (e) {} try { if (pc) pc.close(); } catch (e) {} };
-  // Any failure tears down the WebSocket and the peer connection (the PC frees its peer as the WebSocket
-  // closes); the supervisor then retries with backoff and builds a NEW peer connection. Continuous stays on.
-  t.fail = (why, kind) => { if (failed) return; failed = true; t.ready = false; cleanup(); onFail(gen, why, kind); };
-  t.close = () => { failed = true; cleanup(); };
-  t.pause = () => send({ type: "pause", on: true });
-  t.resume = () => send({ type: "pause", on: false });
-  t.set = () => send({ type: "set", ...S, win: +S.win });
-  t.full = () => send({ type: "full" });
-  t.ping = () => { send({ type: "ping", t: now() }); stats(); };
+  const cleanup = () => { clearTimeout(openTimer); clearTimeout(iceTimer); clearInterval(sweeper); try { if (pc) pc.close(); } catch (e) {} };
+  t.fail = (why, kind) => { if (!dead) onFail(gen, why, kind); };
+  t.close = () => { dead = true; t.ready = false; cleanup(); };
+  t.full = () => ctlSend({ type: "full", gen });
   t.tick = () => {                                   // once a second: keepalive to the PC, and is the path alive?
-    if (!t.ready || failed) return;
+    if (!t.ready || dead) return;
     if (now() - lastAck > 900 && dc && dc.readyState === "open") { try { dc.send("ka"); lastAck = now(); } catch (e) {} }
     if (now() - lastDc > 3500) t.fail(`UDP: nothing over the data channel for ${r0((now() - lastDc) / 1000)} s (the PC sends a keepalive every second)`);
   };
   t.killPc = () => { try { pc.close(); } catch (e) {} return "test: closed this page's peer connection (no events fire)"; };
-  ws.onopen = () => send({ type: "hello", token: TOKEN, ...S, win: +S.win, paused: !conn.want, udp: mode });
-  ws.onmessage = async (ev) => {
-    conn.lastData = now();
-    const m = JSON.parse(ev.data);
-    if (m.type === "hello") { log(`UDP ${mode}: signed in over the WebSocket; setting up the direct path`); start().catch((e) => t.fail(`UDP setup failed: ${e.message}`)); }
-    else if (m.type === "rtc-answer") {
+  t.rtc = async (m) => {                             // the PC's messages about this path (control connection)
+    if (dead) return;
+    if (m.type === "rtc-answer") {
       const kinds = [...new Set((m.sdp.match(/ typ (\w+)/g) || []).map((s) => s.slice(5)))];
       log(`UDP: the PC answered with candidates: ${kinds.join(", ") || "none"}`);
-      await pc.setRemoteDescription({ type: "answer", sdp: m.sdp });
+      try { await pc.setRemoteDescription({ type: "answer", sdp: m.sdp }); }
+      catch (e) { t.fail(`UDP: the PC's answer did not apply: ${e.message}`); }
     }
     else if (m.type === "rtc-error") t.fail(`UDP: the PC could not set up its side: ${m.error}`);
     else if (m.type === "rtc-down") t.fail(`UDP: the PC dropped the peer (${m.why})`);
-    else if (m.type === "pong") addSync(m.t, m.srv, now());
-    else if (m.type === "ka") { W.idle++; T.idle++; }
-    else if (m.type === "auth") t.fail("the PC refused the sign-in", "auth");
-    else pcReport(m);
-  };
-  ws.onclose = (ev) => {
-    if (failed) return;
-    if (ev.code === 4401) t.fail("the PC refused the sign-in", "auth");
-    else t.fail(ev.code === 1001 ? `the PC said: ${ev.reason || "going away"}` : `the control connection closed (code ${ev.code})`);
   };
   async function start() {
     pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }] });
     const opts = mode === "fast" ? { ordered: false, maxRetransmits: 0 } : mode === "mid" ? { ordered: false, maxPacketLifeTime: +S.life } : { ordered: true };
     dc = pc.createDataChannel("peek", opts);
     dc.binaryType = "arraybuffer";
-    dc.onopen = () => { clearTimeout(openTimer); t.ready = wasOpen = true; lastDc = now(); onUp(gen, `UDP ${mode} (${JSON.stringify(opts)})`); stats(); };
+    dc.onopen = () => { if (dead) return; clearTimeout(openTimer); t.ready = wasOpen = true; lastDc = now(); onUp(gen, `UDP ${mode} (${JSON.stringify(opts)})`); stats(); };
     dc.onclose = () => t.fail("UDP: the data channel closed");
     dc.onmessage = chunk;
     const kc = pc.createDataChannel("key");          // reliable: full frames (the base picture) must arrive
@@ -635,6 +754,7 @@ function udp(gen, mode) {
     pc.onicecandidate = (e) => { if (e.candidate && e.candidate.type) kinds.add(e.candidate.type); };
     const noPath = "UDP: no direct path (ICE failed). This network needs a TURN relay, which Screen Peek does not have: pick a TCP transport.";
     pc.oniceconnectionstatechange = () => {
+      if (dead) return;
       const st = pc.iceConnectionState;
       log(`UDP: ICE ${st}`);
       if (st === "failed") t.fail(wasOpen ? "UDP: ICE failed" : noPath);
@@ -644,16 +764,19 @@ function udp(gen, mode) {
       } else clearTimeout(iceTimer);
     };
     pc.onconnectionstatechange = () => {
+      if (dead) return;
       log(`UDP: connection ${pc.connectionState}`);
       if (pc.connectionState === "failed") t.fail(wasOpen ? "UDP: connection failed" : noPath);
     };
     await pc.setLocalDescription(await pc.createOffer());
     await new Promise((ok) => { pc.addEventListener("icegatheringstatechange", () => pc.iceGatheringState === "complete" && ok()); setTimeout(ok, 3000); });
+    if (dead) return;
     log(`UDP: offer sent with this device's candidates: ${[...kinds].join(", ") || "none"}`);
-    send({ type: "rtc-offer", sdp: pc.localDescription.sdp });
+    if (!ctlSend({ type: "rtc-offer", ...S, win: +S.win, gen, sdp: pc.localDescription.sdp, udp: mode })) return t.fail("UDP: the control connection is not up to send the offer");
     openTimer = setTimeout(() => t.fail("UDP: no direct path within 15 s (ICE did not connect): pick a TCP transport."), 15000);
   }
   function chunk(ev) {
+    if (dead) return;
     lastDc = now();
     if (typeof ev.data === "string") return;         // the PC's keepalive ("ka")
     const dv = new DataView(ev.data), idx = dv.getUint16(2), n = dv.getUint16(4), total = dv.getUint32(12);
@@ -672,6 +795,7 @@ function udp(gen, mode) {
   // A frame still missing pieces at its deadline is lost: drop it and give its credit back to the PC at once.
   // Runs on every piece and every 100 ms (with the PC's window full, no more pieces come to trigger it).
   function sweep() {
+    if (dead) return;
     const t0 = now(), dl = deadline();
     // Keyframes travel on the reliable channel and always complete; they get 5 s (a 300 KB frame sharing
     // a busy link takes far longer than the fast channel's 250 ms, and was being thrown away).
@@ -690,7 +814,7 @@ function udp(gen, mode) {
     show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), () => ackDc({ t: "a", f: raw, l: lane, s: D.seq, e: D.ep }));
   }
   async function stats() {                          // the chosen candidate pair and its round trip, from WebRTC stats
-    if (!pc) return;
+    if (!pc || dead) return;
     try {
       const st = await pc.getStats();
       let pair = null;
@@ -705,6 +829,8 @@ function udp(gen, mode) {
       if (pair.currentRoundTripTime != null) U.rtt = pair.currentRoundTripTime * 1000;
     } catch (e) {}
   }
+  t.stats = stats;
+  start().catch((e) => t.fail(`UDP setup failed: ${e.message}`));
   return t;
 }
 for (const m of ["fast", "mid", "rel"]) TRANSPORTS["udp-" + m] = (gen) => udp(gen, m);
@@ -712,39 +838,41 @@ for (const m of ["fast", "mid", "rel"]) TRANSPORTS["udp-" + m] = (gen) => udp(ge
 // ---- Single picture (any transport, Continuous on or off) ---------------------------------------------
 $("one").onclick = async () => {
   if (!TOKEN) return signIn();
-  const t0 = now();
+  const t0 = now(), ac = new AbortController(), timer = setTimeout(() => ac.abort(), 10000);
   try {
-    const r = await fetch(`${BASE}frame?v=${VID}&${qs()}&once=1`, { headers: { "X-Key": TOKEN }, cache: "no-store" });
+    const r = await fetch(`${BASE}frame?once=1&${qs()}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal });
     if (r.status === 401) return signIn("Please sign in (new password, or signed out on the PC).");
     if (!r.ok) throw new Error(httpWhy(r.status));
+    if (r.status === 204) throw new Error("the PC had no picture within 2 s");
     const hdr = JSON.parse(r.headers.get("X-Frame"));
     show(hdr, await r.blob(), null);
     log(`single picture: ${r0(now() - t0)} ms round trip, ${r0(hdr.n / 1024)} KB, PC grab ${hdr.g} ms + encode ${hdr.e} ms`);
-  } catch (e) { log(`single picture failed: ${e.message === "Failed to fetch" ? "the PC did not answer (sharing off, or no network)" : e.message}`); }
+  } catch (e) { log(`single picture failed: ${e.name === "AbortError" ? "no answer within 10 s" : e.message === "Failed to fetch" ? "the PC did not answer (sharing off, or no network)" : e.message}`); }
+  finally { clearTimeout(timer); }
 };
 $("cont").onclick = () => setCont(!conn.want);
-$("out").onclick = () => { TOKEN = ""; store.set("peek-token", ""); if (conn.live) conn.live.close("signed out"); conn.live = null; log("signed out in this browser"); signIn(); };
+$("out").onclick = () => { TOKEN = ""; store.set("peek-token", ""); dataStop("signed out"); ctlDrop(); clearTimeout(C.timer); C.timer = 0; log("signed out in this browser"); signIn(); };
 
 // ---- Sign-in: the password box; Continuous stays as it was ------------------------------------------
-let signing = null;
 function signIn(msg) {
   $("lerr").textContent = msg || "";
   $("login").classList.add("show");
   $("pw").value = ""; setTimeout(() => $("pw").focus(), 50);
-  return signing || (signing = new Promise((done) => {
-    $("lf").onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        const r = await fetch(`${BASE}login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("pw").value }) });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) { $("lerr").textContent = j.error || httpWhy(r.status); return; }
-        TOKEN = j.token; store.set("peek-token", TOKEN);
-        $("login").classList.remove("show"); signing = null; log("signed in"); done();
-        if (conn.want || keepsOpen()) { conn.attempt = 0; conn.down = 0; if (!conn.live) open(); }
-      } catch (err) { $("lerr").textContent = "The PC did not answer: is sharing switched on in the tray?"; }
-    };
-  }));
 }
+$("lf").onsubmit = async (e) => {                    // (always handled here: the form never navigates)
+  e.preventDefault();
+  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 15000);
+  try {
+    const r = await fetch(`${BASE}login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("pw").value }), signal: ac.signal });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { $("lerr").textContent = j.error || httpWhy(r.status); return; }
+    TOKEN = j.token; store.set("peek-token", TOKEN);
+    $("login").classList.remove("show"); log("signed in");
+    C.attempt = 0; C.down = 0; conn.attempt = 0; conn.down = 0;
+    ctlOpen("signed in");                            // a fresh control connection with the new token
+  } catch (err) { $("lerr").textContent = "The PC did not answer: is sharing switched on in the tray?"; }
+  finally { clearTimeout(timer); }
+};
 
 // ---- Screen Wake Lock (on by default): asked for whenever the page is shown -------------------------
 let wakeLock = null;
@@ -773,22 +901,27 @@ async function wake(why) {
 $("wake").onchange = () => wake("toggle");
 
 // ---- Page lifecycle: never pause; log what the browser does to us ------------------------------------
+function cameBack() { conn.lastData = Math.max(conn.lastData, now() - 3000); heartbeat(true); }
 document.addEventListener("visibilitychange", () => {
   log(`visibilitychange: ${document.visibilityState}`);
-  if (document.visibilityState === "visible") { conn.lastData = Math.max(conn.lastData, now() - 3000); wake("page shown again"); }
+  if (document.visibilityState === "visible") { cameBack(); wake("page shown again"); }
 });
 window.addEventListener("pagehide", (e) => log(`pagehide (persisted: ${e.persisted})`));
 window.addEventListener("pageshow", (e) => log(`pageshow (persisted: ${e.persisted})`));
 document.addEventListener("freeze", () => log("freeze: the browser froze this page"));
-document.addEventListener("resume", () => { log("resume: the page runs again"); conn.lastData = Math.max(conn.lastData, now() - 3000); });
-window.addEventListener("online", () => { log("online"); if (conn.want && !conn.live) { conn.attempt = 0; open(); } });
+document.addEventListener("resume", () => { log("resume: the page runs again"); cameBack(); });
+window.addEventListener("online", () => { log("online"); if (TOKEN && !C.ready) { C.attempt = 0; ctlOpen("back online"); } });
 window.addEventListener("offline", () => log("offline"));
 
-// Automation hook for the headless tests (test/chrome_page.mjs).
-window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
+// Automation hooks for the headless tests (test/chrome_page.mjs).
+window.PEEK = { S, sync, conn, C, log: LOG, cont: setCont,
   killUdp: () => (conn.live && conn.live.killPc ? conn.live.killPc() : "no UDP connection"),
-  state: () => ({ live: conn.live ? conn.live.kind : null, ready: !!(conn.live && conn.live.ready), want: conn.want, retries: conn.retries,
-                  text: $("conntext").textContent, first: T.first, warm: conn.warmAtOn }),
+  muteCtl: () => { C.mute = true; return "test: the control connection's messages are ignored from now on (a stalled connection)"; },
+  dropCtl: () => { if (C.ws) { const ws = C.ws; ws.onclose = null; try { ws.close(); } catch (e) {} } return "test: closed the control WebSocket with no event"; },
+  set: (k, v) => { const e = $(k); if (e.type === "checkbox") e.checked = !!v; else e.value = String(v); e.dispatchEvent(new Event("change")); return `${k} = ${v}`; },
+  state: () => ({ live: conn.live ? conn.live.kind : null, gen: conn.live ? conn.live.gen : null, ready: !!(conn.live && conn.live.ready), want: conn.want,
+                  ctl: C.ready, retries: conn.retries, text: $("conntext").textContent, first: T.first, firstOnPath: conn.firstOnPath,
+                  drawn: T.drawn, lastDraw: T.lastDraw ? Math.round(now() - T.lastDraw) : null, warm: conn.warmAtOn }),
   summary: () => {                                   // since Continuous went on
     const p = (a, q) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return Math.round(s[Math.min(s.length - 1, Math.floor(s.length * q))] * 10) / 10; };
     const secs = (now() - T.t) / 1000;
@@ -797,7 +930,7 @@ window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
              lat_p50: p(T.lats, 0.5), lat_p95: p(T.lats, 0.95), net_p50: p(T.nets, 0.5), decode_p50: p(T.decs, 0.5),
              kb: T.recv ? Math.round(T.bytes / T.recv / 102.4) / 10 : null, full_kb: T.recv ? Math.round(T.fullBytes / T.recv / 102.4) / 10 : null,
              mbps: Math.round(T.bytes * 8 / secs / 1e4) / 100, first_ms: T.first == null ? null : Math.round(T.first), warm: conn.warmAtOn,
-             ping: sync.best == null ? null : Math.round(sync.best), retries: conn.retries,
+             ping: sync.best == null ? null : Math.round(sync.best), retries: conn.retries, paths: T.paths, firsts: T.firsts.map(Math.round),
              udp: S.transport.startsWith("udp") ? { ...U, rtt: U.rtt == null ? null : Math.round(U.rtt * 10) / 10 } : undefined,
              crc: S.verify ? { ...CHK } : undefined, pc: PC_.srv, freezes: FZ.n, freeze_longest_ms: Math.round(FZ.longest), auto_steps: AUTO_LOG.slice(-8) }; },
   win: (() => {                                      // stats since the previous call (time series in the soak tests)
@@ -812,6 +945,7 @@ window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
                kb: c.recv > p.recv ? Math.round((c.bytes - p.bytes) / (c.recv - p.recv) / 102.4) / 10 : null,
                mbps: Math.round((c.bytes - p.bytes) * 8 / secs / 1e4) / 100, full: c.full - p.full, part: c.part - p.part, dropped: c.dropped - p.dropped,
                freezes: FZ.n, retries: conn.retries, live: conn.live ? conn.live.kind : null, ready: !!(conn.live && conn.live.ready),
+               ping: sync.rtt == null ? null : Math.round(sync.rtt), ctl: C.ready,
                udp: S.transport.startsWith("udp") ? { complete: U.complete, dropped: U.dropped, late: U.late, rtt: U.rtt == null ? null : Math.round(U.rtt) } : undefined, pc: PC_.srv };
     };
   })() };
@@ -819,8 +953,7 @@ window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
 log(`page loaded (${own ? "served by the PC" : "Cool tools"}; talks to ${BASE}); ${settingsText()}`);
 wake("page loaded");
 if (!TOKEN) signIn();
-else if (keepsOpen()) open();                      // WebSocket / UDP stay open, paused, so Continuous starts warm
-else setState("", "Ready.");
+else ctlOpen("page loaded");                       // the control connection stays open, so Continuous starts warm
 </script>
 </body>
 </html>
