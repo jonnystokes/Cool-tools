@@ -110,20 +110,219 @@
   </form>
 </div>
 <script>
+// relay-client:begin (copied from Projects\pc-relay\client\relay-client.js by build_page.py; edit it there)
+/* relay-client.js: the PC Relay client (ONE source: Projects\pc-relay\client\relay-client.js; each page's build
+   copies it in, so never edit a copy). Talks to PC Relay on Jon's PC (Tailscale Funnel).
+   - Nothing happens until the page calls something: no background traffic of its own.
+   - Status events: checking / connected / starting / ready / offline / off / signin / reload, each with a plain `why`.
+   - Sign-in passes are per device and per scope ("screen", "files-private"), kept in localStorage, sent in the
+     X-Relay-Pass header (HTTP) or as WebSocket subprotocols "pass.<p>" (a browser cannot set WebSocket headers);
+     never in a URL, never cookies.
+   - Version-checked: a relay that needs a newer client says so, and the status becomes "reload". */
+(function (root) {
+  "use strict";
+  const VERSION = 1;
+  const DEFAULT_PC = "https://desktop-krq9ti2.tail46434.ts.net";
+  const store = {
+    get(k) { try { return root.localStorage.getItem(k) || ""; } catch (e) { return ""; } },
+    set(k, v) { try { if (v) root.localStorage.setItem(k, v); else root.localStorage.removeItem(k); } catch (e) {} },
+    keys() { try { return Object.keys(root.localStorage); } catch (e) { return []; } },
+  };
+  let memDevice = "";
+  function deviceId() {
+    let d = store.get("relay-device") || memDevice;
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(d)) {
+      d = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+      store.set("relay-device", d);
+      memDevice = d;
+    }
+    return d;
+  }
+  function httpWhy(status) {
+    return ({ 401: "the PC wants the password", 403: "the PC refused this page", 404: "the PC has no such program",
+      410: "this page is out of date: reload it", 426: "this page is out of date: reload it",
+      429: "too many requests: wait a minute", 502: "the PC is reachable but the relay is not running (502)",
+      503: "the PC said it is busy or switched off (503)" })[status] || `the PC answered ${status}`;
+  }
+  function netWhy(err, ms) {
+    if (err && err.name === "AbortError") return `no answer from the PC within ${Math.round(ms / 1000)} s`;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return "this device is offline";
+    return "could not reach the PC (no network, or the PC is off or asleep)";
+  }
+  async function readError(r) {
+    try { const j = await r.clone().json(); if (j && j.error) return j.error; } catch (e) {}
+    return httpWhy(r.status);
+  }
+
+  class Relay {
+    constructor(opts) {
+      this.app = (opts.app || "page").replace(/[^A-Za-z0-9_.-]/g, "");
+      this.base = String(opts.base || DEFAULT_PC).replace(/\/+$/, "");
+      this.status = { state: "idle", why: "", at: Date.now() };
+      this.info = null;          // the last /relay/ping answer
+      this.latency = 0;          // ms, the last ping's round trip
+      this.bytes = 0;            // bytes this client has fetched through fetchJSON / fetch (approximate)
+      this.subs = new Set();
+      if (typeof opts.onStatus === "function") this.subs.add(opts.onStatus);
+    }
+    setBase(url) { this.base = String(url || DEFAULT_PC).replace(/\/+$/, ""); }
+    on(fn) { this.subs.add(fn); return () => this.subs.delete(fn); }
+    _set(state, extra) {
+      this.status = Object.assign({ state, why: "", at: Date.now() }, extra || {});
+      for (const f of this.subs) { try { f(this.status); } catch (e) {} }
+    }
+    // ---- passes ----
+    pass(scope) { try { const j = JSON.parse(store.get("relay-pass:" + scope) || "null"); return (j && j.pass) || ""; } catch (e) { return ""; } }
+    hasPass(scope) { return !!this.pass(scope); }
+    passes() {
+      const out = [];
+      for (const k of store.keys()) if (k.startsWith("relay-pass:")) { const p = this.pass(k.slice(11)); if (p) out.push(p); }
+      return out;
+    }
+    adoptPass(scope, pass) { if (pass) store.set("relay-pass:" + scope, JSON.stringify({ pass, at: Date.now() })); }
+    forget(scope) { store.set("relay-pass:" + scope, ""); }
+    headers(extra) {
+      const h = { "X-Relay-Client": this.app + "/" + VERSION, "X-Relay-Device": deviceId() };
+      const p = this.passes();
+      if (p.length) h["X-Relay-Pass"] = p.join(",");
+      return Object.assign(h, extra || {});
+    }
+    // ---- addresses ----
+    url(service, path) { return `${this.base}/svc/${service}/${String(path || "").replace(/^\/+/, "")}`; }
+    wsUrl(service, path) { return this.url(service, path).replace(/^http/, "ws"); }
+    wsProtocols() { return ["relay", "dev." + deviceId(), ...this.passes().map((p) => "pass." + p)]; }
+    ws(service, path) { return new WebSocket(this.wsUrl(service, path), this.wsProtocols()); }
+    // fetch through the relay. opts.timeout (ms) aborts a request that has not started answering.
+    async fetch(service, path, opts) {
+      opts = Object.assign({}, opts || {});
+      const timeout = opts.timeout || 0; delete opts.timeout;
+      opts.headers = this.headers(opts.headers);
+      let timer = 0, ac = null;
+      if (timeout && !opts.signal) { ac = new AbortController(); opts.signal = ac.signal; timer = setTimeout(() => ac.abort(), timeout); }
+      try { return await fetch(this.url(service, path), opts); }
+      finally { clearTimeout(timer); }
+    }
+    // ---- the light check ----
+    async ping(timeoutMs) {
+      timeoutMs = timeoutMs || 8000;
+      this._set("checking", { why: "checking the connection…" });
+      const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeoutMs), t0 = performance.now();
+      try {
+        const r = await fetch(`${this.base}/relay/ping?t=${Date.now()}`, { headers: this.headers(), cache: "no-store", signal: ac.signal });
+        if (!r.ok) { const why = await readError(r); this._set(r.status === 426 ? "reload" : "offline", { why }); return { ok: false, why }; }
+        const info = await r.json();
+        this.latency = Math.round(performance.now() - t0);
+        this.info = info;
+        if ((info.min_client || 0) > VERSION) { const why = "this page is out of date: reload it"; this._set("reload", { why }); return { ok: false, why, info }; }
+        if (!info.on) { const why = "the PC relay is switched off (tray icon on the PC)"; this._set("off", { why, info }); return { ok: false, why, info }; }
+        this._set("connected", { why: `connected (${this.latency} ms)`, info, latency: this.latency });
+        return { ok: true, info, latency: this.latency };
+      } catch (err) {
+        const why = netWhy(err, timeoutMs);
+        this._set("offline", { why });
+        return { ok: false, why };
+      } finally { clearTimeout(timer); }
+    }
+    service(id) { return ((this.info && this.info.services) || []).find((s) => s.id === id) || null; }
+    // ---- sign-in ----
+    async signIn(scope, password) {
+      const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 15000);
+      try {
+        const name = (typeof navigator !== "undefined" ? navigator.userAgent : "").replace(/\s+/g, " ").slice(0, 80);
+        const r = await fetch(`${this.base}/relay/login`, { method: "POST", headers: this.headers({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ password, scope, device: deviceId(), name: this.app + ": " + name }), cache: "no-store", signal: ac.signal });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) return { ok: false, why: j.error || httpWhy(r.status) };
+        this.adoptPass(scope, j.pass);
+        return { ok: true };
+      } catch (err) { return { ok: false, why: netWhy(err, 15000) }; }
+      finally { clearTimeout(timer); }
+    }
+    async signOut(scope) {
+      const p = this.pass(scope);
+      this.forget(scope);
+      if (!p) return { ok: true };
+      try { await fetch(`${this.base}/relay/logout`, { method: "POST", headers: { "X-Relay-Pass": p, "X-Relay-Client": this.app + "/" + VERSION }, cache: "no-store" }); } catch (e) {}
+      return { ok: true };
+    }
+    // ---- start a service, with progress ("starting the voice engine…") ----
+    async open(service, onProgress, timeoutMs) {
+      timeoutMs = timeoutMs || 60000;
+      this._set("starting", { service, why: `starting ${service} on the PC…` });
+      const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeoutMs);
+      try {
+        const r = await fetch(`${this.base}/relay/open/${service}`, { headers: this.headers(), cache: "no-store", signal: ac.signal });
+        if (r.status === 401) { const why = await readError(r); this._set("signin", { service, why }); return { ok: false, signin: true, why }; }
+        if (!r.ok) { const why = await readError(r); this._set("offline", { service, why }); return { ok: false, why }; }
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        let buf = "", last = null;
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, i); buf = buf.slice(i + 1);
+            if (!line.trim()) continue;
+            try { last = JSON.parse(line); } catch (e) { continue; }
+            if (onProgress) { try { onProgress(last); } catch (e) {} }
+            if (last.state === "starting") this._set("starting", { service, why: last.text || "starting…", seconds: last.seconds || 0 });
+          }
+        }
+        if (last && last.state === "ready") { this._set("ready", { service, why: last.warm ? "ready" : `ready (started in ${(last.ms / 1000).toFixed(1)} s)` }); return { ok: true, warm: !!last.warm, ms: last.ms || 0 }; }
+        const why = (last && last.error) || "the PC stopped answering while it was starting";
+        this._set("offline", { service, why });
+        return { ok: false, why };
+      } catch (err) {
+        const why = netWhy(err, timeoutMs);
+        this._set("offline", { service, why });
+        return { ok: false, why };
+      } finally { clearTimeout(timer); }
+    }
+    // ---- keep checking (only while the page wants it): backoff 1 s, 2 s, 4 s ... 30 s while it fails ----
+    watch(everyMs) {
+      everyMs = everyMs || 15000;
+      let stopped = false, timer = 0, fails = 0;
+      const tick = async () => {
+        if (stopped) return;
+        const r = await this.ping();
+        fails = r.ok ? 0 : fails + 1;
+        const wait = r.ok ? everyMs : Math.min(30000, 1000 * 2 ** Math.min(fails - 1, 5));
+        if (!stopped) timer = setTimeout(tick, wait * (0.9 + Math.random() * 0.2));
+      };
+      const online = () => { clearTimeout(timer); tick(); };
+      if (typeof addEventListener === "function") addEventListener("online", online);
+      tick();
+      return () => { stopped = true; clearTimeout(timer); if (typeof removeEventListener === "function") removeEventListener("online", online); };
+    }
+  }
+
+  root.RelayClient = { VERSION, DEFAULT_PC, create: (opts) => new Relay(opts || {}), deviceId, httpWhy };
+})(typeof window !== "undefined" ? window : globalThis);
+// relay-client:end
+</script>
+<script>
 "use strict";
-// Jon's PC (Tailscale Funnel). Opened from the PC itself (or its own address), the page talks to its own server.
+// Jon's PC (Tailscale Funnel) through PC Relay: Screen Peek is the relay's "screen" program, under /svc/screen/.
+// The relay starts it on demand and signs browsers in (scope "screen"). Opened from the PC itself (or its own
+// address), the page talks to the relay that served it.
 const PC = "https://desktop-krq9ti2.tail46434.ts.net";
 const own = ["127.0.0.1", "localhost"].includes(location.hostname) || location.hostname.endsWith(".ts.net");
-const BASE = (own ? location.origin : PC) + "/";
+const R = RelayClient.create({ base: own ? location.origin : PC, app: "screen-peek" });
+const BASE = R.url("screen", "");
+const auth = () => R.headers({ "X-Key": TOKEN });            // the relay checks the pass; X-Key names the session
 const $ = (id) => document.getElementById(id);
 const store = { get: (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
                 set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} } };
 const now = () => performance.timeOrigin + performance.now();      // this device's clock, ms
 const dec = new TextDecoder();
 const VID = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
-let TOKEN = store.get("peek-token");
+// The pass: the relay's (scope "screen"). A browser signed in before the relay keeps its old token: the relay
+// carried Screen Peek's signed-in browsers over as passes.
+if (!R.hasPass("screen") && store.get("peek-token")) R.adoptPass("screen", store.get("peek-token"));
+let TOKEN = R.pass("screen");
 const h = new URLSearchParams(location.hash.slice(1));               // an old pairing link (#key=...) still works
-if (h.get("key")) { TOKEN = h.get("key"); store.set("peek-token", TOKEN); }
+if (h.get("key")) { TOKEN = h.get("key"); R.adoptPass("screen", TOKEN); }
 if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 
 // ---- Log: events with 12-hour times, plus a stats line every second while Continuous is on ----------
@@ -421,7 +620,7 @@ function ctlOpen(why) {
   clearTimeout(C.timer); C.timer = 0; clearTimeout(C.connectTimer);
   ctlDrop();
   if (!TOKEN) return;
-  const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ctl");
+  const ws = R.ws("screen", "ctl");
   C.ws = ws; C.ready = false; C.unanswered = 0; C.openedAt = now(); C.lastRx = now(); C.mute = false; C.rtts = [];
   if (C.attempt <= 10 || C.attempt % 10 === 0) log(`control: connecting (${why})${C.attempt ? `, attempt ${C.attempt + 1}` : ""}…`);
   if (!C.down) setState("wait", "Connecting…");
@@ -565,7 +764,7 @@ function onFail(gen, why, kind) {
 const ackTcp = (gen, hdr) => () => ctlSend({ type: "ack", gen, ep: hdr.ep, seq: hdr.seq });
 const TRANSPORTS = {
   ws(gen) {                                          // frames on a data WebSocket; acks on the control connection
-    const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ws");
+    const ws = R.ws("screen", "ws");
     ws.binaryType = "arraybuffer";
     const t = { gen, kind: "ws", ready: false };
     let dead = false;
@@ -610,7 +809,7 @@ const TRANSPORTS = {
     t.full = () => ctlSend({ type: "full", gen });
     (async () => {
       let r;
-      try { r = await fetch(`${BASE}stream?sid=${encodeURIComponent(C.sid)}&gen=${gen}&${qs()}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal }); }
+      try { r = await fetch(`${BASE}stream?sid=${encodeURIComponent(C.sid)}&gen=${gen}&${qs()}`, { headers: auth(), cache: "no-store", signal: ac.signal }); }
       catch (e) { return t.fail("the stream could not connect: sharing off, or no network"); }
       if (r.status === 401) return t.fail("the PC refused the sign-in", "auth");
       if (!r.ok) return t.fail(httpWhy(r.status), r.status === 410 ? "session" : undefined);
@@ -669,7 +868,7 @@ function pullers(gen, n, kind) {                     // n requests in flight; ea
       try {                                          // (a big frame on a slow link may take longer: that is not a stall)
         const extra = (wantFull ? "&full=1" : "") + (ack ? `&ack=${encodeURIComponent(ack)}` : "");
         wantFull = false; ack = "";
-        const r = await fetch(`${BASE}frame?sid=${encodeURIComponent(C.sid)}&gen=${gen}&kind=${kind}&${qs()}&wait=2${extra}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal });
+        const r = await fetch(`${BASE}frame?sid=${encodeURIComponent(C.sid)}&gen=${gen}&kind=${kind}&${qs()}&wait=2${extra}`, { headers: auth(), cache: "no-store", signal: ac.signal });
         if (dead) return;
         if (r.status === 401) return t.fail("the PC refused the sign-in", "auth");
         if (r.status !== 200 && r.status !== 204) return t.fail(httpWhy(r.status), r.status === 410 ? "session" : undefined);
@@ -849,7 +1048,7 @@ $("one").onclick = async () => {
   if (!TOKEN) return signIn();
   const t0 = now(), ac = new AbortController(), timer = setTimeout(() => ac.abort(), 10000);
   try {
-    const r = await fetch(`${BASE}frame?once=1&${qs()}`, { headers: { "X-Key": TOKEN }, cache: "no-store", signal: ac.signal });
+    const r = await fetch(`${BASE}frame?once=1&${qs()}`, { headers: auth(), cache: "no-store", signal: ac.signal });
     if (r.status === 401) return signIn("Please sign in (new password, or signed out on the PC).");
     if (!r.ok) throw new Error(httpWhy(r.status));
     if (r.status === 204) throw new Error("the PC had no picture within 2 s");
@@ -860,7 +1059,7 @@ $("one").onclick = async () => {
   finally { clearTimeout(timer); }
 };
 $("cont").onclick = () => setCont(!conn.want);
-$("out").onclick = () => { TOKEN = ""; store.set("peek-token", ""); dataStop("signed out"); ctlDrop(); clearTimeout(C.timer); C.timer = 0; log("signed out in this browser"); signIn(); };
+$("out").onclick = () => { TOKEN = ""; store.set("peek-token", ""); R.signOut("screen"); dataStop("signed out"); ctlDrop(); clearTimeout(C.timer); C.timer = 0; log("signed out in this browser"); signIn(); };
 
 // ---- Sign-in: the password box; Continuous stays as it was ------------------------------------------
 function signIn(msg) {
@@ -872,14 +1071,13 @@ $("lf").onsubmit = async (e) => {                    // (always handled here: th
   e.preventDefault();
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 15000);
   try {
-    const r = await fetch(`${BASE}login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("pw").value }), signal: ac.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { $("lerr").textContent = j.error || httpWhy(r.status); return; }
-    TOKEN = j.token; store.set("peek-token", TOKEN);
+    const res = await R.signIn("screen", $("pw").value);
+    if (!res.ok) { $("lerr").textContent = res.why.charAt(0).toUpperCase() + res.why.slice(1); return; }
+    TOKEN = R.pass("screen"); store.set("peek-token", "");
     $("login").classList.remove("show"); log("signed in");
     C.attempt = 0; C.down = 0; conn.attempt = 0; conn.down = 0;
     ctlOpen("signed in");                            // a fresh control connection with the new token
-  } catch (err) { $("lerr").textContent = "The PC did not answer: is sharing switched on in the tray?"; }
+  } catch (err) { $("lerr").textContent = "The PC did not answer: is PC Relay running (tray icon), with Screen Peek allowed?"; }
   finally { clearTimeout(timer); }
 };
 
