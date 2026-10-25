@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.587 and 2026-10-25 9:56 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.589 and 2026-10-25 10:07 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.587</title>
+<title>Book reader V1.0.589</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.587";
-  window.APP_BUILT = "2026-10-25 9:56 AM";
-  window.APP_NOTE = "Use my PC: Kokoro runs on the PC's graphics card through CUDA by default (about 6x real time); Settings, Cloud, PC graphics card: CUDA or WebGPU";
+  window.APP_VERSION = "Book reader V1.0.589";
+  window.APP_BUILT = "2026-10-25 10:07 AM";
+  window.APP_NOTE = "Use my PC: Piper and Supertonic also run on the PC's graphics card through CUDA (Piper about 26x, Supertonic about 4x real time)";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -1110,7 +1110,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     numbersToWords: false,         // 2080 -> "two thousand and eighty"; off by default, the benchmark turns it on for Supertonic (Jon, 2026-10-23)
     joinShort: true,               // a piece of five words or fewer joins its neighbour
     // Cloud (Jon's PC through PC Relay: cloud.js, pcfiles.js, engines/cloud.js)
-    pcCard: "cuda",                // Use my PC, Kokoro on the PC's graphics card: "cuda" (the Go CUDA worker, ~6x real time) or "webgpu" (~3.6x)
+    pcCard: "cuda",                // Use my PC, the PC's graphics card: "cuda" (the Go CUDA worker: Kokoro ~6x, Supertonic ~4x, Piper ~26x real time) or "webgpu" (Kokoro ~3.6x, Supertonic ~2.7x; Piper on the processor)
     useMyPC: false,                // Use my PC for the voice: the chosen voice is made on the PC (engines/cloud.js); Apply
     pcAddress: "",                 // the relay's address; "" = Jon's PC (https://desktop-krq9ti2.tail46434.ts.net)
     // Sound group: Voice
@@ -7389,10 +7389,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const v = parseVoice(opts.voice);
       if (!["kokoro", "piper", "supertonic"].includes(v.engine)) throw err(`Use my PC: the PC runs Kokoro, Piper and Supertonic voices; ${(ENGINE.get(v.engine) || { name: v.engine }).name} runs on this device. Choose one of those in Settings → Voice, or press "Use this device's voice".`, { cannot: true, cloud: true });
       const piper = v.engine === "piper", sup = v.engine === "supertonic";
-      st.opts = { engine: v.engine, voice: v.voice, runOn: piper || opts.runOn === "cpu" ? "cpu" : !sup && SETTINGS.get("pcCard") !== "webgpu" ? "cuda" : "gpu", precision: opts.precision || "fp32", pace: opts.pace, speaker: opts.speaker, steps: opts.steps };
+      st.opts = { engine: v.engine, voice: v.voice, runOn: opts.runOn === "cpu" ? "cpu" : SETTINGS.get("pcCard") !== "webgpu" ? "cuda" : piper ? "cpu" : "gpu", precision: opts.precision || "fp32", pace: opts.pace, speaker: opts.speaker, steps: opts.steps };
       E.sampleRate = piper ? (/-x?_?low$/.test(v.voice) ? 16000 : 22050) : sup ? 44100 : 24000;
       E.maxChars = piper ? 400 : sup ? 180 : 300;
-      const key = piper ? `piper cpu ${v.voice}` : sup ? `supertonic ${st.opts.runOn}` : `kokoro ${st.opts.runOn} ${st.opts.precision}`;
+      const key = piper ? `piper ${st.opts.runOn} ${v.voice}` : sup ? `supertonic ${st.opts.runOn}` : `kokoro ${st.opts.runOn} ${st.opts.precision}`;
       const ws = await connect();
       if (st.key === key && st.hello && (st.hello.models || []).includes(key) && !st.loading) return;
       st.key = key;
@@ -13429,7 +13429,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
           ws.onmessage = (ev) => {
             if (typeof ev.data === "string") {
               const m = JSON.parse(ev.data);
-              if (m.type === "hello") ws.send(JSON.stringify({ type: "synth", id: "test", text: "This is your PC speaking, through the relay.", engine: v.engine, voice: v.voice, runOn: value("runOn") === "cpu" ? "cpu" : v.engine === "kokoro" && value("pcCard") !== "webgpu" ? "cuda" : "gpu", precision: value("precision") || "fp32", pace: value("pace") }));
+              if (m.type === "hello") ws.send(JSON.stringify({ type: "synth", id: "test", text: "This is your PC speaking, through the relay.", engine: v.engine, voice: v.voice, runOn: value("runOn") === "cpu" ? "cpu" : value("pcCard") !== "webgpu" ? "cuda" : v.engine === "piper" ? "cpu" : "gpu", precision: value("precision") || "fp32", pace: value("pace") }));
               else if (m.type === "loading") out.textContent = m.text;
               else if (m.type === "state") out.textContent = m.state === "queued" ? `Queued on the PC (place ${m.pos})…` : "Making it on the PC…";
               else if (m.type === "error") { clearTimeout(t); reject(new Error(m.error)); ws.close(); }
@@ -13489,8 +13489,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   function whereText() {
     const v = ENGINE.parse(value("voice")), on = value("runOn") === "cpu" ? "processor" : "graphics card";
     if (v.engine === "kokoro") return `Kokoro ${value("precision") || "fp32"} (${v.voice}) on the PC's ${on === "processor" ? on : on + (value("pcCard") === "webgpu" ? " through WebGPU" : " through CUDA")} (Run on${on === "processor" ? "" : ", PC graphics card"}). Word times from the voice.`;
-    if (v.engine === "supertonic") return `Supertonic ${v.voice} on the PC's ${on} (Run on; measured here: about 1.9× real time on the card at 50 steps, 2.5× on the processor at 30). If the card fails there, the reading stops and says so; choose Processor yourself.`;
-    if (v.engine === "piper") return `Piper ${v.voice} on the PC's processor (Piper never uses the card).`;
+    const cuda = on !== "processor" && value("pcCard") !== "webgpu";
+    if (v.engine === "supertonic") return `Supertonic ${v.voice} on the PC's ${on}${on === "processor" ? "" : cuda ? " through CUDA" : " through WebGPU"} (Run on${on === "processor" ? "" : ", PC graphics card"}; measured on the PC: about 4.2× real time through CUDA at 50 steps, 2.7× through WebGPU, 3.5× on the processor at 30). If the card fails there, the reading stops and says so; choose another yourself.`;
+    if (v.engine === "piper") return `Piper ${v.voice} on the PC's ${cuda ? "graphics card through CUDA (about 26× real time)" : "processor (about 14× real time)"}${on === "processor" ? " (Run on)" : cuda ? " (PC graphics card)" : " (Piper has no WebGPU on the PC)"}.`;
     return `${(ENGINE.get(v.engine) || { name: v.engine }).name} does not run on the PC: with Use my PC on, Play stops and says so.`;
   }
 
@@ -13499,7 +13500,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, the reading stops and says why; nothing switches by itself. The PC runs Kokoro and Supertonic voices (card or processor, as Run on says) and Piper voices (processor)."));
     const back = button("sbtn", "Use this device's voice", () => { change("useMyPC", false); say("Use my PC is off (press Apply): this device makes the voice again."); });
     body.appendChild(row("Use this device's voice", "Choose the voice in the Voice tab; it runs on your PC. This button turns Use my PC off (press Apply).", back, { block: true }));
-    body.appendChild(choice("pcCard", "PC graphics card", "How Kokoro uses the PC's graphics card when Run on says Graphics card. CUDA is the fastest (about 6× real time on the PC's GTX 1050 Ti, first sound in about 1 s); WebGPU about 3.6×. If the one chosen fails, the reading stops and says why; it never switches by itself. Piper and Supertonic are not affected.", [
+    body.appendChild(choice("pcCard", "PC graphics card", "How the PC's graphics card makes the voice when Run on says Graphics card. CUDA is the fastest on the PC's GTX 1050 Ti: Kokoro about 6× real time (first sound in about 1 s), Supertonic about 4×, Piper about 26×. WebGPU: Kokoro about 3.6×, Supertonic about 2.7×, Piper on the processor. If the one chosen fails, the reading stops and says why; it never switches by itself.", [
       { id: "cuda", label: "Graphics card (CUDA)" }, { id: "webgpu", label: "Graphics card (WebGPU)" }], { segment: true }));
     body.lastChild.classList.add("block");   // a wide control: its own line under the help (the 412 px phone fix)
     body.appendChild(row("Where it would run", whereText(), null));
