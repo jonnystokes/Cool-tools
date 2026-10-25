@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.592 and 2026-10-25 10:29 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.595 and 2026-10-25 11:00 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.592</title>
+<title>Book reader V1.0.595</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.592";
-  window.APP_BUILT = "2026-10-25 10:29 AM";
-  window.APP_NOTE = "Key window: one green row (the sound is ready in the browser); the PC voice's CUDA tests";
+  window.APP_VERSION = "Book reader V1.0.595";
+  window.APP_BUILT = "2026-10-25 11:00 AM";
+  window.APP_NOTE = "Use my PC: Pause making sound while I scroll never applies with the cloud voice (shown as not used in Settings); local voices unchanged \u00b7 testing, unchanged";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -10680,8 +10680,12 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     window.addEventListener(t, onInput, { capture: true, passive: true });
   }
   // Why the next chunk may not wait now ("" = it waits).
+  // Use my PC (Jon, 2026-10-25): the PC makes the sound, nothing here busies the phone's card, so the
+  // hold never applies; the setting itself is kept for the local voices.
+  const holdUsed = () => SETTINGS.get("holdOnScroll") && !(engine && engine.id === "cloud");
   function holdOff(now) {
     if (!SETTINGS.get("holdOnScroll") || live) return "the setting is off";
+    if (!holdUsed()) return "not used with Use my PC";
     if (!interacting(now)) return `${+(holdAfter() / 1000).toFixed(1)} s with no touch`;
     const min = hooks.holdMinAhead != null ? hooks.holdMinAhead : HOLD.minAhead;
     if (STREAM.ahead() <= min) return `${min} s or less of sound ready`;
@@ -10699,7 +10703,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // every 250 ms while a finger is down, else at the end of the quiet window, or sooner when the sound
   // ready would reach the buffer floor first; a new touch meanwhile is caught when it fires (re-aimed).
   function holding() {
-    if (!held && !(SETTINGS.get("holdOnScroll") && touch.last > -1e9)) return false;
+    if (!held && !(holdUsed() && touch.last > -1e9)) return false;
     const now = performance.now(), why = holdOff(now);
     if (why) { endHold(why); return false; }
     if (!nextJob(true)) { endHold("nothing to make"); return false; }
@@ -12113,7 +12117,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     body.appendChild(bg);
     body.appendChild(toggle("keepAlive", "Keep-alive sound", "Plays a near-silent tone while reading, so the browser does not suspend the sound or the lock-screen controls."));
     body.appendChild(toggle("keepAliveIdle", "Keep-alive while stopped or paused", "Keeps the tone playing between readings, so the next Play starts without a tap.", value("keepAlive") ? "" : "requires Keep-alive sound"));
-    body.appendChild(toggle("holdOnScroll", "Pause making sound while I scroll (experimental)", "After you touch or scroll the page, no new sound is made for 10 s, so scrolling stays smooth. Each touch starts the 10 s again. Never while 30 s or less of sound is ready."));
+    body.appendChild(toggle("holdOnScroll", "Pause making sound while I scroll (experimental)", "After you touch or scroll the page, no new sound is made for 10 s, so scrolling stays smooth. Each touch starts the 10 s again. Never while 30 s or less of sound is ready.", value("useMyPC") ? "not used while Use my PC is on: the PC makes the sound, so scrolling stays smooth" : ""));
     body.appendChild(toggle("screenAwake", "Keep the screen awake", "Stops the screen turning off while reading."));
   }
   // The Debug tab (step 8b): the Debug view and Detailed marks switches (live), the log viewer with its
