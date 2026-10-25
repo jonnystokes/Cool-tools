@@ -164,7 +164,8 @@ function readSettings() {
   for (const k of CHECKS) S[k] = $(k).checked;
   S.auto = S.mode === "auto";
 }
-const PC_ = { srv: null, auto: null };              // the PC's last per-second sender report, and Auto's choice
+const PC_ = { srv: null, auto: null };
+const FZ = { on: false, n: 0, longest: 0 }, AUTO_LOG = [];          // freezes: the PC sends, nothing gets drawn              // the PC's last per-second sender report, and Auto's choice
 try { const saved = JSON.parse(store.get("peek-settings-v2") || "{}");
       for (const k of KEYS) if (saved[k] != null && [...$(k).options].some((o) => o.value === saved[k])) $(k).value = saved[k];
       for (const k of CHECKS) if (saved[k] != null) $(k).checked = !!saved[k];
@@ -217,7 +218,7 @@ function show(hdr, blob, ack) {
     D.seq = hdr.seq; Q.push(it);
   } else if (hdr.seq <= D.seq) return drop(it);
   else if (hdr.base <= D.seq) { D.seq = hdr.seq; Q.push(it); }
-  else { D.wait.push(it); if (!D.waitSince) D.waitSince = now(); }
+  else { D.wait.push(it); if (!D.waitSince) D.waitSince = now(); if (!D.seq) needFull(); }   // no base at all: ask at once
   for (let moved = true; moved && D.wait.length; ) {  // early arrivals that can go now
     moved = false;
     for (const w of [...D.wait]) {
@@ -241,14 +242,14 @@ function verify(hdr, u8) {
 }
 function pcReport(m) {                               // the PC's own view of this stream
   if (m.type === "srv") PC_.srv = m;
-  else if (m.type === "auto") { PC_.auto = m; log(`Auto: now ${m.w ? m.w + " px" : "full width"}, quality ${m.q} (step ${m.level})`); }
+  else if (m.type === "auto") { PC_.auto = m; AUTO_LOG.push(`${m.w || "full"}/q${m.q}: ${m.why || ""}`); log(`Auto: now ${m.w ? m.w + " px" : "full width"}, quality ${m.q} (step ${m.level}): ${m.why || ""}`); }
 }
 // UDP: what the data channel delivered (frames put together, dropped when incomplete at the deadline, late pieces).
 const U = { chunks: 0, complete: 0, dropped: 0, late: 0, rtt: null, pair: "" };
-function needFull() {                               // a partial update is missing: ask for a full frame
-  if (now() - D.askedAt < 2000 || !conn.live || !conn.live.full) return;
+function needFull(quiet) {                          // updates can't be applied: ask for a full frame now
+  if (now() - D.askedAt < 1000 || !conn.live || !conn.live.full) return;
   D.askedAt = now(); T.asked++;
-  log(`asked for a full frame (a partial update is missing for ${r0(now() - D.waitSince)} ms)`);
+  if (!quiet) log(D.seq ? `asked for a full frame (an update has had no base for ${r0(now() - D.waitSince)} ms)` : "no base picture: asked for a full frame");
   conn.live.full();
 }
 async function paintQueue() {
@@ -281,7 +282,7 @@ let W, T;
 function resetW() { W = { t: now(), recv: 0, drawn: 0, dropped: 0, bytes: 0, fullBytes: 0, iv: [], lat: [], idle: 0, dec: [], drw: [], net: [] }; }
 function resetT() { T = { t: now(), recv: 0, drawn: 0, dropped: 0, bad: 0, idle: 0, asked: 0, full: 0, part: 0, first: null, lastDraw: 0, h: null,
                          bytes: 0, fullBytes: 0, ivs: [], lats: [], decs: [], nets: [] };
-                    Object.assign(U, { chunks: 0, complete: 0, dropped: 0, late: 0 }); Object.assign(CHK, { ok: 0, bad: 0 }); }
+                    Object.assign(U, { chunks: 0, complete: 0, dropped: 0, late: 0 }); Object.assign(CHK, { ok: 0, bad: 0 }); Object.assign(FZ, { on: false, n: 0, longest: 0 }); }
 resetW(); resetT();
 function drawn(hdr, it, dec, drw) {
   const t = now();
@@ -324,7 +325,7 @@ function tick() {                                   // once a second (browsers s
   put("size", W.recv ? `${kb.toFixed(1)} KB` : "–", W.recv && fullKb > kb * 1.05 ? `sent per frame; full frame would be ${r0(fullKb)} KB (${r0(100 - 100 * kb / fullKb)}% saved)` :
       (h ? `per frame, ${h.w}×${h.h}${h.kind === "d" ? `, ${h.tiles} of ${h.of} tiles` : ""}` : "per frame"));
   put("rate", `${mbps.toFixed(2)} Mbps`, "data rate");
-  put("frames", `${T.drawn}`, `drawn (${T.full} full, ${T.part} partial) · ${T.dropped} dropped · ${T.idle} no-change · ${T.bad} bad`);
+  put("frames", `${T.drawn}`, `drawn (${T.full} full, ${T.part} partial) · ${T.dropped} dropped · ${T.idle} no-change · ${T.bad} bad · freezes ${FZ.n}, longest ${(FZ.longest / 1000).toFixed(1)} s`);
   put("conn", conn.live ? conn.live.kind : "–", `retries ${conn.retries} · up ${conn.upAt ? r0((t - conn.upAt) / 1000) + " s" : "–"}`);
   const ps = PC_.srv;
   put("pc", ps ? (ps.auto ? `Auto: ${ps.w ? ps.w + " px" : "full"} q${ps.q}` : `${ps.w ? ps.w + " px" : "full"} q${ps.q}`) : "–",
@@ -337,11 +338,17 @@ function tick() {                                   // once a second (browsers s
   if (conn.want) {
     log(`stats  fps ${fps.toFixed(1)}  interval ${r0(iv)}±${r0(jit)} ms  latency ${r0(lat)} ms  ${kb.toFixed(1)} KB (full ${r0(fullKb)})  ${mbps.toFixed(2)} Mbps  ` +
         `in ${W.recv} drawn ${W.drawn} dropped ${W.dropped} no-change ${W.idle}  decode ${(med(W.dec) || 0).toFixed(1)} ms  ping ${r0(sync.rtt)} ms  ${document.visibilityState}` +
-        (PC_.srv ? `  | PC: ${PC_.srv.w ? PC_.srv.w + "px" : "full"} q${PC_.srv.q}${PC_.srv.auto ? " auto" : ""}, sent ${PC_.srv.mbps} Mbps, queue≤${PC_.srv.qmax_kb} KB, waits ${PC_.srv.waits}` : "") +
+        (PC_.srv ? `  | PC: ${PC_.srv.w ? PC_.srv.w + "px" : "full"} q${PC_.srv.q}${PC_.srv.auto ? " auto" : ""}, sent ${PC_.srv.mbps} Mbps, queue≤${PC_.srv.qmax_kb} KB, waits ${PC_.srv.waits}, loops ${JSON.stringify(PC_.srv.where || {})}` : "") +
         (gap > 1500 ? `  (timer late: ${(gap / 1000).toFixed(1)} s since last line)` : ""));
   }
   resetW();
-  if (D.waitSince && t - D.waitSince > 1000) needFull();
+  if (D.waitSince && t - D.waitSince > 300) needFull();
+  // Freeze watchdog: the PC says it is sending, the connection is up, yet nothing was drawn for over 1 s.
+  const sinceDraw = T.lastDraw ? t - T.lastDraw : 0;
+  if (conn.want && conn.live && conn.live.ready && sinceDraw > 1000 && PC_.srv && PC_.srv.fps > 0) {
+    if (!FZ.on) { FZ.on = true; FZ.n++; log(`freeze: nothing drawn for ${r0(sinceDraw)} ms while the PC is sending; asked for a keyframe`); D.askedAt = 0; needFull(true); }
+    FZ.longest = Math.max(FZ.longest, sinceDraw);
+  } else if (FZ.on && sinceDraw < 1000) { FZ.on = false; log(`freeze over (longest so far ${(FZ.longest / 1000).toFixed(1)} s)`); }
   if (conn.down) setState("bad", `Disconnected, retrying… (attempt ${conn.attempt}, ${r0((t - conn.down) / 1000)} s): ${conn.why}`);
   if (conn.live && conn.live.ready && (conn.want || conn.live.set) && t - conn.lastData > 7000)
     conn.live.fail(`stalled: nothing from the PC for ${r0((t - conn.lastData) / 1000)} s`);
@@ -553,7 +560,7 @@ function udp(gen, mode) {
   const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ws");
   const t = { kind: "udp-" + mode, ready: false };
   let failed = false, pc = null, openTimer = 0;
-  const R = new Map(), done = new Set();
+  const R = new Map(), done = new Set(), lastId = [null, null];
   const deadline = () => (mode === "fast" ? 250 : mode === "mid" ? +S.life + 150 : 3000);
   const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
   const cleanup = () => { clearTimeout(openTimer); try { ws.close(); } catch (e) {} try { if (pc) pc.close(); } catch (e) {} };
@@ -593,6 +600,9 @@ function udp(gen, mode) {
     dc.onopen = () => { clearTimeout(openTimer); t.ready = true; onUp(gen, `UDP ${mode} (${JSON.stringify(opts)})`); stats(); };
     dc.onclose = () => { if (!failed) t.fail("UDP: the data channel closed"); };
     dc.onmessage = chunk;
+    const kc = pc.createDataChannel("key");          // reliable: full frames (the base picture) must arrive
+    kc.binaryType = "arraybuffer";
+    kc.onmessage = chunk;
     const kinds = new Set();
     pc.onicecandidate = (e) => { if (e.candidate && e.candidate.type) kinds.add(e.candidate.type); };
     pc.oniceconnectionstatechange = () => {
@@ -607,15 +617,24 @@ function udp(gen, mode) {
     openTimer = setTimeout(() => t.fail("UDP: no direct path within 15 s (ICE did not connect): pick a TCP transport."), 15000);
   }
   function chunk(ev) {
-    const dv = new DataView(ev.data), idx = dv.getUint16(2), n = dv.getUint16(4), fid = dv.getUint32(8), total = dv.getUint32(12);
+    const dv = new DataView(ev.data), idx = dv.getUint16(2), n = dv.getUint16(4), total = dv.getUint32(12);
+    const fid = dv.getUint8(1) * 4294967296 + dv.getUint32(8);   // flag 1 = the keyframe channel's own numbering
     conn.lastData = now(); U.chunks++;
     if (done.has(fid)) { U.late++; return; }
+    const lane = dv.getUint8(1), raw = dv.getUint32(8);   // frame ids that never showed up at all = lost frames
+    if (lastId[lane] != null && raw > lastId[lane] + 1 && raw - lastId[lane] < 1000) U.dropped += raw - lastId[lane] - 1;
+    if (lastId[lane] == null || raw > lastId[lane]) lastId[lane] = raw;
     let f = R.get(fid);
     if (!f) R.set(fid, (f = { n, got: 0, seen: new Uint8Array(n), buf: new Uint8Array(total), t0: now() }));
     if (!f.seen[idx]) { f.seen[idx] = 1; f.got++; f.buf.set(new Uint8Array(ev.data, 16), idx * CHUNK); }
     if (f.got === f.n) { R.delete(fid); finish(fid); U.complete++; frame(f.buf); }
     const t0 = now(), dl = deadline();
-    for (const [id, g] of R) if (t0 - g.t0 > dl) { R.delete(id); finish(id); U.dropped++; }
+    // Keyframes travel on the reliable channel and always complete; they get 5 s (a 300 KB frame sharing
+    // a busy link takes far longer than the fast channel's 250 ms, and was being thrown away).
+    for (const [id, g] of R) if (t0 - g.t0 > (id >= 4294967296 ? 5000 : dl)) {
+      R.delete(id); finish(id); U.dropped++;
+      if (id >= 4294967296 || !D.seq) { log("keyframe lost, requested again"); D.askedAt = 0; needFull(true); }
+    }
   }
   function finish(fid) { done.add(fid); if (done.size > 1024) done.delete(done.values().next().value); }
   function frame(buf) {
@@ -733,7 +752,7 @@ window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
              mbps: Math.round(T.bytes * 8 / secs / 1e4) / 100, first_ms: T.first == null ? null : Math.round(T.first), warm: conn.warmAtOn,
              ping: sync.best == null ? null : Math.round(sync.best), retries: conn.retries,
              udp: S.transport.startsWith("udp") ? { ...U, rtt: U.rtt == null ? null : Math.round(U.rtt * 10) / 10 } : undefined,
-             crc: S.verify ? { ...CHK } : undefined, pc: PC_.srv }; } };
+             crc: S.verify ? { ...CHK } : undefined, pc: PC_.srv, freezes: FZ.n, freeze_longest_ms: Math.round(FZ.longest), auto_steps: AUTO_LOG.slice(-8) }; } };
 
 log(`page loaded (${own ? "served by the PC" : "Cool tools"}; talks to ${BASE}); ${settingsText()}`);
 wake("page loaded");
