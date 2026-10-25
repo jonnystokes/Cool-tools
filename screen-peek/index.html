@@ -388,7 +388,7 @@ setInterval(tick, 1000);
 const conn = { want: false, live: null, gen: 0, attempt: 0, retries: 0, down: 0, why: "", timer: 0, lastData: 0, onAt: 0, warmAtOn: false,
                upAt: 0, pathAt: 0, firstOnPath: null };
 const C = { ws: null, ready: false, sid: "", boot: "", attempt: 0, timer: 0, down: 0, why: "", unanswered: 0, lastPing: 0, lastRx: 0,
-            openedAt: 0, connectTimer: 0, mute: false };
+            openedAt: 0, connectTimer: 0, mute: false, rtts: [] };
 function setState(kind, text) { $("dot").className = kind; $("conntext").textContent = text; }
 const backoff = (n) => Math.round(Math.min(2500, 250 * 2 ** (n - 1)) * (0.8 + Math.random() * 0.4));
 function httpWhy(status) {
@@ -422,7 +422,7 @@ function ctlOpen(why) {
   ctlDrop();
   if (!TOKEN) return;
   const ws = new WebSocket(BASE.replace(/^http/, "ws") + "ctl");
-  C.ws = ws; C.ready = false; C.unanswered = 0; C.openedAt = now(); C.lastRx = now(); C.mute = false;
+  C.ws = ws; C.ready = false; C.unanswered = 0; C.openedAt = now(); C.lastRx = now(); C.mute = false; C.rtts = [];
   if (C.attempt <= 10 || C.attempt % 10 === 0) log(`control: connecting (${why})${C.attempt ? `, attempt ${C.attempt + 1}` : ""}…`);
   if (!C.down) setState("wait", "Connecting…");
   C.connectTimer = setTimeout(() => { if (C.ws === ws && !C.ready) ctlDown("no answer within 10 s"); }, 10000);
@@ -476,7 +476,11 @@ function ctlMsg(m) {
     else setState("wait", "Connected (Continuous off).");
     return;
   }
-  if (m.type === "pong") { C.unanswered = 0; if (typeof m.t === "number") addSync(m.t, m.srv, now()); return; }
+  if (m.type === "pong") {
+    C.unanswered = 0;
+    if (typeof m.t === "number") { addSync(m.t, m.srv, now()); C.rtts.push(now() - m.t); if (C.rtts.length > 8) C.rtts.shift(); }
+    return;
+  }
   if (m.type === "auth") return ctlDown("the PC refused the sign-in", "auth");
   if (m.gen == null || !conn.live || m.gen !== conn.live.gen) return;      // about an older data path: ignored
   if (m.type === "srv" || m.type === "auto") pcReport(m);
@@ -496,9 +500,11 @@ function heartbeat(late) {                          // once a second, and whenev
   if (!C.ws || !C.ready) return;
   const t = now();
   if (late) { C.unanswered = 0; C.lastRx = Math.max(C.lastRx, t - 1000); }  // we were held back, not the connection
-  // Dead: 4+ pings unanswered and nothing at all for 6 s. (Any message counts: on a slow link a big frame ahead of a
-  // pong in the network's queue can delay it a few seconds, while the PC's reports keep arriving every second.)
-  if (C.unanswered >= 4 && t - C.lastRx > 6000) return ctlDown(`no answer to ${C.unanswered} pings in ${r0((t - C.lastRx) / 1000)} s`);
+  // Dead: 4+ pings unanswered and nothing at all for 6 s, or for 2.5 times the slowest of the last 8 round trips if
+  // that is longer (at most 20 s). Any message counts. On a very slow link a big frame ahead of a pong in the
+  // network's queue can hold it for seconds; that is a slow path, not a dead one.
+  const limit = Math.min(20000, Math.max(6000, 2.5 * Math.max(0, ...C.rtts)));
+  if (C.unanswered >= 4 && t - C.lastRx > limit) return ctlDown(`no answer to ${C.unanswered} pings in ${r0((t - C.lastRx) / 1000)} s`);
   ctlPing(false);
 }
 
