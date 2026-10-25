@@ -65,7 +65,7 @@
       <option value="50">50 ms</option><option value="100">100 ms</option><option value="200" selected>200 ms</option><option value="500">500 ms</option>
     </select></label>
     <label>Quality mode<select id="mode">
-      <option value="auto" selected>Auto: best picture that holds the latency target</option><option value="manual">Manual: width + quality below</option>
+      <option value="manual" selected>Manual: width + quality below</option><option value="auto">Auto: best picture that holds the latency target</option>
     </select></label>
     <label>Auto latency target<select id="target">
       <option value="50">50 ms</option><option value="100" selected>100 ms</option><option value="200">200 ms</option><option value="400">400 ms</option>
@@ -166,7 +166,7 @@ function readSettings() {
 }
 const PC_ = { srv: null, auto: null };
 const FZ = { on: false, n: 0, longest: 0 }, AUTO_LOG = [];          // freezes: the PC sends, nothing gets drawn              // the PC's last per-second sender report, and Auto's choice
-try { const saved = JSON.parse(store.get("peek-settings-v2") || "{}");
+try { const saved = JSON.parse(store.get("peek-settings-v3") || "{}");
       for (const k of KEYS) if (saved[k] != null && [...$(k).options].some((o) => o.value === saved[k])) $(k).value = saved[k];
       for (const k of CHECKS) if (saved[k] != null) $(k).checked = !!saved[k];
       if (saved.wake != null) $("wake").checked = !!saved.wake; } catch (e) {}
@@ -177,7 +177,7 @@ const settingsText = () => `${S.transport}, ${S.auto ? "Auto (target " + S.targe
 const keepsOpen = () => S.transport === "ws" || S.transport.startsWith("udp");   // stays open, paused, between runs
 for (const k of [...KEYS, ...CHECKS]) $(k).addEventListener("change", () => {
   const oldT = S.transport; readSettings();
-  store.set("peek-settings-v2", JSON.stringify({ ...S, wake: $("wake").checked }));
+  store.set("peek-settings-v3", JSON.stringify({ ...S, wake: $("wake").checked }));
   log(`settings: ${settingsText()}`);
   if (!conn.live) { if (keepsOpen() && TOKEN && !conn.down) open(); return; }   // keep a warm connection ready
   // Same WebSocket / UDP link: new settings travel on it. The UDP resend window is fixed when the channel is made.
@@ -704,7 +704,7 @@ function signIn(msg) {
 let wakeLock = null;
 const wakeState = (s) => { $("wakestate").textContent = s; };
 async function wake(why) {
-  store.set("peek-settings-v2", JSON.stringify({ ...S, wake: $("wake").checked }));
+  store.set("peek-settings-v3", JSON.stringify({ ...S, wake: $("wake").checked }));
   if (!$("wake").checked) { if (wakeLock) { const w = wakeLock; wakeLock = null; await w.release().catch(() => {}); } wakeState("off"); return; }
   if (!("wakeLock" in navigator)) { wakeState("not supported here"); log("wake lock: not supported by this browser"); return; }
   if (document.visibilityState !== "visible") { wakeState("waits until the page is shown"); return; }
