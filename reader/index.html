@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.577 and 2026-10-25 12:06 AM appear. -->
+     and stamps the version and build time where Book reader V1.0.583 and 2026-10-25 1:47 AM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.577</title>
+<title>Book reader V1.0.583</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.577";
-  window.APP_BUILT = "2026-10-25 12:06 AM";
-  window.APP_NOTE = "PC Relay step 4: Supertonic voices also run on the PC (Use my PC: the reader's own Supertonic code on the PC's graphics card or processor, as Run on says; a card failure stops with the reason); Settings \u2192 Cloud says where the chosen voice would run";
+  window.APP_VERSION = "Book reader V1.0.583";
+  window.APP_BUILT = "2026-10-25 1:47 AM";
+  window.APP_NOTE = "Jon's phone fixes: Settings \u2192 Cloud rows laid out like the other tabs (the Test row's help was squeezed one word wide and overlapped); the left-edge marks twice as wide with a wider gap (the page's left margin is at least 20 px so they fit); the PC marks are one purple 'on the PC, working' (then green ready, blue playing)";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -141,6 +141,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   max-width: 42em;
   margin: 0 auto;
   padding: 16px var(--gutter);
+  padding-left: max(var(--gutter), 20px);   /* room for the two 6 px left-edge marks and their gaps (2026-10-25) */
   font-size: var(--text);
   line-height: 1.55;
   overflow-wrap: anywhere;     /* a very long word ("AHHHH…", chapter 3311) wraps instead of widening the page (Jon, 2026-10-24) */
@@ -357,9 +358,7 @@ html.cdock .ctop .idx { display: none; }
    ::after = the state: sound made, or being read). The Key window lists these. */
 :root {
   --made: light-dark(#3c9d5f, #4fc97d);
-  --pc-queued: light-dark(#8a7fb0, #a99be0);   /* PC voice: queued on the PC */
-  --pc-making: light-dark(#d9822b, #ffab5c);   /* PC voice: being made on the PC */
-  --pc-sending: light-dark(#1f9fb8, #5fd3ea);  /* PC voice: on the way from the PC */
+  --pc-working: light-dark(#8e44c9, #c592f5);  /* PC voice: on the PC, working (queued, being made, on the way) */
   --speak: light-dark(#2f6fd6, #6ea8ff);
   --word: light-dark(#ffd36b, #8a6a12);
   --miss: light-dark(#c62828, #ff7070);
@@ -453,19 +452,19 @@ html.cdock .ctop .idx { display: none; }
    the ring on the line of the paragraph being read, the listener's issue stripes with a shape. */
 html[data-marks="simple"] .book p.allmade::after, html[data-marks="simple"] .book h1.allmade::after,
 html[data-marks="simple"] .book p.speaking::after, html[data-marks="simple"] .book h1.speaking::after {
-  content: ""; position: absolute; left: -6px; top: 0.25em; bottom: 0.25em; width: 3px;
-  border-radius: 2px; background: var(--made);
+  content: ""; position: absolute; left: -8px; top: 0.25em; bottom: 0.25em; width: 6px;
+  border-radius: 3px; background: var(--made);
 }
 html[data-marks="simple"] .book p.speaking::after, html[data-marks="simple"] .book h1.speaking::after { background: var(--speak); }
 /* The Play-start line shows in the simple view too (Jon, 2026-10-23: a tap must visibly set where the reading
    starts, before Play and while the voice loads), outside the dash; hidden on the paragraph being read (blue). */
-html[data-marks="simple"] .book p.current::before, html[data-marks="simple"] .book h1.current::before { left: -11px; width: 3px; }
+html[data-marks="simple"] .book p.current::before, html[data-marks="simple"] .book h1.current::before { left: -18px; width: 6px; border-radius: 3px; }
 html[data-marks="simple"] .book p.current.speaking::before, html[data-marks="simple"] .book h1.current.speaking::before { display: none; }
-html[data-marks="detailed"] .book p.current::before, html[data-marks="detailed"] .book h1.current::before { left: -10px; width: 3px; }
+html[data-marks="detailed"] .book p.current::before, html[data-marks="detailed"] .book h1.current::before { left: -18px; width: 6px; border-radius: 3px; }
 html[data-marks="detailed"] .book p.made::after, html[data-marks="detailed"] .book h1.made::after,
 html[data-marks="detailed"] .book p.speaking::after, html[data-marks="detailed"] .book h1.speaking::after {
-  content: ""; position: absolute; left: -5px; top: 0.25em; bottom: 0.25em; width: 3px;
-  border-radius: 2px; background: var(--madeseg, var(--made));
+  content: ""; position: absolute; left: -8px; top: 0.25em; bottom: 0.25em; width: 6px;
+  border-radius: 3px; background: var(--madeseg, var(--made));
 }
 /* The presentation-time markers (present.js): small block divs (the API ignores inline text), one digit
    per word change, stacked in the corner of the play bar; faint on purpose. */
@@ -506,9 +505,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 .keyrow .sw { flex: none; width: 1.4em; height: 1.4em; border-radius: 4px; border: 1px solid var(--line); }
 .keyrow .sw.current { border: 0; border-left: 3px solid var(--accent); border-radius: 0; width: 0.9em; }
 .keyrow .sw.made { border: 0; border-left: 3px solid var(--made); border-radius: 0; width: 0.9em; }
-.keyrow .sw.made.pcq { border-left-color: var(--pc-queued); }
-.keyrow .sw.made.pcm { border-left-color: var(--pc-making); }
-.keyrow .sw.made.pcs { border-left-color: var(--pc-sending); }
+.keyrow .sw.made.pcw { border-left-color: var(--pc-working); }
 .keyrow .sw.speaking { border-left: 3px solid var(--speak); background: color-mix(in srgb, var(--speak) 16%, transparent); }
 .keyrow .sw.piece { background: color-mix(in srgb, var(--speak) 7%, transparent); }
 .keyrow .sw.dash { border: 0; border-radius: 2px; width: 3px; height: 1.1em; background: var(--made); }
@@ -8858,7 +8855,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const segs = new Map();            // piece id -> { piece, flags, spans }, for the chapter on screen
   let segsChapter = null;
   const PENDING = "color-mix(in srgb, var(--made) 30%, transparent)";
-  const CLOUD_COLOURS = { queued: "var(--pc-queued)", generating: "var(--pc-making)", sending: "var(--pc-sending)" };   // play.css
+  // The PC voice: queued, being made and on the way are ONE purple mark, "on the PC, working" (Jon, 2026-10-25: the
+  // three flickered past too fast to tell apart). Then green (here, ready), then blue (being read).
+  const CLOUD_COLOURS = { queued: "var(--pc-working)", generating: "var(--pc-working)", sending: "var(--pc-working)" };   // play.css
   function made(piece, flags, spans) {
     if (!shown(piece)) return;
     if (segsChapter !== piece.chapter) { segs.clear(); segsChapter = piece.chapter; }
@@ -8946,10 +8945,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     ];
     // The PC voice's marks (Settings → Cloud → Use my PC), in the detailed view: where each chunk is.
     if (det && g.SETTINGS && SETTINGS.get("useMyPC")) rows.splice(2, 0,
-      ["made pcq", "Grey-violet segment: queued on your PC, waiting its turn."],
-      ["made pcm", "Orange segment: being made on your PC now."],
-      ["made pcs", "Cyan segment: made, on the way from your PC."],
-      ["made", "Green segment: ready in the browser (solid once its sound is here)."]);
+      ["made pcw", "Purple segment: on your PC, working (waiting its turn there, being made, or on the way here)."],
+      ["made", "Green segment: ready in the browser (solid once its sound is here). Then blue while it is read."]);
     if (src !== "off") rows.push(["word", `The word being spoken (timing ${src === "voice" ? "from the voice" : src === "listener" ? "from the listener" : "estimated"}).`]);
     // The listener's marks, only while it is on (step 8a); its left-edge marks only in the detailed view.
     if (listening && det) rows.push(
@@ -13413,7 +13410,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     inp.type = "url"; inp.placeholder = RelayClient.DEFAULT_PC; inp.value = value("pcAddress") || "";
     inp.setAttribute("aria-label", "PC address");
     inp.addEventListener("change", () => { change("pcAddress", inp.value.trim()); });
-    return row("PC address", `Blank = your PC (${RelayClient.DEFAULT_PC}). Saved as soon as you leave the box.`, inp, { name: "pcAddress" });
+    return row("PC address", `Blank = your PC (${RelayClient.DEFAULT_PC}). Saved as soon as you leave the box.`, inp, { name: "pcAddress", block: true });
   }
 
   function testRow() {
@@ -13458,7 +13455,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       finally { b.disabled = false; }
     });
     const box = h("div", "sstack"); box.append(b, out);
-    return row("Test", "Makes one short sentence on the PC with the voice chosen in the Voice tab and plays it here.", box);
+    return row("Test", "Makes one short sentence on the PC with the voice chosen in the Voice tab and plays it here.", box, { block: true });
   }
 
   function signRow() {
@@ -13500,7 +13497,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     body.appendChild(row("Your PC", "", statusBox(), { block: true }));
     body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, the reading stops and says why; nothing switches by itself. The PC runs Kokoro and Supertonic voices (card or processor, as Run on says) and Piper voices (processor)."));
     const back = button("sbtn", "Use this device's voice", () => { change("useMyPC", false); say("Use my PC is off (press Apply): this device makes the voice again."); });
-    body.appendChild(row("", "Choose the voice in the Voice tab; it runs on your PC.", back));
+    body.appendChild(row("Use this device's voice", "Choose the voice in the Voice tab; it runs on your PC. This button turns Use my PC off (press Apply).", back, { block: true }));
     body.appendChild(row("Where it would run", whereText(), null));
     body.appendChild(addressRow());
     body.appendChild(testRow());
