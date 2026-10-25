@@ -64,10 +64,16 @@
     <label>UDP middle: resend window<select id="life">
       <option value="50">50 ms</option><option value="100">100 ms</option><option value="200" selected>200 ms</option><option value="500">500 ms</option>
     </select></label>
-    <label>Picture width<select id="w">
+    <label>Quality mode<select id="mode">
+      <option value="auto" selected>Auto: best picture that holds the latency target</option><option value="manual">Manual: width + quality below</option>
+    </select></label>
+    <label>Auto latency target<select id="target">
+      <option value="50">50 ms</option><option value="100" selected>100 ms</option><option value="200">200 ms</option><option value="400">400 ms</option>
+    </select></label>
+    <label>Picture width (manual)<select id="w">
       <option value="640">640 px</option><option value="960">960 px</option><option value="1280">1280 px</option><option value="0" selected>full</option>
     </select></label>
-    <label>Quality<select id="q">
+    <label>Quality (manual)<select id="q">
       <option value="40">40</option><option value="60">60</option><option value="75">75</option><option value="85" selected>85</option>
     </select></label>
     <label>Format<select id="fmt"><option value="jpeg" selected>JPEG</option><option value="webp">WebP (smaller, ~10× slower to make)</option></select></label>
@@ -151,19 +157,21 @@ $("save").onclick = () => {
 $("clear").onclick = () => { LOG.length = 0; logEl.textContent = ""; };
 
 // ---- Settings (remembered in this browser) ------------------------------------------------------------
-const KEYS = ["transport", "w", "q", "fmt", "fps", "win", "refresh", "life"], CHECKS = ["partial", "force", "verify"];
+const KEYS = ["transport", "mode", "target", "w", "q", "fmt", "fps", "win", "refresh", "life"], CHECKS = ["partial", "force", "verify"];
 const S = {};
 function readSettings() {
   for (const k of KEYS) S[k] = $(k).value;
   for (const k of CHECKS) S[k] = $(k).checked;
+  S.auto = S.mode === "auto";
 }
+const PC_ = { srv: null, auto: null };              // the PC's last per-second sender report, and Auto's choice
 try { const saved = JSON.parse(store.get("peek-settings-v2") || "{}");
       for (const k of KEYS) if (saved[k] != null && [...$(k).options].some((o) => o.value === saved[k])) $(k).value = saved[k];
       for (const k of CHECKS) if (saved[k] != null) $(k).checked = !!saved[k];
       if (saved.wake != null) $("wake").checked = !!saved.wake; } catch (e) {}
 readSettings();
-const qs = () => `w=${S.w}&q=${S.q}&fmt=${S.fmt}&fps=${S.fps}&win=${S.win}&force=${S.force ? 1 : 0}&partial=${S.partial ? 1 : 0}&refresh=${S.refresh}`;
-const settingsText = () => `${S.transport}, ${S.w === "0" ? "full" : S.w + " px"}, q${S.q}, ${S.fmt}, cap ${S.fps === "0" ? "none" : S.fps + "/s"}, ` +
+const qs = () => `w=${S.w}&q=${S.q}&fmt=${S.fmt}&fps=${S.fps}&win=${S.win}&force=${S.force ? 1 : 0}&partial=${S.partial ? 1 : 0}&refresh=${S.refresh}&auto=${S.auto ? 1 : 0}&target=${S.target}`;
+const settingsText = () => `${S.transport}, ${S.auto ? "Auto (target " + S.target + " ms)" : (S.w === "0" ? "full" : S.w + " px") + ", q" + S.q}, ${S.fmt}, cap ${S.fps === "0" ? "none" : S.fps + "/s"}, ` +
   `window ${S.win}, ${S.partial ? "partial updates (full every " + (S.refresh === "0" ? "never" : S.refresh + " s") + ")" : "full frames"}${S.force ? ", unchanged frames too" : ""}`;
 const keepsOpen = () => S.transport === "ws" || S.transport.startsWith("udp");   // stays open, paused, between runs
 for (const k of [...KEYS, ...CHECKS]) $(k).addEventListener("change", () => {
@@ -231,6 +239,10 @@ function verify(hdr, u8) {
   if (crc32(u8) === hdr.crc) CHK.ok++;
   else if (++CHK.bad <= 5) log(`CRC mismatch on update ${hdr.seq} (${hdr.n} bytes)`);
 }
+function pcReport(m) {                               // the PC's own view of this stream
+  if (m.type === "srv") PC_.srv = m;
+  else if (m.type === "auto") { PC_.auto = m; log(`Auto: now ${m.w ? m.w + " px" : "full width"}, quality ${m.q} (step ${m.level})`); }
+}
 // UDP: what the data channel delivered (frames put together, dropped when incomplete at the deadline, late pieces).
 const U = { chunks: 0, complete: 0, dropped: 0, late: 0, rtt: null, pair: "" };
 function needFull() {                               // a partial update is missing: ask for a full frame
@@ -292,7 +304,7 @@ const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
 const sd = (a) => { const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) ** 2))); };
 const r0 = (x) => (x == null || !isFinite(x) ? "–" : Math.round(x));
 const statsEl = $("stats");
-const CELLS = ["fps", "interval", "latency", "ping", "breakdown", "size", "rate", "frames", "conn", "first", "check"];
+const CELLS = ["fps", "interval", "latency", "ping", "breakdown", "size", "rate", "frames", "pc", "conn", "first", "check"];
 const cell = {};
 for (const k of CELLS) { const d = document.createElement("div"); d.className = "s"; d.innerHTML = "<b>–</b><span></span>"; statsEl.appendChild(d); cell[k] = d; }
 cell.breakdown.style.gridColumn = cell.size.style.gridColumn = "span 2";
@@ -314,6 +326,9 @@ function tick() {                                   // once a second (browsers s
   put("rate", `${mbps.toFixed(2)} Mbps`, "data rate");
   put("frames", `${T.drawn}`, `drawn (${T.full} full, ${T.part} partial) · ${T.dropped} dropped · ${T.idle} no-change · ${T.bad} bad`);
   put("conn", conn.live ? conn.live.kind : "–", `retries ${conn.retries} · up ${conn.upAt ? r0((t - conn.upAt) / 1000) + " s" : "–"}`);
+  const ps = PC_.srv;
+  put("pc", ps ? (ps.auto ? `Auto: ${ps.w ? ps.w + " px" : "full"} q${ps.q}` : `${ps.w ? ps.w + " px" : "full"} q${ps.q}`) : "–",
+      ps ? `PC sent ${ps.fps}/s, ${ps.mbps} Mbps; queue ≤ ${ps.qmax_kb} KB; waited ${ps.waits}×; send → drawn ${ps.lat == null ? "–" : ps.lat + " ms"}` : "PC sender report");
   put("first", T.first == null ? "–" : `${r0(T.first)} ms`, `first frame (${conn.warmAtOn ? "warm" : "cold"})`);
   const udp = S.transport.startsWith("udp");
   put("check", udp ? `${U.complete} · ${U.dropped} · ${U.late}` : (S.verify ? `${CHK.ok} ok · ${CHK.bad} bad` : "–"),
@@ -322,6 +337,7 @@ function tick() {                                   // once a second (browsers s
   if (conn.want) {
     log(`stats  fps ${fps.toFixed(1)}  interval ${r0(iv)}±${r0(jit)} ms  latency ${r0(lat)} ms  ${kb.toFixed(1)} KB (full ${r0(fullKb)})  ${mbps.toFixed(2)} Mbps  ` +
         `in ${W.recv} drawn ${W.drawn} dropped ${W.dropped} no-change ${W.idle}  decode ${(med(W.dec) || 0).toFixed(1)} ms  ping ${r0(sync.rtt)} ms  ${document.visibilityState}` +
+        (PC_.srv ? `  | PC: ${PC_.srv.w ? PC_.srv.w + "px" : "full"} q${PC_.srv.q}${PC_.srv.auto ? " auto" : ""}, sent ${PC_.srv.mbps} Mbps, queue≤${PC_.srv.qmax_kb} KB, waits ${PC_.srv.waits}` : "") +
         (gap > 1500 ? `  (timer late: ${(gap / 1000).toFixed(1)} s since last line)` : ""));
   }
   resetW();
@@ -413,12 +429,13 @@ const TRANSPORTS = {
         else if (m.type === "pong") addSync(m.t, m.srv, now());
         else if (m.type === "ka") { W.idle++; T.idle++; }
         else if (m.type === "auth") t.fail("the PC refused the sign-in", "auth");
+        else pcReport(m);
         return;
       }
       const dv = new DataView(ev.data), hl = dv.getUint32(0);
       const hdr = JSON.parse(dec.decode(new Uint8Array(ev.data, 4, hl))), body = new Uint8Array(ev.data, 4 + hl);
       verify(hdr, body);
-      show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), () => send({ type: "ack" }));
+      show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), () => send({ type: "ack", seq: hdr.seq }));
     };
     ws.onclose = (ev) => {
       if (failed) return;
@@ -465,12 +482,13 @@ const TRANSPORTS = {
             if (pl) {
               const body = buf.slice(off + 8 + hl, off + 8 + hl + pl);
               verify(hdr, body);
-              show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), +S.win ? ack : null);
+              show(hdr, new Blob([body], { type: "image/" + hdr.fmt }), +S.win ? () => post({ n: 1, seq: hdr.seq }) : null);
             }
             else if (hdr.type === "hello") { sid = hdr.sid; t.ready = true; onUp(gen, `stream, PC capture ${hdr.be}`); pingHttp(); }
             else if (hdr.type === "ka") { W.idle++; T.idle++; }
             else if (hdr.type === "auth") return t.fail("the PC refused the sign-in", "auth");
             else if (hdr.type === "bye") return t.fail(`the PC said: ${hdr.why}`);
+            else pcReport(hdr);
             off += 8 + hl + pl;
           }
           if (off) { buf.copyWithin(0, off, len); len -= off; }
@@ -560,6 +578,7 @@ function udp(gen, mode) {
     else if (m.type === "pong") addSync(m.t, m.srv, now());
     else if (m.type === "ka") { W.idle++; T.idle++; }
     else if (m.type === "auth") t.fail("the PC refused the sign-in", "auth");
+    else pcReport(m);
   };
   ws.onclose = (ev) => {
     if (failed) return;
@@ -714,7 +733,7 @@ window.PEEK = { S, sync, conn, log: LOG, cont: setCont,
              mbps: Math.round(T.bytes * 8 / secs / 1e4) / 100, first_ms: T.first == null ? null : Math.round(T.first), warm: conn.warmAtOn,
              ping: sync.best == null ? null : Math.round(sync.best), retries: conn.retries,
              udp: S.transport.startsWith("udp") ? { ...U, rtt: U.rtt == null ? null : Math.round(U.rtt * 10) / 10 } : undefined,
-             crc: S.verify ? { ...CHK } : undefined }; } };
+             crc: S.verify ? { ...CHK } : undefined, pc: PC_.srv }; } };
 
 log(`page loaded (${own ? "served by the PC" : "Cool tools"}; talks to ${BASE}); ${settingsText()}`);
 wake("page loaded");
