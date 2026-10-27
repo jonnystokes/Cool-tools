@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.613 and 2026-10-26 6:03 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.622 and 2026-10-26 6:48 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.613</title>
+<title>Book reader V1.0.622</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.613";
-  window.APP_BUILT = "2026-10-26 6:03 PM";
-  window.APP_NOTE = "Use my PC: a missing answer is said after 3 s, not 8 (8 s until the PC first answers); the PC tests never touch the live relay";
+  window.APP_VERSION = "Book reader V1.0.622";
+  window.APP_BUILT = "2026-10-26 6:48 PM";
+  window.APP_NOTE = "Use my PC on any device: a PC voice applies at once (no device checks or download); every refused Apply is logged and said on its row; the Voice tab, the Cloud tab, the play bar and the suggestion agree about Use my PC (external-input.md 1-7)";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -591,6 +591,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 .srow:last-child { border-bottom: 0; }
 .srow.block { grid-template-columns: minmax(0, 1fr); }
 .srow.pending { border-left-color: var(--accent); }
+.srow.refused { border-left-color: var(--err); }        /* a pick Apply refused: its note (.srefused, red) says why and what is still saved */
+.srefused { font-weight: 500; line-height: 1.35; }
 .srow.off .sname, .srow.off .shelp { opacity: 0.55; }
 .sname { font-weight: 600; }
 .shelp { margin-top: 2px; color: var(--muted); font-size: 0.86em; line-height: 1.35; }
@@ -7302,17 +7304,35 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // here, a timeout, no connection to the PC, the relay switched off or not running, the PC voice starting.
 // Only a reason trying again cannot fix (the PC wants its password, the page is out of date, the PC refused)
 // stops Play, with the reason and the "Use this device's voice" button. No fallbacks: nothing switches to this
-// device's voice by itself. A dropped connection keeps the pieces not answered yet: once the PC is back (its
+// device's voice by itself. A voice the PC does not run (a browser voice; 2026-10-26, external-input.md §3) stops
+// Play before anything is sent, with the ways out named and offered on the play bar: "Use <the PC's voice>" (sets
+// the voice, keeps Use my PC on) and "Use this device's voice"; CLOUDVOICE.runs / DEFAULT / defaultName / where are
+// what the Settings window and voicedata.js ask so that the same rule holds everywhere. A dropped connection keeps the pieces not answered yet: once the PC is back (its
 // voice loaded again if it had to restart) they are sent again, so the reading goes on where it was with the
 // sound already here kept.
 // Marks: each chunk's place (queued on the PC, generating there, on the way) goes to the player
 // (PLAYER.cloudMark), which highlight.js colours. CLOUDVOICE: the status for the bar and the Cloud tab.
 (function () {
-  const st = { lastMsg: 0, ws: null, hello: null, waiters: new Map(), states: new Map(), times: new Map(), key: "", prep: null, loading: "", status: "", check: "", checkAt: 0, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null, answered: "" };
+  const st = { lastMsg: 0, ws: null, hello: null, waiters: new Map(), states: new Map(), times: new Map(), key: "", prep: null, loading: "", status: "", check: "", checkAt: 0, failed: false, badVoice: "", bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null, answered: "" };
   const R = () => PCRELAY.client();
   const plain = (e) => String((e && e.message) || e || "").replace(/^Error: /, "");
   const err = (msg, extra) => Object.assign(new Error(msg), extra || {});
   const parseVoice = (v) => { const p = ENGINE.parse(String(v || "kokoro:af_heart")); return { engine: p.engine, voice: p.voice }; };
+  // The voices the PC runs (2026-10-26, external-input.md §1-5: the one place that knows): Kokoro and Supertonic on
+  // its card or processor, Piper on its processor; a browser voice is the device's own. runs(voice) gives "" when
+  // the PC makes it, else why not (the Settings window, voicedata.js and the play bar all ask here). DEFAULT is the
+  // PC's own voice, offered (never set by itself) wherever a browser voice meets Use my PC: Kokoro Heart fp32 on
+  // the PC's card, about 6× real time through CUDA. where(values) is the short "Kokoro fp32 on the PC's graphics
+  // card through CUDA" for the Voice tab's mark.
+  const PC_ENGINES = ["kokoro", "piper", "supertonic"];
+  const DEFAULT = Object.freeze({ voice: "kokoro:af_heart", runOn: "gpu", precision: "fp32" });
+  const runs = (voice) => { const v = parseVoice(voice); return PC_ENGINES.includes(v.engine) ? "" : `the PC runs Kokoro, Piper and Supertonic voices; ${(ENGINE.get(v.engine) || { name: v.engine }).name} runs on this device only`; };
+  const defaultName = () => { const E = ENGINE.get("kokoro"), vo = E && (E.voices || []).find((x) => x.id === "af_heart"); return `${vo ? "Kokoro " + vo.name.replace(/, grade .*$/, "") : "Kokoro Heart"} on the PC`; };
+  const where = (a) => {
+    const v = parseVoice(a.voice), cpu = a.runOn === "cpu", cuda = !cpu && a.pcCard !== "webgpu";
+    const on = cpu ? "the PC's processor" : `the PC's graphics card through ${cuda ? "CUDA" : "WebGPU"}`;
+    return v.engine === "kokoro" ? `Kokoro ${a.precision || "fp32"} (${v.voice}) on ${on}` : v.engine === "supertonic" ? `Supertonic ${v.voice} on ${on}` : `Piper ${v.voice} on ${cuda ? "the PC's graphics card through CUDA" : "the PC's processor"}`;
+  };
   const connected = () => !!(st.ws && st.ws.readyState === 1 && st.hello);
   const subs = new Set();
   function redraw() {
@@ -7610,7 +7630,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     sampleRate: 24000, maxChars: 300,
     async init(opts) {
       const v = parseVoice(opts.voice);
-      if (!["kokoro", "piper", "supertonic"].includes(v.engine)) throw err(`Use my PC: the PC runs Kokoro, Piper and Supertonic voices; ${(ENGINE.get(v.engine) || { name: v.engine }).name} runs on this device. Choose one of those in Settings → Voice, or press "Use this device's voice".`, { cannot: true, cloud: true });
+      // A voice the PC does not run (a browser voice): stopped here with the three ways out, none taken by itself.
+      // The play bar then shows "Use <the PC's voice>" and "Use this device's voice" (cloudtab.js: badVoice, failed).
+      const no = runs(opts.voice);
+      if (no) { st.badVoice = String(opts.voice || ""); st.failed = true; redraw(); throw err(`Use my PC: ${no}. Choose a Kokoro, Piper or Supertonic voice in Settings → Voice, press "Use ${defaultName()}" for the PC's own voice, or press "Use this device's voice" to turn Use my PC off.`, { cannot: true, cloud: true }); }
+      st.badVoice = "";
       const piper = v.engine === "piper", sup = v.engine === "supertonic";
       st.opts = { engine: v.engine, voice: v.voice, runOn: opts.runOn === "cpu" ? "cpu" : SETTINGS.get("pcCard") !== "webgpu" ? "cuda" : piper ? "cpu" : "gpu", precision: opts.precision || "fp32", pace: opts.pace, speaker: opts.speaker, steps: opts.steps };
       E.sampleRate = piper ? (/-x?_?low$/.test(v.voice) ? 16000 : 22050) : sup ? 44100 : 24000;
@@ -7683,7 +7707,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       if (t) return `Using cloud: ${lowerFirst(t)}`;
       return st.check ? `Using cloud: ${st.check}` : "Using cloud (checked when a book opens)";
     },
-    get failed() { return st.failed && !!SETTINGS.get("useMyPC"); },
+    // A failed Play, while Use my PC is on; a refused voice counts only while that voice is still the setting.
+    get failed() { return st.failed && !!SETTINGS.get("useMyPC") && !(st.badVoice && SETTINGS.get("voice") !== st.badVoice); },
+    // The voice Play refused because the PC does not run it (a browser voice), while it is still the setting.
+    get badVoice() { return st.badVoice && SETTINGS.get("voice") === st.badVoice ? st.badVoice : ""; },
+    PC_ENGINES, DEFAULT, runs, defaultName, where,
     get info() { return { connected: connected(), check: st.check, checkAt: st.checkAt, bytes: st.bytes, pieces: st.pieces, x: st.x, lastMs: st.lastMs, loading: st.loading, key: st.key, queued: st.waiters.size, unsent: unsent() }; },
     close() { if (st.ws) { const ws = st.ws; st.ws = null; st.hello = null; try { ws.close(); } catch (e) {} } },
   };
@@ -7822,7 +7850,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // plus the listener's files when it is on: step 8a); plan(before, after) is what a Save would need: the
 // files, the missing ones, the old voice's files Slim mode deletes, the fit check (storage with what Slim
 // frees, and memory: MODELS.fitMemory of the voice's peak, times its copies on the processor) and whether
-// it is offline. ownerOf(url) names what a stored file belongs to (the engines' catalog(), the shared
+// it is offline. With Use my PC on and a voice the PC runs (onPC(values); 2026-10-26) the voice needs
+// nothing here: no files, no memory; only the MP3 encoder and the listener (when on) count. ownerOf(url) names what a stored file belongs to (the engines' catalog(), the shared
 // runtime's one owner, the retired files' "no longer used" owner (MODELS.RUNTIME / RETIRED, EFF-15), else
 // what loaded it this visit, else "other files"); stored() is the store's list with owners;
 // removeOwner(owner) is Delete per voice (Jon's button only). mySettings() (the changed settings, never
@@ -7856,12 +7885,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     || (current && current.byUrl.has(MODELS.href(url)) && current.byUrl.get(MODELS.href(url)).owner) || "other files";
   const engineOf = (v) => { const p = ENGINE.parse(v.voice); return { E: ENGINE.get(p.engine), voice: p.voice }; };
   const isModel = (E) => !!(E && typeof E.files === "function");
+  // Use my PC on with a voice the PC runs (2026-10-26, external-input.md §1): the PC makes the voice, so this device
+  // needs none of its files and none of its working memory; the MP3 encoder (the stream) and the listener, when it
+  // is on, still run here and still count. Everything below (needed, memory, label, plan) goes by this.
+  const onPC = (v) => !!(v && v.useMyPC && g.CLOUDVOICE && !CLOUDVOICE.runs(v.voice));
 
   function needed(v) {
     const { E, voice } = engineOf(v);
     if (!isModel(E)) return [];
     const out = new Map();
-    for (const f of E.files({ voice, runOn: v.runOn, precision: v.precision, engine: v.kokoroEngine })) out.set(MODELS.href(f.url), { url: MODELS.href(f.url), size: Number(f.size) || 0, owner: ownerOf(f.url) });
+    if (!onPC(v)) for (const f of E.files({ voice, runOn: v.runOn, precision: v.precision, engine: v.kokoroEngine })) out.set(MODELS.href(f.url), { url: MODELS.href(f.url), size: Number(f.size) || 0, owner: ownerOf(f.url) });
     if (g.MP3 && MP3.FILE) out.set(MODELS.href(MP3.FILE.url), { url: MODELS.href(MP3.FILE.url), size: MP3.FILE.size, owner: "MP3 encoder" });
     if (listens(v)) for (const f of LISTENER.files(LISTENER.choice(v).id)) if (!out.has(MODELS.href(f.url))) out.set(MODELS.href(f.url), { url: MODELS.href(f.url), size: Number(f.size) || 0, owner: ownerOf(f.url) });
     return Array.from(out.values());
@@ -7875,19 +7908,23 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const vo = (E.voices || []).find((x) => x.id === voice);
     const name = vo ? vo.name.replace(/, grade .*$/, "") : voice;
     const cpu = E.id === "piper" || v.runOn === "cpu";
-    return `${E.name} ${name}${E.id === "kokoro" ? `, ${v.precision}${v.kokoroEngine === "newer" ? ", newer engine" : ""}` : ""}${isModel(E) ? (cpu ? ", on the processor" : ", on the graphics card") : ""}${isModel(E) && listens(v) ? ` + ${LISTENER.choice(v).name} listener` : ""}`;
+    const pc = onPC(v);
+    return `${E.name} ${name}${E.id === "kokoro" ? `, ${v.precision}${v.kokoroEngine === "newer" && !pc ? ", newer engine" : ""}` : ""}${isModel(E) ? (pc ? ", on your PC (Use my PC)" : cpu ? ", on the processor" : ", on the graphics card") : ""}${isModel(E) && listens(v) ? ` + ${LISTENER.choice(v).name} listener` : ""}`;
   }
-  // The voice's peak working memory (per copy, times the copies on the processor) against the ceiling.
+  // The voice's peak working memory (per copy, times the copies on the processor) against the ceiling; with the
+  // voice on the PC only the listener's (null when nothing runs here).
   function memory(v) {
     const { E } = engineOf(v);
     if (!isModel(E)) return null;
+    const pc = onPC(v);
     const runOn = E.id === "piper" || v.runOn === "cpu" ? "cpu" : "gpu";
-    const each = MODELS.peak(E.id, runOn, v.precision);
-    const copies = runOn === "cpu" && E.can && E.can.copies && g.VOICEWORK ? VOICEWORK.copies(v.copies) : 1;
+    const each = pc ? 0 : MODELS.peak(E.id, runOn, v.precision);
+    const copies = pc ? 0 : runOn === "cpu" && E.can && E.can.copies && g.VOICEWORK ? VOICEWORK.copies(v.copies) : 1;
     const ear = listens(v) ? LISTENER.choice(v).peak || 0 : 0;   // the listener's worker beside the voice's (estimated)
+    if (pc && !ear) return null;
     const m = MODELS.fitMemory(each * copies + ear);
-    if ((copies > 1 || ear) && m.text) m.text = `${copies > 1 ? `${copies} copies of ${each} MB` : `the voice ${each} MB`}${ear ? ` + the listener about ${ear} MB` : ""}: ${m.text}`;
-    return Object.assign(m, { each, copies, ear });
+    if ((copies > 1 || ear) && m.text) m.text = `${copies > 1 ? `${copies} copies of ${each} MB` : pc ? "the voice runs on your PC" : `the voice ${each} MB`}${ear ? ` + the listener about ${ear} MB` : ""}: ${m.text}`;
+    return Object.assign(m, { each, copies, ear, pc });
   }
   const offline = (v) => !!v.offline || navigator.onLine === false;
   const offlineWhy = (v) => (v.offline ? "Offline mode is on" : "there is no internet");
@@ -7897,7 +7934,10 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // does not use go first.
   async function plan(before, after) {
     const have = new Map((await MODELS.stored()).map((f) => [f.url, f.size]));
-    const files = needed(after), keep = new Set(files.map((f) => f.url));
+    const files = needed(after);
+    // Slim mode keeps whatever the chosen voice uses here or would use here: Use my PC turning on is not a switch
+    // of voice, so the voice's own files stay for the day it runs on this device again.
+    const keep = new Set(needed(Object.assign({}, after, { useMyPC: false })).map((f) => f.url));
     const missing = files.filter((f) => !have.has(f.url));
     const old = needed(before);
     const switched = old.some((f) => !keep.has(f.url)) || engineOf(before).E !== engineOf(after).E;
@@ -7906,7 +7946,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const fit = await MODELS.fit(missing, { freed: dropBytes });
     const mem = memory(after);
     return { files, missing, missingBytes: missing.reduce((n, f) => n + f.size, 0), stored: files.length - missing.length,
-      drop, dropBytes, switched, fit, mem, ok: fit.ok && (!mem || mem.ok), offline: offline(after), why: offlineWhy(after), label: label(after), model: isModel(engineOf(after).E) };
+      drop, dropBytes, switched, fit, mem, ok: fit.ok && (!mem || mem.ok), offline: offline(after), why: offlineWhy(after), label: label(after), model: isModel(engineOf(after).E), pc: onPC(after) };
   }
 
   // ---- The zip ------------------------------------------------------------------------------------
@@ -8065,7 +8105,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     return parts.join(" · ");
   }
   g.VOICEDATA = {
-    FORMAT, open, lacking, take, everything, needed, plan, memory, label, ownerOf, stored, removeOwner, persisted,
+    FORMAT, open, lacking, take, everything, needed, plan, memory, label, onPC, listens, ownerOf, stored, removeOwner, persisted,
     mySettings, validSettings, droppedSettings, DEVICE_TUNED, contentsOf, describe, deviceName,
     download: (files, progress, signal) => MODELS.ensure(files, progress, signal),
     get current() { return current; },
@@ -9387,7 +9427,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (typeof E.speak === "function") return "the browser voices speak by themselves and give the page no sound to listen to";
     return "";
   }
-  const voiceOnCard = (v) => { const E = engineOf(v); return isModel(E) && E.id !== "piper" && S(v, "runOn") !== "cpu"; };
+  // Use my PC on with a voice the PC runs (2026-10-26): the voice is on neither of this device's chips.
+  const onPC = (v) => !!(S(v, "useMyPC") && g.CLOUDVOICE && !CLOUDVOICE.runs(S(v, "voice")));
+  const voiceOnCard = (v) => { const E = engineOf(v); return isModel(E) && E.id !== "piper" && S(v, "runOn") !== "cpu" && !onPC(v); };
   // "Card: Kokoro fp32 voice + Whisper base listener · Processor: MP3 encoder"
   function where(v) {
     const E = engineOf(v), card = [], cpu = [];
@@ -9395,7 +9437,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (E && typeof E.speak === "function") device = "the device speaks (a browser voice)";
     else if (isModel(E)) {
       const label = `${E.name}${E.id === "kokoro" ? " " + S(v, "precision") : ""} voice`;
-      if (voiceOnCard(v)) card.push(label);
+      if (onPC(v)) device = `your PC makes the ${label} (Use my PC is on)`;
+      else if (voiceOnCard(v)) card.push(label);
       else { const n = E.can && E.can.copies && g.VOICEWORK ? VOICEWORK.copies(S(v, "copies")) : 1; cpu.push(`${label}${n > 1 ? ` (${n} copies)` : ""}`); }
       if (S(v, "backgroundPlay")) cpu.push("MP3 encoder");
       if (enabled(v)) { const L = choice(v); (L.runOn === "gpu" ? card : cpu).push(`${L.name} listener`); }
@@ -11847,6 +11890,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     }
     if (voiceChanged || textChanged) {
       if (state !== "stopped") stop(`Stopped: the ${voiceChanged && textChanged ? "voice and text" : voiceChanged ? "voice" : "text"} settings changed. Press Play to continue with the new settings.`);
+      else if (lastError) status("");                        // an error about the old settings does not outlive them (2026-10-26)
       reset();
       if (textChanged) READER.rebuildPieces();
       HIGHLIGHT.refresh(READER.pieces, () => null);
@@ -11945,6 +11989,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   globalThis.PLAYER = {
     play, pause, resume, toggle, stop, step, jumpToPara, show, chapterPicked, hooks, stats, activity, settingsChanged,
     status: statusNow, detail,
+    say: (text) => status(text, false),            // a notice on line 1 (the play bar's own buttons, cloudtab.js): kept until the state changes
     // engines/cloud.js: a chunk's place on the PC changed (queued / generating / sending): its marks are drawn again.
     cloudMark(partId) {
       const pid = String(partId).replace(/#\d+$/, "");
@@ -12024,6 +12069,16 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // Voice data tab is datatab.js, Offline package packtab.js and the Storage tab storagetab.js, added through SETTINGSWIN.addTab
 // with the builders in SETTINGSWIN.ui. A progress bar
 // under the message line shows files being taken or downloaded.
+// Use my PC (2026-10-26, external-input.md, Jon's tablet): with it on and a voice the PC runs (CLOUDVOICE.runs)
+// Apply saves at once: no device file plan, no memory check, no download (VOICEDATA.onPC); the Voice tab marks
+// the voice "Runs on your PC", blanks this device's greyed reasons and benchmark marks, and marks the browser
+// voices "this device only"; a browser voice with Use my PC on gets a red warning (and the Cloud tab offers the
+// PC's voice, cloudtab.js). Every refused Apply is logged as ONE settings line (the settings, the reason, what is
+// still saved) and noted in red on each row concerned, "Not saved: <why> — the voice is still <saved voice>"
+// (refuse(), marks()); the picks stay pending, marked, so a fix and Apply again work (an offline package
+// imported, Use my PC turned on, room made); the Apply button says what it is doing (busy) and why it is off
+// (title). A control change re-renders the tab without walking the model store (refreshClear walks it when a
+// tab is shown, after a download or a Delete, never on a pick) and reads the benchmark record once per render.
 // SETTINGSWIN.open / close / show(group, tab) / save / clearData / choose / pending / tab, for the tests.
 (function () {
   const S = globalThis.SETTINGS;
@@ -12050,15 +12105,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const HEAVY = new Set(Object.values(OWNS).flat().filter((n) => !LIVE.includes(n)));
   const APPLY_NOTE = "Applies when you press Apply";
   const LATER = {};                                         // tabs not built yet (none); datatab.js and storagetab.js add theirs
-  const FILE_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "offline", "listenerOn", "listener"];   // a change here may need model files
-  const MEM_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "copies", "listenerOn", "listener"];     // a change here may change the working memory (D3)
+  const FILE_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "offline", "listenerOn", "listener", "useMyPC"];   // a change here may need model files (Use my PC off again: the device runs the voice)
+  const MEM_KEYS = ["voice", "kokoroEngine", "runOn", "precision", "copies", "listenerOn", "listener", "useMyPC"];     // a change here may change the working memory (D3)
   const pending = new Map();                                // name -> the value not saved yet; kept while the window is closed
+  let refused = null;                                       // the last refused Apply: { names, why }, noted on those rows while their picks are pending
   const lastTab = {};                                       // group -> the tab shown last
   let win = null, el = null;                                // el: { body, msg, save, clear, groups, tabs }
   let group = "Reading", tab = "Book";
   let caps = null, capsAsked = false;                       // VOICEWORK.gpu(), asked when the Voice tab first opens
   let armed = 0;                                            // Delete downloaded voices: when the first tap was
-  let storedBytes = null;                                   // the size on that button (refreshClear)
+  let storedBytes = null, storedWalk = null;                // the size on that button (refreshClear): the store walked once, again only when it may have changed
+  let benchRec = null;                                      // the stored benchmark, read once per render (mark())
   const dragFrom = new Map();                               // a live slider being dragged: name -> the value before the drag
   let working = "";                                         // a Save taking or checking files: what it is doing
 
@@ -12072,8 +12129,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
   function pend(name, v) {
     if (same(v, S.get(name))) pending.delete(name); else pending.set(name, v);
+    if (refused && refused.names.includes(name)) refused = null;   // a new pick: the old refusal's note goes
     marks();
-    if (FILE_KEYS.includes(name)) refreshNeed();
   }
   // The word timing the voice as it will be (pending voice included) can't give becomes Estimate, said.
   function timingFor(v, a) {
@@ -12090,7 +12147,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (opts.drag && !dragFrom.has(name)) dragFrom.set(name, S.get(name));
     let names;
     try { names = S.update({ [name]: v }, { quiet: !!opts.drag }); }
-    catch (e) { dragFrom.delete(name); say(`Not saved: ${firstLine(e.message)}. ${LABELS[name] || name} is unchanged; Settings → System → Storage shows what is stored.`); rerender(); return; }
+    catch (e) { dragFrom.delete(name); say(`Not saved: ${firstLine(e.message)}. ${LABELS[name] || name} is unchanged; Settings → System → Storage shows what is stored.`); log("settings", `not saved (${name} ${S.short(v)}): ${firstLine(e.message)}; ${name} is still ${S.short(S.get(name))}`); rerender(); return; }
     if (names.length) apply(names);
     if (opts.drag) { marks(); return; }
     say(`Saved: ${LABELS[name] || name}.${note ? ` ${note}.` : ""}`);
@@ -12108,6 +12165,23 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   const dirtyTab = (t) => (OWNS[t] || []).some((n) => pending.has(n));
   const dirtyGroup = (g) => GROUPS.find((x) => x[0] === g)[1].some(dirtyTab);
   const engineOf = (voice) => ENGINE.get(ENGINE.parse(voice).engine);
+  // "Kokoro Heart (US female)", "The device's default English voice", "Google US English (en-US, online) (browser voice)".
+  function voiceName(id) {
+    const { engine, voice } = ENGINE.parse(String(id || "")), E = ENGINE.get(engine);
+    if (!E) return String(id);
+    if (E.id === "webspeech" && (!voice || voice === E.id)) return "The device's default English voice";
+    const vo = (E.voices || []).find((x) => x.id === voice);
+    return vo ? (E.id === "webspeech" ? `${vo.name} (browser voice)` : `${E.name} ${vo.name.replace(/, grade .*$/, "")}`) : String(id);
+  }
+  // The saved value in words, for a refusal's note: the voice by name, a switch on / off, Automatic for null.
+  const shown = (name) => { const v = S.get(name); return name === "voice" ? voiceName(v) : typeof v === "boolean" ? (v ? "on" : "off") : v === null ? "Automatic" : typeof v === "string" ? v : S.short(v); };
+  // Use my PC and the voice as it would be saved (2026-10-26): { ok: true, where } when the PC makes it, { ok: false,
+  // why } for a voice that runs on this device only (a browser voice), null while Use my PC is off.
+  function onPC(a) {
+    if (!a.useMyPC || !globalThis.CLOUDVOICE) return null;
+    const why = CLOUDVOICE.runs(a.voice);
+    return why ? { ok: false, why } : { ok: true, where: CLOUDVOICE.where(a) };
+  }
 
   // ---- Small builders -----------------------------------------------------------------------------
   const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -12305,11 +12379,15 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const E = ENGINE.get(eid);
     if (!E) return;
     if (E.id === "webspeech") { body.appendChild(h("div", "snote", "Browser voices: the device speaks them itself. Nothing is downloaded, Speed and Volume apply, and the voice settings below do not. On Android they stop when the screen is off; a model voice keeps reading.")); body.appendChild(whereRow()); return; }
-    if (E.id === "kokoro") body.appendChild(choice("kokoroEngine", "Engine", "Newer keeps the screen smooth on some computers; on some phones it is half as fast.",
+    // Use my PC on (2026-10-26): Run on, Precision, Pace, Steps and Speaker go to the PC as they are; this device's
+    // card check, its greyed reasons and its benchmark marks do not apply, and the Engine choice is this device's only.
+    const pc = onPC(after()), pcOn = !!(pc && pc.ok);
+    if (pcOn) body.appendChild(h("div", "snote", `Use my PC is on: ${pc.where} makes the sound (Settings → Cloud). Run on and Precision apply to the PC; this device's own checks and marks do not, and nothing is downloaded here.`));
+    else if (E.id === "kokoro") body.appendChild(choice("kokoroEngine", "Engine", "Newer keeps the screen smooth on some computers; on some phones it is half as fast.",
       [{ id: "current", label: "Current" }, { id: "newer", label: "Newer (experimental)" }], { segment: true }));
     const runOn = value("runOn");
     const d = E.describe ? E.describe(caps, runOn, vid, { engine: value("kokoroEngine") }) : { runOn: [], precisions: [], pace: false, steps: false, copies: false, speaker: 0 };
-    const needsCaps = (d.runOn || []).some((o) => o.id === "gpu") && !caps;
+    const needsCaps = (d.runOn || []).some((o) => o.id === "gpu") && !caps && !pcOn;
     if (needsCaps) { askCaps(); body.appendChild(h("div", "snote", "Checking what this device's graphics card can run…")); }
     else {
       // Each choice marked with how it does on this device (the stored benchmark); Kokoro on the
@@ -12319,10 +12397,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
         const m = mark(Object.assign(after(), { runOn: id }, cpuK ? { precision: "q8" } : {}));
         return m && cpuK ? Object.assign(m, { text: m.text + " with 8-bit" }) : m;
       };
-      if ((d.runOn || []).length > 1) body.appendChild(choice("runOn", "Run on", "Where the voice makes its sound. The graphics card is faster; the processor runs several copies of the voice at once instead.", d.runOn.map((o) => ({ id: o.id, label: o.label || (o.id === "gpu" ? "Graphics card" : "Processor"), off: o.off || "", mark: o.off ? null : runMark(o.id) })), { segment: true }));
+      const off = (o) => (pcOn ? "" : o.off || "");          // the device's reason does not apply to the PC
+      if ((d.runOn || []).length > 1) body.appendChild(choice("runOn", "Run on", pcOn ? "Where the PC makes the sound: its graphics card (through CUDA or WebGPU, as the Cloud tab says) or its processor." : "Where the voice makes its sound. The graphics card is faster; the processor runs several copies of the voice at once instead.", d.runOn.map((o) => ({ id: o.id, label: o.label || (o.id === "gpu" ? "Graphics card" : "Processor"), off: off(o), mark: off(o) || pcOn ? null : runMark(o.id) })), { segment: true }));
       // The engine's label "fp16 (163 MB): needs a card with …" is a title and a help line here.
-      if ((d.precisions || []).length) body.appendChild(choice("precision", "Precision", "Which Kokoro model file to run. fp32 is the reference sound; the smaller ones are faster where they work. A precision that gave broken sound on this device is marked.",
-        d.precisions.map((p) => { const [title, ...rest] = String(p.label).split(": "); return { id: p.id, label: title, help: rest.join(": "), off: p.off || "", mark: p.off ? null : mark(Object.assign(after(), { precision: p.id })) }; })));
+      if ((d.precisions || []).length) body.appendChild(choice("precision", "Precision", pcOn ? "Which Kokoro model file the PC runs. fp32 is the reference sound and the PC's default." : "Which Kokoro model file to run. fp32 is the reference sound; the smaller ones are faster where they work. A precision that gave broken sound on this device is marked.",
+        d.precisions.map((p) => { const [title, ...rest] = String(p.label).split(": "); return { id: p.id, label: title, help: rest.join(": "), off: off(p), mark: off(p) || pcOn ? null : mark(Object.assign(after(), { precision: p.id })) }; })));
     }
     if (d.pace) body.appendChild(slider("pace", "Pace", "The voice's own speaking rate when the sound is made. Speed (under Reading) changes the playback instead.", { min: 0.5, max: 2, step: 0.05, show: (v) => Number(v).toFixed(2) }));
     if (d.steps) body.appendChild(select("steps", "Steps", "Supertonic's quality-against-speed setting. Below 30 the voice stumbles; above 100 there is no audible gain.",
@@ -12332,7 +12411,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       [{ id: "", label: `Automatic (${VOICEWORK.copies(null)} on this device: half the threads, up to 8)` }].concat(Array.from({ length: 16 }, (_, i) => ({ id: String(i + 1), label: String(i + 1) }))),
       { toValue: (v) => (v === "" ? null : Number(v)), fromValue: (v) => (v == null ? "" : String(v)) }));
     if (d.speaker > 1) body.appendChild(speakerRow(d.speaker));
-    body.appendChild(toggle("burst", "Make sound in bursts", "Makes up to 5 minutes of sound ahead, then rests until 2 minutes are left. Resting frees the graphics card, which keeps the word highlight smooth. Off: sound is made whenever there is room."));
+    body.appendChild(toggle("burst", "Make sound in bursts", "Makes up to 5 minutes of sound ahead, then rests until 2 minutes are left. Resting frees the graphics card, which keeps the word highlight smooth. Off: sound is made whenever there is room.", pcOn ? "not used while Use my PC is on: the PC keeps its own pieces ahead" : ""));
     body.appendChild(whereRow());
   }
   // What runs on the processor and on the card with these settings (pending included), and the
@@ -12345,34 +12424,38 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
   // One list, best-sounding first, grouped per engine; this device's browser voices last (refreshed as the device lists them).
   function voiceRow() {
-    const cur = value("voice");
+    const cur = value("voice"), pc = onPC(after());      // Use my PC on: the browser voices are this device's only; a model voice runs on the PC
     const sel = h("select");
     sel.setAttribute("aria-label", "Voice");
     let found = false;
     for (const e of ENGINE.list()) {
-      const og = h("optgroup");
-      og.label = e.name;
+      const og = h("optgroup"), own = !!pc && e.id === "webspeech";
+      og.label = own ? `${e.name} — this device only (Use my PC is on)` : e.name;
       let vs = e.voices || [];
       if (e.id === "webspeech") { if (e.refresh) e.refresh(); vs = [{ id: e.id, name: "The device's default English voice" }].concat(e.voices || []); }
-      for (const v of vs) { const id = e.id + ":" + v.id, o = h("option", null, v.name); o.value = id; if (id === cur) { o.selected = true; found = true; } og.appendChild(o); }
+      for (const v of vs) { const id = e.id + ":" + v.id, o = h("option", null, own ? `${v.name} — this device only` : v.name); o.value = id; if (id === cur) { o.selected = true; found = true; } og.appendChild(o); }
       if (e.id === "webspeech" && !(e.voices || []).length) { const o = h("option", null, "(this device has not listed its voices yet)"); o.disabled = true; og.appendChild(o); }
       sel.appendChild(og);
     }
     if (!found) { const o = h("option", null, `${cur} (not in the list)`); o.value = cur; o.selected = true; o.disabled = true; sel.insertBefore(o, sel.firstChild); }
     sel.addEventListener("change", () => { change("voice", sel.value); rerender(); });
-    const r = row("Voice", "Best-sounding first: Kokoro voices by their makers' grade, then Piper, Supertonic, and last this device's own browser voices.", sel, { name: "voice", block: true });
+    const r = row("Voice", pc ? "Best-sounding first: Kokoro voices by their makers' grade, then Piper, Supertonic: with Use my PC on, your PC makes any of these. This device's own browser voices, last, run here only." : "Best-sounding first: Kokoro voices by their makers' grade, then Piper, Supertonic, and last this device's own browser voices.", sel, { name: "voice", block: true });
     if (!found) warn(r, `"${cur}" is not available in this build on this device. Play will stop with that reason; choose a voice from the list.`);
-    // How this setup does on this device, from the stored benchmark (step 7).
-    const rec = globalThis.BENCH ? BENCH.record() : null, m = mark(after());
-    if (m) r.querySelector(".slab").appendChild(h("div", "sdev " + m.cls, `On this device: ${m.text}${m.p.label ? ` · ${m.p.label}` : ""} · checked ${LOG.when(rec.when)}.`));
-    else if (!(rec && rec.predictions) && globalThis.BENCH) r.querySelector(".slab").appendChild(h("div", "sdev", "This device has not been checked yet: System → Debug → Re-check this device."));
+    if (pc && pc.ok) r.querySelector(".slab").appendChild(h("div", "sdev ok", `Runs on your PC (Use my PC is on): ${pc.where}. This device's own speed and memory do not matter for it, and nothing is downloaded here.`));
+    else if (pc) warn(r, `Use my PC is on, but ${pc.why}: Play will stop with that reason. Choose a Kokoro, Piper or Supertonic voice here, or turn Use my PC off (Settings → Cloud → Use this device's voice).`);
+    else {
+      // How this setup does on this device, from the stored benchmark (step 7).
+      const rec = benchRec, m = mark(after());
+      if (m) r.querySelector(".slab").appendChild(h("div", "sdev " + m.cls, `On this device: ${m.text}${m.p.label ? ` · ${m.p.label}` : ""} · checked ${LOG.when(rec.when)}.`));
+      else if (!(rec && rec.predictions) && globalThis.BENCH) r.querySelector(".slab").appendChild(h("div", "sdev", "This device has not been checked yet: System → Debug → Re-check this device."));
+    }
     return r;
   }
   // "runs well (predicted 2.9× real time)" for a voice setting, from the stored benchmark; null without
   // one. The status in plain words ("barely" reads "barely keeps up"), the numbers in brackets after it.
   const PLAIN = { "runs well": "runs well", barely: "barely keeps up", "too slow": "too slow", "can't run here": "can't run here" };
   function mark(v) {
-    const p = globalThis.BENCH ? BENCH.statusFor(v) : null;
+    const p = globalThis.BENCH ? BENCH.statusFor(v, benchRec) : null;
     if (!p) return null;
     const cls = { "runs well": "ok", barely: "barely", "too slow": "slow" }[p.status] || "cant";
     const x = p.x >= 10 ? p.x.toFixed(0) : p.x.toFixed(1);
@@ -12544,8 +12627,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     root.append(head, content);
     body.replaceChildren(root);
     el = { root, body: content, msg, prog, save, clear, groups, tabs };
-    show(group, tab);
-    refreshNeed();
+    show(group, tab);                                        // walks the store once for the Delete button's size
   }
   function show(g, t) {
     const entry = GROUPS.find((x) => x[0] === g);
@@ -12556,43 +12638,66 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     lastTab[g] = tab;
     for (const b of el.groups.children) b.setAttribute("aria-selected", b.dataset.g === g ? "true" : "false");
     el.tabs.replaceChildren(...list.map((name) => { const b = button(null, name, () => show(g, name)); b.dataset.t = name; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", name === tab ? "true" : "false"); return b; }));
-    renderBody();
+    renderBody(true);
     if (win) win.body.scrollTop = 0;
   }
-  function renderBody() {
+  // walk: look at the model store again for the Delete button's size (a tab shown); a control change does not.
+  function renderBody(walk) {
     if (!el) return;
     if (tabView) { tabView.close(); tabView = null; }
     el.body.replaceChildren();
     el.body.dataset.tab = tab;
+    benchRec = globalThis.BENCH ? BENCH.record() : null;
     if (TABS[tab]) TABS[tab](el.body);
     if (LATER[tab]) el.body.appendChild(later(tab));
     marks();
-    refreshClear();
+    refreshClear(!!walk);
   }
   // The same tab again (a choice changed what applies), keeping the scroll place.
   function rerender() { const top = win ? win.body.scrollTop : 0; renderBody(); if (win) win.body.scrollTop = top; }
   const say = (text) => { if (el) el.msg.textContent = text || ""; };
   // The unsaved marks: the groups, the tabs, the rows, the Apply button (lit while changes wait).
   // refreshNeed: the store may have changed (a download, an import, a Delete): the Clear button's count.
-  function refreshNeed() { refreshClear(); }
+  function refreshNeed() { refreshClear(true); }
+  const APPLY_TITLE = "Apply the changes marked \"Applies when you press Apply\" (the other settings apply the moment you change them)";
   function marks() {
     if (!el) return;
     for (const b of el.groups.children) b.classList.toggle("dirty", dirtyGroup(b.dataset.g));
     for (const b of el.tabs.children) b.classList.toggle("dirty", dirtyTab(b.dataset.t));
-    for (const r of el.body.querySelectorAll(".srow[data-setting]")) r.classList.toggle("pending", pending.has(r.dataset.setting));
+    for (const r of el.body.querySelectorAll(".srow[data-setting]")) {
+      const name = r.dataset.setting, bad = !!(refused && pending.has(name) && refused.names.includes(name));
+      r.classList.toggle("pending", pending.has(name));
+      r.classList.toggle("refused", bad);
+      // A refused pick, still waiting here: said on its row, in words, with what is still saved.
+      let note = r.querySelector(".srefused");
+      if (bad && !note) { note = h("div", "swarn srefused"); r.querySelector(".slab").appendChild(note); }
+      if (note) { if (bad) note.textContent = `Not saved: ${refused.why} — ${name === "voice" ? "the voice" : LABELS[name] || name} is still ${shown(name)}.`; else note.remove(); }
+    }
     el.save.classList.toggle("hot", pending.size > 0 && !working);
     el.save.disabled = pending.size === 0 || !!working;
     el.save.textContent = working || "Apply";
+    el.save.title = working ? `${working} Apply waits for it to finish.` : pending.size ? APPLY_TITLE : "Nothing to apply: every change made so far is applied. A change marked \"Applies when you press Apply\" lights this button.";
   }
 
   // Save: the pending values in one write and one log line, then applied. A word timing the saved
   // voice cannot give (Voice model with Piper) is saved as Estimate, said here, never silently. With a
-  // model-file setting pending, the files come first (see the top of this file).
+  // model-file setting pending, the files come first (see the top of this file). Every way it does not
+  // save is said and logged (2026-10-26).
   function saveClick() {
-    if (working) { say(`${working} Wait for it to finish.`); return Promise.resolve(); }
-    if ((globalThis.VOICEDATA && VOICEDATA.busy) || (globalThis.PACKAGE && PACKAGE.busy)) { say("An offline package is being made or imported; wait for it to finish (or stop it in Offline package)."); return Promise.resolve(); }
-    if (!pending.size) { say("Nothing to apply."); return Promise.resolve(); }
+    if (working) { say(`${working} Wait for it to finish.`); log("settings", `Apply pressed while busy (${working}): nothing applied yet, wait for it to finish`); return Promise.resolve(); }
+    if ((globalThis.VOICEDATA && VOICEDATA.busy) || (globalThis.PACKAGE && PACKAGE.busy)) { say("An offline package is being made or imported; wait for it to finish (or stop it in Offline package)."); log("settings", "Apply pressed while an offline package is being made or imported: nothing applied, wait for it to finish"); return Promise.resolve(); }
+    if (!pending.size) { say("Nothing to apply."); log("settings", "Apply pressed with nothing to apply"); return Promise.resolve(); }
     return doSave();
+  }
+  // A refused Apply (2026-10-26, external-input.md §2): ONE settings log line naming the settings, the reason and
+  // what is still saved, and a red note on each row concerned (marks()); the picks stay pending, marked, so a fix
+  // and Apply again work (an offline package imported, Use my PC turned on, room made). The strip's own text is said
+  // by the caller.
+  function refuse(changes, why) {
+    const names = Object.keys(changes);
+    refused = { names, why: String(why || "").trim() };
+    log("settings", `not applied (${names.map((n) => `${n} ${S.short(changes[n])}`).join(" · ")}): ${refused.why} ${names.map((n) => `${n} is still ${S.short(S.get(n))}`).join("; ")}`);
+    marks();
   }
   // opts.fetch false: no download after the Save (Export does its own); opts.only: save just these
   // pending names (a choice made on a button: choose), the rest stay pending; opts.lead: said first.
@@ -12607,7 +12712,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const fileChange = FILE_KEYS.some((k) => k in changes), memChange = MEM_KEYS.some((k) => k in changes);
     if (!globalThis.VOICEDATA || (!fileChange && !memChange)) return !!fin(commit(changes));
     const before = S.all(), next = Object.assign({}, before, changes);
-    const stop = (text) => { say(`${opts.lead ? opts.lead + " " : ""}${text} Nothing was saved.${opts.only ? " The chosen settings wait here, marked, for Apply." : ""}`); return false; };
+    const stop = (text) => { say(`${opts.lead ? opts.lead + " " : ""}${text} Nothing was saved.${opts.only ? " The chosen settings wait here, marked, for Apply." : ""}`); refuse(changes, text); return false; };
+    // Use my PC on with a voice the PC runs (2026-10-26, external-input.md §1): this device needs no voice files and
+    // no voice memory, so there is nothing to check or download here: saved at once. (With the listener on it still
+    // runs here, and the plan below then covers its files and memory alone.)
+    if (VOICEDATA.onPC(next) && !VOICEDATA.listens(next)) { notes.push(`${VOICEDATA.label(next)}: nothing to download or check on this device`); return !!fin(commit(changes)); }
     // The memory half refuses only when this change makes the need bigger than what is saved now (D4:
     // a Save of Offline mode alone is never refused for the voice already saved); otherwise a note.
     const memRefused = (m) => { if (!m || m.ok) return false; const m0 = VOICEDATA.memory(before); return !m0 || m.mb > m0.mb; };
@@ -12654,8 +12763,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   function commit(changes, extra = "") {
     let names;
     try { names = S.update(changes); }
-    catch (e) { say(`Not saved: ${firstLine(e.message)}. Your changes are still pending; Settings → System → Storage shows what is stored.${extra ? " " + extra : ""}`); return null; }
+    catch (e) { say(`Not saved: ${firstLine(e.message)}. Your changes are still pending; Settings → System → Storage shows what is stored.${extra ? " " + extra : ""}`); refuse(changes, `${firstLine(e.message)}.`); return null; }
     for (const k of Object.keys(changes)) pending.delete(k);
+    if (refused && refused.names.some((n) => n in changes)) refused = null;
     if (names.length) apply(names);
     return names;
   }
@@ -12691,7 +12801,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       (r) => { progress(""); say(`${saved} Downloaded ${count(r.fetched)} for ${p.label} (${MODELS.MB(r.bytes)}) in ${((performance.now() - t0) / 1000).toFixed(0)} s.`); refreshNeed(); rerenderIf("Voice data"); },
       (e) => { progress(""); say(`${saved} The download failed: ${firstLine(e.message)} Play will try again.`); rerenderIf("Voice data"); });
   }
-  function busy(what) { working = what; if (!what) progress(""); marks(); }
+  // What a Save is doing, on the button and in the strip (never a greyed button with no word why).
+  function busy(what) { working = what; if (what) say(what); else progress(""); marks(); }
   function progress(text, frac) {
     if (!el) return;
     if (text) say(text);
@@ -12717,9 +12828,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // The first tap says what would go; a second within a few seconds deletes it and says what went.
   const ownerOf = (f) => f.owner || (/cdn\.jsdelivr\.net/.test(f.url) ? "libraries" : (/huggingface\.co\/[^/]+\/([^/]+)/.exec(f.url) || [])[1] || "other files");
   const clearLabel = () => `Delete downloaded voices (${storedBytes == null ? "…" : storedBytes ? MODELS.MB(storedBytes) : "none"})`;
-  function refreshClear() {
+  // The store is walked once (every file matched and sized: a long task on a slow tablet), and again only when it
+  // may have changed (force: a tab shown, a download done, a Delete, an import); a control change inside a tab
+  // takes the size already known (2026-10-26, external-input.md §6: the walk ran twice on every voice pick).
+  function refreshClear(force) {
     if (!globalThis.MODELS || !MODELS.stored) return;
-    MODELS.stored().then((files) => {
+    if (!force && storedWalk) { storedWalk.then(() => { if (el && !armed) el.clear.textContent = clearLabel(); }); return; }
+    storedWalk = MODELS.stored().then((files) => {
       storedBytes = files.reduce((n, f) => n + (f.size || 0), 0);
       if (el && !armed) el.clear.textContent = clearLabel();
     }, () => {});
@@ -12748,7 +12863,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const n = await MODELS.remove(files.map((f) => f.url));
       say(`Deleted ${n} file${n === 1 ? "" : "s"} (${MODELS.MB(bytes)}): ${list}. The book, settings and logs are untouched; a voice downloads its files again at the next Play.`);
     } catch (e) { say(`Deleting failed: ${e.message}`); }
-    refreshClear();
+    refreshClear(true);
     rerenderIf("Voice data");
   }
 
@@ -12797,7 +12912,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     open, show, save: saveClick, clearData, choose, propose, LIVE,
     // For datatab.js (the Voice data tab) and storagetab.js (Storage): register a tab, and the window's builders.
     addTab: (name, fn) => { TABS[name] = fn; delete LATER[name]; },
-    ui: { h, button, row, toggle, choice, warn, value, after, change, pend, say, save: (opts) => (working ? Promise.resolve(false) : doSave(opts)), progress, busy, overall, rerender, refreshNeed, refreshClear, count, FILE_KEYS, LIVE, apply, get working() { return working; } },
+    ui: { h, button, row, toggle, choice, warn, value, after, change, pend, say, voiceName, onPC, save: (opts) => (working ? Promise.resolve(false) : doSave(opts)), progress, busy, overall, rerender, refreshNeed, refreshClear, count, FILE_KEYS, LIVE, apply, get working() { return working; }, get refused() { return refused; } },
     close: () => { if (win) win.close(); },
     get isOpen() { return !!win; },
     get pending() { return new Map(pending); },
@@ -12845,8 +12960,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       const p = await V.plan(SETTINGS.all(), U.after());
       if (!p.model) return line(`${p.label}: browser voices need no files.`);
       const all = p.files.reduce((n, f) => n + f.size, 0);
-      const out = [line(`${p.label}: ${U.count(p.files.length)}, ${MB(all)} (libraries and the MP3 encoder included); ${p.missing.length ? `${p.stored} stored, ${MB(p.missingBytes)} to ${p.offline ? `import from an offline package (${p.why})` : "download"}` : "all stored"}.`),
-        line(`Storage: ${p.fit.text}.`, !p.fit.ok)];
+      const out = [];
+      // Use my PC on (2026-10-26): the voice's files and memory are the PC's business; what still runs here is counted.
+      if (p.pc) out.push(line(`${p.label}: the voice is made on your PC (Use my PC is on), so its files and its working memory are not needed on this device. Counted below: what still runs here (the MP3 encoder, the listener when it is on).`));
+      out.push(line(`${p.label}: ${U.count(p.files.length)}, ${MB(all)} (libraries and the MP3 encoder included); ${p.missing.length ? `${p.stored} stored, ${MB(p.missingBytes)} to ${p.offline ? `import from an offline package (${p.why})` : "download"}` : "all stored"}.`),
+        line(`Storage: ${p.fit.text}.`, !p.fit.ok));
       if (p.mem && p.mem.text) out.push(line(`Memory: ${p.mem.text}.`, p.mem.warn));
       if (p.drop.length) out.push(line(`Slim mode deletes ${U.count(p.drop.length)} of the voice no longer used (${MB(p.dropBytes)}) on Apply.`));
       if (p.offline && p.missing.length) out.push(U.button("sbtn", "Import an offline package…", () => W.show("Sound", "Offline package")));
@@ -13674,7 +13792,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 (function () {
   const W = globalThis.SETTINGSWIN;
   if (!W) return;
-  const { h, button, row, toggle, choice, value, change, say } = W.ui;
+  const { h, button, row, toggle, choice, value, change, say, voiceName } = W.ui;
   const R = () => PCRELAY.client();
   const MB = (n) => (n < 1e6 ? `${Math.round((n || 0) / 1e3)} KB` : `${(n / 1e6).toFixed(1)} MB`);
   const SCOPES = ["files-private", "voice"];
@@ -13812,13 +13930,40 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     const cuda = on !== "processor" && value("pcCard") !== "webgpu";
     if (v.engine === "supertonic") return `Supertonic ${v.voice} on the PC's ${on}${on === "processor" ? "" : cuda ? " through CUDA" : " through WebGPU"} (Run on${on === "processor" ? "" : ", PC graphics card"}; measured on the PC: about 4.2× real time through CUDA at 50 steps, 2.7× through WebGPU, 3.5× on the processor at 30). If the card fails there, the reading stops and says so; choose another yourself.`;
     if (v.engine === "piper") return `Piper ${v.voice} on the PC's ${cuda ? "graphics card through CUDA (about 26× real time)" : "processor (about 14× real time)"}${on === "processor" ? " (Run on)" : cuda ? " (PC graphics card)" : " (Piper has no WebGPU on the PC)"}.`;
-    return `${(ENGINE.get(v.engine) || { name: v.engine }).name} does not run on the PC: with Use my PC on, Play stops and says so.`;
+    return `${voiceName(value("voice"))} is a browser voice: it runs on this device only, so with Use my PC on Play stops and says so. Choose a Kokoro, Piper or Supertonic voice in the Voice tab, or press "Use ${C() ? C().defaultName() : "Kokoro Heart on the PC"}" above.`;
+  }
+  const C = () => globalThis.CLOUDVOICE || null;
+
+  // Use my PC on while a browser voice is chosen (pending or saved; 2026-10-26, external-input.md §4): the voice would
+  // run on this device only and Play would stop, so this row says so and offers the PC's own voice (Kokoro Heart,
+  // fp32, on its card) as a pending change; nothing is set by itself. Shown only while that is the case.
+  function offerRow() {
+    const name = C() ? C().defaultName() : "Kokoro Heart on the PC";
+    const b = button("sbtn", `Use ${name}`, () => {
+      for (const [k, v] of Object.entries(C() ? C().DEFAULT : { voice: "kokoro:af_heart", runOn: "gpu", precision: "fp32" })) change(k, v);
+      say(`${name} is chosen (press Apply): the voice is made on your PC. The Voice tab shows it.`);
+      update();
+    });
+    const r = row("Voice for the PC", "", b, { block: true });
+    const warn = h("div", "swarn", "");
+    r.querySelector(".slab").appendChild(warn);
+    const update = () => {
+      const bad = !!value("useMyPC") && !!(C() && C().runs(value("voice")));
+      r.hidden = !bad;
+      if (bad) warn.textContent = `Use my PC is on, but ${voiceName(value("voice"))} is a browser voice: it runs on this device only, so Play would stop. Choose a Kokoro, Piper or Supertonic voice in the Voice tab, or use the PC's own voice:`;
+    };
+    update();
+    return { el: r, update };
   }
 
   function cloudTab(body) {
     body.appendChild(row("Your PC", "", statusBox(), { block: true }));
-    body.appendChild(toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, it keeps trying by itself (1, 2, 4, 8 s apart, then every 12 s) and says why; Play waits and starts the moment the PC answers, and a reading whose connection drops goes on where it was once it is back. Nothing switches to this device's voice by itself (the “Use this device's voice” button is there while it waits). The PC runs Kokoro and Supertonic voices (card or processor, as Run on says) and Piper voices (processor)."));
-    const back = button("sbtn", "Use this device's voice", () => { change("useMyPC", false); say("Use my PC is off (press Apply): this device makes the voice again."); });
+    const t = toggle("useMyPC", "Use my PC for the voice", "The voice chosen in the Voice tab is made on your PC (its graphics card or processor, as Run on says) and sent here, with its word times. The PC is contacted only while this is on: a light check when a book opens, the real work when you press Play. If the PC can't be reached, it keeps trying by itself (1, 2, 4, 8 s apart, then every 12 s) and says why; Play waits and starts the moment the PC answers, and a reading whose connection drops goes on where it was once it is back. Nothing switches to this device's voice by itself (the “Use this device's voice” button is there while it waits). The PC runs Kokoro and Supertonic voices (card or processor, as Run on says) and Piper voices (processor); a browser voice is this device's own, so Play would stop: this tab then offers the PC's voice.");
+    body.appendChild(t);
+    const offer = offerRow();
+    body.appendChild(offer.el);
+    t.querySelector("input").addEventListener("change", offer.update);   // after toggle()'s own listener (the pending value)
+    const back = button("sbtn", "Use this device's voice", () => { change("useMyPC", false); t.querySelector("input").checked = false; say("Use my PC is off (press Apply): this device makes the voice again."); offer.update(); });   // the toggle follows the button (it stayed drawn on before 2026-10-26)
     body.appendChild(row("Use this device's voice", "Choose the voice in the Voice tab; it runs on your PC. This button turns Use my PC off (press Apply).", back, { block: true }));
     body.appendChild(choice("pcCard", "PC graphics card", "How the PC's graphics card makes the voice when Run on says Graphics card. CUDA is the fastest on the PC's GTX 1050 Ti: Kokoro about 6× real time (first sound in about 1 s), Supertonic about 4×, Piper about 26×. WebGPU: Kokoro about 3.6×, Supertonic about 2.7×, Piper on the processor. If the one chosen fails, the reading stops and says why; it never switches by itself.", [
       { id: "cuda", label: "Graphics card (CUDA)" }, { id: "webgpu", label: "Graphics card (WebGPU)" }], { segment: true }));
@@ -13840,7 +13985,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     btn.hidden = true;
     PLAYER.settingsChanged(["useMyPC"]);
     log("voice", "Use my PC switched off from the play bar: this device's voice from the next Play");
-    PLAYBAR.status("Using this device's voice. Press Play.");
+    PLAYER.say("Using this device's voice. Press Play.");
   });
   // "Try now" beside it while Use my PC is trying the PC again (the book-open check, a Play waiting, a dropped
   // connection): the next attempt at once, instead of at the end of the countdown.
@@ -13848,16 +13993,34 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   now.type = "button"; now.hidden = true; now.id = "cloudnow";
   now.title = "Try to reach the PC again now";
   now.addEventListener("click", () => { if (globalThis.CLOUDVOICE) CLOUDVOICE.tryNow(); });
+  // "Use <the PC's voice>" beside it after a Play that stopped because the chosen voice is this device's own (a
+  // browser voice; engines/cloud.js badVoice): sets Kokoro Heart fp32 on the PC's card as the voice and keeps Use
+  // my PC on; the other button turns Use my PC off. Two ways out on the bar, neither taken by itself.
+  const pc = h("button", "cloudoff cloudpc", "Use Kokoro Heart on the PC");
+  pc.type = "button"; pc.hidden = true; pc.id = "cloudpc";
+  pc.title = "Chooses the PC's own voice (Kokoro Heart, fp32, on its graphics card); Use my PC stays on";
+  pc.addEventListener("click", () => {
+    const D = C() ? C().DEFAULT : { voice: "kokoro:af_heart", runOn: "gpu", precision: "fp32" };
+    let names;
+    try { names = SETTINGS.update(D); } catch (e) { PLAYER.say(`Not saved: ${e.message}`); return; }
+    pc.hidden = true; btn.hidden = true;
+    PLAYER.settingsChanged(names.length ? names : ["voice"]);
+    log("voice", `${pc.textContent} chosen from the play bar: ${D.voice}, ${D.precision}, on the PC's card from the next Play; Use my PC stays on`);
+    PLAYER.say(`Using ${C() ? C().defaultName() : "Kokoro Heart on the PC"}. Press Play.`);
+  });
   const box = document.getElementById("stbox");
-  if (box && box.parentNode) { box.parentNode.insertBefore(now, box.nextSibling); box.parentNode.insertBefore(btn, box.nextSibling); }
+  if (box && box.parentNode) { box.parentNode.insertBefore(now, box.nextSibling); box.parentNode.insertBefore(btn, box.nextSibling); box.parentNode.insertBefore(pc, box.nextSibling); }
   // Shown: "Use this device's voice" after a Play the PC could not serve, and while Play (or a reading) waits
-  // for the PC: still Jon's choice, nothing switches by itself; "Try now" while a retry counts down.
+  // for the PC: still Jon's choice, nothing switches by itself; "Try now" while a retry counts down; "Use <the
+  // PC's voice>" after a Play refused because the voice is a browser voice, while that voice is still the setting.
   const sync = () => {
     const C = globalThis.CLOUDVOICE, on = !!SETTINGS.get("useMyPC");
     const show = !!(C && on && ((C.failed && PLAYER.status().state === "stopped") || (C.waiting && PLAYER.status().state !== "stopped")));
     if (btn.hidden === show) btn.hidden = !show;
     const retry = !!(C && on && C.retry.running && C.retry.why);
     if (now.hidden === retry) now.hidden = !retry;
+    const bad = !!(C && on && C.badVoice && PLAYER.status().state === "stopped");
+    if (pc.hidden === bad) { pc.hidden = !bad; if (bad) pc.textContent = `Use ${C.defaultName()}`; }
   };
   if (globalThis.CLOUDVOICE) CLOUDVOICE.on(sync);
   setInterval(sync, 1000);
@@ -14099,6 +14262,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // No model voice above it: the browser's voices; none listed: the best model voice that keeps up.
   function suggest(list, input) {
     const inp = input || {};
+    // Use my PC on (2026-10-26, external-input.md §5): the PC makes the voice, so this device's speed is beside the
+    // point; the best-sounding voice the PC runs is Kokoro fp32 on its graphics card (about 6× real time through
+    // CUDA, 3.6× through WebGPU). The device's own benchmark only ever decided browser voice against model voice.
+    if (inp.useMyPC) {
+      const k = list.find((p) => p.id === "kokoro-gpu-fp32") || {};
+      const setup = { id: "pc-kokoro-fp32", engine: "kokoro", runOn: "gpu", precision: "fp32", voice: null, label: "Kokoro on your PC's graphics card, fp32 (Use my PC is on)", status: "runs well", level: "runs well",
+        x: 0, keep: 0, margin: 0, warm: 1, suggest: true, timing: true, guess: false, steps: null, copies: null, note: "", pc: true, why: "the PC makes the voice; this device's speed does not matter" };
+      const here = k.status ? ` (on this device itself Kokoro would ${{ "runs well": "run well", barely: "barely keep up", "too slow": "be too slow" }[k.status] || "be unable to run"})` : "";
+      return { id: setup.id, setup, level: "runs well", settings: { voice: "kokoro:af_heart", runOn: "gpu", precision: "fp32", numbersToWords: false },
+        reason: `Use my PC is on: your PC makes the voice, so this device's own speed does not matter${here}. Kokoro fp32 on the PC's graphics card is the best-sounding voice the PC runs.` };
+    }
     let pick = null;
     for (const e of ENGINES) {
       const c = list.filter((p) => p.engine === e && p.suggest && p.status !== "can't run here" && p.keep >= C.aboveBar);
@@ -14206,7 +14380,17 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
 
   // ---- The store ---------------------------------------------------------------------------------
-  function record() { try { const r = JSON.parse(localStorage.getItem(KEY)); return r && typeof r === "object" ? r : null; } catch (e) { return null; } }
+  // The stored record. Use my PC switched since the check (2026-10-26, external-input.md §5): the suggestion follows
+  // the setting as it is now (rules.js: the PC's voice while it is on, the device's best when it is off again),
+  // without running the check again; the predictions (this device's) stay as measured.
+  function record() {
+    let r;
+    try { r = JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; }
+    if (!(r && typeof r === "object")) return null;
+    const pc = !!(globalThis.SETTINGS && SETTINGS.get("useMyPC"));
+    if (r.predictions && r.input && !!r.input.useMyPC !== pc) { r.input = Object.assign({}, r.input, { useMyPC: pc }); r.suggestion = RULES.suggest(r.predictions, r.input); }
+    return r;
+  }
   function save(rec) { try { localStorage.setItem(KEY, JSON.stringify(rec)); } catch (e) { log("error", `the benchmark result was not stored: ${e.message}`); } return rec; }
   const ceilingNow = () => { try { const c = JSON.parse(localStorage.getItem(CEILING_KEY)); return c && Number(c.mb) > 0 ? c : null; } catch (e) { return null; } };
 
@@ -14433,7 +14617,8 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     else { say("Measuring the working memory…", 0.75); ceiling = await probe((mb, top) => say(`Measuring the working memory: ${r0(mb)} MB…`, 0.75 + 0.23 * mb / top), ctl); }
     const voices = DEVICE.voices();
     const input = { f32: s.f32 || 0, multi: s.multi || 0, alu: s.alu || 0, card: { ok: !!s.cardOk, f16: !!(gates.card && gates.card.f16), why: s.cardWhy || (gates.card && gates.card.why) || "" },
-      wasm: gates.wasm.ok, mobile: gates.mobile, battery: gates.onBattery, threads: gates.threads, ceilingMB: ceiling && ceiling.mb > 0 && !ceiling.top ? ceiling.mb : null, voices };
+      wasm: gates.wasm.ok, mobile: gates.mobile, battery: gates.onBattery, threads: gates.threads, ceilingMB: ceiling && ceiling.mb > 0 && !ceiling.top ? ceiling.mb : null, voices,
+      useMyPC: !!(globalThis.SETTINGS && SETTINGS.get("useMyPC")) };
     const predictions = RULES.predict(input), suggestion = RULES.suggest(predictions, input);
     const old = record();
     const rec = save({ version: globalThis.APP_VERSION || "", when: Date.now(), seconds: +((performance.now() - t0) / 1000).toFixed(1), gates: { browser: gates.browser, mobile: gates.mobile, onBattery: gates.onBattery, threads: gates.threads, memoryGB: gates.memoryGB, card: gates.card, wasm: gates.wasm, mediaSource: gates.mediaSource, elementTiming: gates.elementTiming, storage: gates.storage, voices },
@@ -14539,8 +14724,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 
   // A control for a run: cancel() stops at the next step and ends its workers.
   const control = () => { const c = { cancelled: false, kills: new Set() }; c.cancel = () => { c.cancelled = true; for (const k of Array.from(c.kills)) k(); }; return c; };
-  // The Voice tab's mark for a voice setting: the stored setup's status, or null.
-  const statusFor = (value) => { const r = record(); return r && r.predictions ? RULES.statusOf(r.predictions, value) : null; };
+  // The Voice tab's mark for a voice setting: the stored setup's status, or null. rec: the record already read
+  // (the Settings window reads it once per render instead of once per mark).
+  const statusFor = (value, rec) => { const r = rec === undefined ? record() : rec; return r && r.predictions ? RULES.statusOf(r.predictions, value) : null; };
 
   globalThis.BENCH = { KEY, PROBE_KEY, CEILING_KEY, hooks, record, save, light, full, probe, candidates, plan, control, statusFor, TEXTS,
     get crashed() { return crashed; }, get interrupted() { return interrupted; }, oneCore, allCores, card };
