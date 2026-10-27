@@ -1,19 +1,19 @@
 <!-- page.html: the page shell. build.py inlines the CSS at the CSS marker and the JS at the JS marker,
-     and stamps the version and build time where Book reader V1.0.603 and 2026-10-25 12:28 PM appear. -->
+     and stamps the version and build time where Book reader V1.0.613 and 2026-10-26 6:03 PM appear. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Book reader V1.0.603</title>
+<title>Book reader V1.0.613</title>
 <!-- Built by build.py from the files in src/. Edit those, not this file. -->
 <script>
   // Stamped by the build. APP_KEY prefixes everything the page stores (br1-settings, br1-book,
   // br1-logs, br1-pos, br1-win-*): every file:// page shares one storage origin, so v1 has a key of
   // its own and nothing of the old app's.
-  window.APP_VERSION = "Book reader V1.0.603";
-  window.APP_BUILT = "2026-10-25 12:28 PM";
-  window.APP_NOTE = "Use my PC keeps trying to reach the PC";
+  window.APP_VERSION = "Book reader V1.0.613";
+  window.APP_BUILT = "2026-10-26 6:03 PM";
+  window.APP_NOTE = "Use my PC: a missing answer is said after 3 s, not 8 (8 s until the PC first answers); the PC tests never touch the live relay";
   window.APP_KEY = "br1";
 </script>
 <style>
@@ -7308,7 +7308,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // Marks: each chunk's place (queued on the PC, generating there, on the way) goes to the player
 // (PLAYER.cloudMark), which highlight.js colours. CLOUDVOICE: the status for the bar and the Cloud tab.
 (function () {
-  const st = { lastMsg: 0, ws: null, hello: null, waiters: new Map(), states: new Map(), times: new Map(), key: "", prep: null, loading: "", status: "", check: "", checkAt: 0, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null };
+  const st = { lastMsg: 0, ws: null, hello: null, waiters: new Map(), states: new Map(), times: new Map(), key: "", prep: null, loading: "", status: "", check: "", checkAt: 0, failed: false, bytes: 0, pieces: 0, x: 0, lastMs: 0, seq: 0, opts: null, answered: "" };
   const R = () => PCRELAY.client();
   const plain = (e) => String((e && e.message) || e || "").replace(/^Error: /, "");
   const err = (msg, extra) => Object.assign(new Error(msg), extra || {});
@@ -7363,6 +7363,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   }
   // A ping answered: every light check waiting has its answer.
   function settleChecks(r) {
+    st.answered = R().base;                        // the door has answered at this address: later checks wait PING_MS
     const v = r.info && r.info.services ? r.info.services.find((s) => s.id === "voice") : null;
     st.check = v ? `connected (${R().latency} ms; the PC voice is ${v.state === "running" ? "running" : v.unavailable ? v.unavailable.replace(/\.$/, "") : "ready to start"})` : "connected, but the PC has no voice service";
     st.checkAt = Date.now();
@@ -7453,11 +7454,20 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   setInterval(() => { if (connected() && waitingOnPC() && performance.now() - st.lastMsg > STALE_MS) giveUp(`no word from the PC voice for ${STALE_MS / 1000} s with pieces waiting`); }, 2000);
 
   // ---- The light check (book open, the Cloud tab): /relay/ping; keep() = go on trying while it says so ------------
+  // How long a door check (the ping, here and at the start of every connection) waits (2026-10-26, pc-relay
+  // external-input.md §3.1): a ping through the Funnel answers in about 80 ms on the PC and 160-340 ms from the
+  // phone, so once the PC has answered at this address in this page's life, 3 s is generous and an outage is said
+  // in 3 s instead of 8 (on 2026-10-25 every one of 24 attempts sat 8 s). Before that first answer (a cold phone
+  // network, the first TLS handshake) the old 8 s. The number goes to ping(), which builds "no answer from the
+  // PC within N s" from that same number (relay-client.js netWhy), so the message cannot drift from the timeout.
+  // Not door checks, unchanged: the WebSocket hello (15 s) and loading the model on the PC (90 s).
+  const PING_MS = 3000, PING_MS_FIRST = 8000;
+  const pingMs = () => (st.answered && st.answered === R().base ? PING_MS : PING_MS_FIRST);
   function check(why, keep) {
     return new Promise((resolve) => { loop.checks.push({ label: why || "check", keep: keep || (() => false), resolve }); run(); });
   }
   async function pingOnce() {
-    const r = await R().ping(8000);
+    const r = await R().ping(pingMs());
     if (r.ok) { settleChecks(r); return { ok: true, info: r.info }; }
     return failure(r);
   }
@@ -7527,7 +7537,7 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
   // the model loaded again if the PC lost it and every piece not answered sent again.
   async function connectOnce() {
     if (!connected()) {
-      const r = await R().ping(8000);
+      const r = await R().ping(pingMs());
       if (!r.ok) return failure(r);
       settleChecks(r);
       const o = await R().open("voice", (p) => { if (p.state === "starting") { st.status = p.text || "starting the voice on the PC…"; redraw(); } });
@@ -8487,7 +8497,13 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
 // "ended" (after finish()), "blocked" (play() refused), "outside" ("pause" / "play" from the system).
 (function () {
   const AHEAD_SEC = 300, KEEP_BEHIND_SEC = 60;
-  const LEAD = 1105;                 // samples of silence an MP3 piece starts with: LAME's encoder delay (576) + the decoder's (529)
+  // LEAD: the samples of silence each MP3 piece starts with: LAME's encoder delay (576) + the decoder's (529),
+  // measured 1106 (test/timing.mjs). It is taken off the word times (player.js entry.lead). The END of each piece
+  // is padded too (its last frame filled out: 50-70 ms, different per piece) and that is NOT compensated, on
+  // purpose: every piece's start is anchored to the buffer's measured end when it goes in, so the padding never
+  // moves a word, and the sum of the PCM lengths (which drifts by it: -1.7 s after 30 pieces) is used nowhere.
+  // Never trim the audio to "fix" that drift: it would cut real sound (pc-relay\external-input.md §3.3).
+  const LEAD = 1105;
   const audio = document.getElementById("audio");
   try { audio.preservesPitch = true; } catch (e) {}
   const S = { mode: "", open: false, ms: null, sb: null, url: null, entries: [], run: 0, parked: false, cur: null, last: null,
@@ -8603,11 +8619,9 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
       // Inside the piece the sound starts LEAD samples after its first frame (LAME's 576-sample encoder
       // delay plus the 529 of the decoder; no LAME tag tells the browser to skip them), and the last
       // frame is padded, so each piece's frames run about 50-90 ms longer than its PCM. The start is
-      // anchored to the buffer (above), the lead is taken off the word times (player.js), and the PCM
-      // sum is kept for the piece-start log line, which shows how far the two had drifted apart.
+      // anchored to the buffer (above) and the lead is taken off the word times (player.js).
       e.lead = LEAD / item.sampleRate;
       e.chunks = 1;
-      e.predicted = prev && prev.run === run ? prev.predicted + prev.dur : start;
       S.entries.push(e);
       if (run !== S.run) {         // a jump came while this piece went in: it belongs to the reading that was left; wait on at the end
         if (S.parked) { try { audio.currentTime = bufferedEnd(); } catch (x) {} }
@@ -11312,8 +11326,11 @@ html[data-marks="detailed"] .book p.issue.slight, html[data-marks="detailed"] .b
     if (!playhead || playhead.id !== entry.id) {
       const list = lists.get(entry.ch), k = list ? QUEUE.indexOf(list, entry.id) : -1, name = k >= 0 ? nameOf(entry.ch, k) : entry.id;
       startLag(name);
-      // One line per piece start: where the piece sits in the stream against the PCM-sum prediction, and where the clock is.
-      if (!live && entry.start != null) log("timing", `piece ${name} starts at ${entry.start.toFixed(3)} s in the stream${entry.predicted != null ? ` (PCM sum would say ${entry.predicted.toFixed(3)}, ${Math.round((entry.predicted - entry.start) * 1000)} ms off)` : ""}; clock ${(entry.start + at).toFixed(3)} s (+${Math.round(at * 1000)} ms in), tick gap ${Math.round(STREAM.tickGap())} ms, clock step ${Math.round(STREAM.clock.gap)} ms${STREAM.framesOn ? "" : " (word timing off: no frame loop, the clock read every 100 ms)"}${entry.chunks > 1 ? `; ${entry.chunks} chunks` : ""}`);
+      // One line per piece start: where the piece sits in the stream (its measured start) and where the clock is.
+      // (Until 2026-10-26 it also printed "PCM sum would say …, N ms off": the sum of the pieces' sound lengths,
+      // which falls behind by each MP3 piece's padding, 50-70 ms a piece. Nothing uses that sum, and in a log it read
+      // like a fault (pc-relay\external-input.md §3.3), so it is gone; test/timing.mjs still measures the drift.)
+      if (!live && entry.start != null) log("timing", `piece ${name} starts at ${entry.start.toFixed(3)} s in the stream; clock ${(entry.start + at).toFixed(3)} s (+${Math.round(at * 1000)} ms in), tick gap ${Math.round(STREAM.tickGap())} ms, clock step ${Math.round(STREAM.clock.gap)} ms${STREAM.framesOn ? "" : " (word timing off: no frame loop, the clock read every 100 ms)"}${entry.chunks > 1 ? `; ${entry.chunks} chunks` : ""}`);
     }
     if (!playhead || playhead.id !== entry.id || playhead.part !== part) { playhead = { ch: entry.ch, id: entry.id, part, word: -1 }; moved(entry.piece, part); }
     if (word !== playhead.word) {
