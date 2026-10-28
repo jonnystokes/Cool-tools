@@ -7,11 +7,11 @@
    "description": "Plain-language U.S. history for readers of about 8 to 15: 37 subjects, each told through the same ten eras, from before 1500 to today.",
    "author": "Jon Stokes, with AI",
    "zip": "american-history/book.zip",
-   "version": "9bbca2f481",
+   "version": "f80b2cd370",
    "updated": "2026-10-22",
-   "size": 1907586,
-   "files": 112,
-   "words": 859033,
+   "size": 2087488,
+   "files": 48,
+   "words": 981313,
    "options": {
     "sections": true
    }
