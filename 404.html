@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cool tools has moved</title>
+<script>
+  // Cool tools moved from /Cool-tools/ to /cooltools/ on 2026-11-08 (the repository was renamed). GitHub Pages serves
+  // this page for every address under /Cool-tools/: the same page under /cooltools/, with its ?query and #part.
+  (function () {
+    var m = /^\/Cool-tools(\/.*)?$/.exec(location.pathname);
+    var rest = m && m[1] ? m[1].slice(1) : "";
+    location.replace("https://jonnystokes.github.io/cooltools/" + rest + location.search + location.hash);
+  })();
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=https://jonnystokes.github.io/cooltools/"></noscript>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 40px 16px; font: 16px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; background: Canvas; color: CanvasText; text-align: center; }
+</style>
+</head>
+<body>
+<p>Cool tools has moved to <a href="https://jonnystokes.github.io/cooltools/">jonnystokes.github.io/cooltools</a>.</p>
+</body>
+</html>
